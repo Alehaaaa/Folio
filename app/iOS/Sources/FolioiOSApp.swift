@@ -1,0 +1,78 @@
+import SwiftUI
+import Observation
+
+/// The iPhone and iPad app shares its library, metadata, account and
+/// reading-preference implementations with the desktop target.
+@main
+struct FolioIOSApp: App {
+    @State private var library = LibraryStore.shared
+    @State private var hardcover = HardcoverClient.shared
+    @State private var preferences = ReaderPrefsStore.shared
+    @State private var extensions = ExtensionStore.shared
+    @State private var navigation = FolioMobileNavigation()
+
+    var body: some Scene {
+        WindowGroup {
+            FolioMobileRootView()
+                .environment(library)
+                .environment(hardcover)
+                .environment(preferences)
+                .environment(extensions)
+                .environment(navigation)
+                .onOpenURL(perform: handleIncomingURL)
+                .task {
+                    // Restore persisted jobs on every launch, even when Downloads
+                    // has never been opened in the current session.
+                    _ = DownloadQueue.shared
+                    await hardcover.restore()
+                    library.enqueueUnlinkedEPUBs()
+                    await ReadingReminders.shared.startup()
+                    FolioWidgetBridge.publish()
+                    await FolioWidgetBridge.refreshHardcover()
+                }
+        }
+    }
+
+    @MainActor
+    private func handleIncomingURL(_ url: URL) {
+        if url.isFileURL {
+            library.importFiles([url])
+            return
+        }
+        guard url.scheme == "folio-reader" else { return }
+        let component = url.pathComponents.dropFirst().first
+        if url.host() == "read",
+           let id = component.flatMap(UUID.init(uuidString:)),
+           library.book(id) != nil {
+            navigation.read(id)
+        } else if url.host() == "library" {
+            navigation.selectedTab = .library
+        } else if url.host() == "goals" {
+            navigation.selectedTab = .home
+        }
+    }
+}
+
+enum FolioMobileTab: Hashable {
+    case home
+    case library
+    case search
+    case downloads
+    case sources
+    case settings
+}
+
+struct FolioMobileReading: Identifiable {
+    let id: UUID
+}
+
+@Observable
+@MainActor
+final class FolioMobileNavigation {
+    var selectedTab: FolioMobileTab = .home
+    var reading: FolioMobileReading?
+
+    func read(_ id: UUID) {
+        reading = FolioMobileReading(id: id)
+    }
+}
