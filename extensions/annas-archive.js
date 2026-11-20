@@ -7,7 +7,7 @@ var source = {
   id: "annas-archive-free",
   name: "Anna's Archive — Free",
   description: "Free EPUB search and published Slow Partner file delivery after a normal background countdown. No paid API or keys.",
-  version: "1.3.6",
+  version: "1.3.7",
   allowedHosts: [
     "https://raw.githubusercontent.com",
     "https://annas-archive.gl",
@@ -25,6 +25,9 @@ var source = {
   mirrorCache: null,
   preferredMirror: "",
   failedDetailHosts: {},
+  // Short-lived, runtime-local transport failures. Not a permanent judgement
+  // about any official mirror, and never persisted across independent jobs.
+  mirrorCooldowns: {},
   maxResults: 12,
 
   // Folio displays status immediately and retains log entries for diagnostics.
@@ -87,13 +90,47 @@ var source = {
     return hosts.slice();
   },
 
+  transportFailure: function (error) {
+    var message = String(error || "");
+    if (/hostname .*could not be found|host(?:name)? .*not found|could not (?:find|resolve) (?:the )?(?:server|host)|name or service not known|dns|nsurlerrordomain.*-1003|\b-1003\b/i.test(message))
+      return "DNS resolution";
+    if (/secure connection|ssl|tls|certificate|\b-120[0-9]\b|connection reset by peer/i.test(message))
+      return "TLS or connection security";
+    if (/timed? out|timeout|\b-1001\b/i.test(message))
+      return "connection timeout";
+    if (/network connection was lost|connection (?:was )?(?:lost|closed|refused|reset)|\b-1005\b|\b-1004\b|\b-1009\b|network is unreachable/i.test(message))
+      return "network connection";
+    return null;
+  },
+
+  rememberTransportFailure: function (host, error) {
+    var kind = this.transportFailure(error);
+    if (kind && this.trustedHosts.indexOf(host) >= 0) {
+      // One minute avoids retry storms within this private source runtime,
+      // while allowing quick recovery if DNS/TLS begins working again.
+      this.mirrorCooldowns[host] = {until: Date.now() + 60000, kind: kind};
+      this.diagnostic(host + ": " + kind + " failed; skipping repeated attempts in this source session for 60 seconds.");
+    }
+    return kind;
+  },
+
   orderedMirrors: function () {
     var hosts = this.mirrors();
     if (this.preferredMirror && hosts.indexOf(this.preferredMirror) > 0) {
       hosts.splice(hosts.indexOf(this.preferredMirror), 1);
       hosts.unshift(this.preferredMirror);
     }
-    return hosts;
+    var available = [], now = Date.now();
+    for (var i = 0; i < hosts.length; i++) {
+      var state = this.mirrorCooldowns[hosts[i]];
+      if (state && state.until > now) {
+        this.diagnostic("Skipping " + hosts[i] + " for " + state.kind +
+          " (recent connection failure; temporary, not a mirror-list change).");
+      } else {
+        available.push(hosts[i]);
+      }
+    }
+    return available;
   },
 
   unescape: function (value) {
@@ -421,7 +458,10 @@ var source = {
         // the entire mirror cache based on one book's availability.
         var detailError = String(error);
         var recordOnly = /record contains no published free partner links|answered 404|answered 410/i.test(detailError);
-        if (!recordOnly) this.failedDetailHosts[host] = true;
+        if (!recordOnly) {
+          this.failedDetailHosts[host] = true;
+          this.rememberTransportFailure(host, error);
+        }
         this.diagnostic(host + (recordOnly ? " record has no published accessible free link: "
           : " free record unavailable: ") + error);
       }
@@ -577,7 +617,13 @@ var source = {
     var requestedLanguage = this.normalizedLanguage(preferredLanguage);
     this.failedDetailHosts = {};
     var hosts = this.orderedMirrors();
+    if (!hosts.length) {
+      this.progress("All official mirrors temporarily unreachable.",
+        "Recent DNS, TLS, or network failures in this source session; retry in about a minute. No new mirror was added.");
+      throw new Error("Anna's Archive official mirrors are temporarily unreachable in this network session. Retry in about a minute.");
+    }
     var failures = [];
+    var transportFailures = 0;
     var unavailableCatalogMessage = null;
     for (var i = 0; i < hosts.length; i++) {
       var host = hosts[i];
@@ -725,12 +771,15 @@ var source = {
         return results;
       } catch (error) {
         failures.push(host + ": " + error);
+        if (this.rememberTransportFailure(host, error)) transportFailures++;
         this.progress("Mirror unavailable; checking another official mirror…",
           host + " search failed: " + error);
       }
     }
     if (unavailableCatalogMessage) throw new Error(unavailableCatalogMessage);
-    this.progress("Free search unavailable; browser verification may be required.",
+    this.progress(transportFailures === failures.length && failures.length
+      ? "Official mirrors unreachable (network, DNS or TLS)."
+      : "Free search unavailable; mirror verification or network access may be required.",
       "All official mirrors failed: " + failures.join("; "));
     throw new Error("Anna's Archive free search is unavailable. " + failures.join("; "));
   },

@@ -11,6 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PROJECT = ROOT / "FolioiOS.xcodeproj"
+APP_VERSION = "1.0.1"
+BUILD_VERSION = "2"
 SHARED = [
     "Models",
     "LibraryStore",
@@ -71,12 +73,12 @@ def settings(variant, target=False, widget=False):
             "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
             "CODE_SIGN_ENTITLEMENTS": "Resources/Folio.entitlements",
             "CODE_SIGN_STYLE": "Automatic",
-            "CURRENT_PROJECT_VERSION": "1",
+            "CURRENT_PROJECT_VERSION": BUILD_VERSION,
             "ENABLE_USER_SCRIPT_SANDBOXING": "YES",
             "GENERATE_INFOPLIST_FILE": "NO",
             "INFOPLIST_FILE": "Resources/Info.plist",
             "LD_RUNPATH_SEARCH_PATHS": '("$(inherited)", "@executable_path/Frameworks")',
-            "MARKETING_VERSION": "1.0",
+            "MARKETING_VERSION": APP_VERSION,
             "PRODUCT_BUNDLE_IDENTIFIER": "app.folio.reader.ios",
             "PRODUCT_NAME": "Folio",
             "SUPPORTS_MACCATALYST": "NO",
@@ -89,11 +91,11 @@ def settings(variant, target=False, widget=False):
             "APPLICATION_EXTENSION_API_ONLY": "YES",
             "CODE_SIGN_ENTITLEMENTS": "WidgetExtension/FolioWidgets.entitlements",
             "CODE_SIGN_STYLE": "Automatic",
-            "CURRENT_PROJECT_VERSION": "1",
+            "CURRENT_PROJECT_VERSION": BUILD_VERSION,
             "GENERATE_INFOPLIST_FILE": "NO",
             "INFOPLIST_FILE": "WidgetExtension/Info.plist",
             "LD_RUNPATH_SEARCH_PATHS": '("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks")',
-            "MARKETING_VERSION": "1.0",
+            "MARKETING_VERSION": APP_VERSION,
             "PRODUCT_BUNDLE_IDENTIFIER": "app.folio.reader.ios.widgets",
             "PRODUCT_MODULE_NAME": "FolioWidgets",
             "PRODUCT_NAME": "FolioWidgets",

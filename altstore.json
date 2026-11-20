@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.1",
+          "buildVersion": "2",
+          "date": "2026-11-20",
+          "localizedDescription": "Improved download-queue DNS and TLS error reporting, source connection recovery, and Anna's Archive free-mirror reliability.",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.1-2.ipa",
+          "size": 3283740,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0",
           "buildVersion": "1",
           "date": "2026-11-20",

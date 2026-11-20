@@ -269,7 +269,6 @@ final class DownloadQueue {
     private func process(_ id: UUID, sourceSession: ExtensionStore.JobSession) async {
         guard let job = jobs.first(where: { $0.id == id }) else { return }
         let store = LibraryStore.shared
-        let extensions = ExtensionStore.shared
         // Source session is retained from the scheduler through discovery,
         // partner wait and final download, and explicitly closed afterwards.
         let language = BookLanguage.code(job.expectedLanguage) ?? BookLanguage.preferred
@@ -328,17 +327,34 @@ final class DownloadQueue {
                 $0.localizedCaseInsensitiveContains("no accessible published") ||
                 $0.localizedCaseInsensitiveContains("no downloadable links")
             }
+            // A DNS/TLS failure happens before the catalogue can be searched.
+            // Do not report it as a missing title, wrong language or absent EPUB.
+            let connectionFailure = names.copies.isEmpty && names.problems.contains { problem in
+                let descriptions = [
+                    "hostname could not be found", "could not resolve host", "dns lookup",
+                    "a tls error", "secure connection to fail", "certificate verification",
+                    "network connection was lost", "network is unreachable",
+                    "could not connect to the server", "connection reset",
+                    "connection timed out", "request timed out", "timed out"
+                ]
+                return descriptions.contains { problem.localizedCaseInsensitiveContains($0) }
+            }
             if inaccessible {
                 append(id, "Matching catalogue entries were located but no source published a usable free EPUB link. This is source availability, not a title or language mismatch.")
                 for problem in names.problems { append(id, "Source detail: \(problem)") }
+            }
+            if connectionFailure {
+                append(id, "Source network failure: DNS, TLS, lost connection or timeout occurred before an EPUB edition could be verified. Check the source in Safari on this device; review network and DNS/VPN settings if it fails there too.")
             }
             fail(id, reason: noLanguage
                 ? "No EPUB confirmed in \(language) was found. Other-language editions will not be imported automatically; select a different language and retry if desired."
                 : (inaccessible
                    ? "Matching book listings exist, but the enabled sources have no accessible free EPUB link for the requested language (\(language)). Retry later or choose a source; Folio will not bypass site restrictions."
-                   : (names.problems.isEmpty
-                      ? "No matching EPUB listing in \(language). Try refining the book title, or select a different language if you want another edition."
-                      : "Sources could not complete a search for an EPUB in \(language). Check the activity log, then retry.")))
+                   : (connectionFailure
+                      ? "Cannot reach the book sources (DNS, TLS or network connection failure). No EPUB availability or language could be verified. Check the source websites in Safari on this device and try another network or retry later."
+                      : (names.problems.isEmpty
+                         ? "No matching EPUB listing in \(language). Try refining the book title, or select a different language if you want another edition."
+                         : "Sources could not complete a search for an EPUB in \(language). Check the activity log, then retry."))))
             return
         }
 

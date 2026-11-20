@@ -36,7 +36,7 @@ function harness(fetch, browser, withStatus = true) {
   vm.runInContext(script, context, {timeout: 5000});
   assert.equal(context.source.name, "Anna's Archive — Free");
   assert.equal(context.source.id, 'annas-archive-free');
-  assert.equal(context.source.version, '1.3.6');
+  assert.equal(context.source.version, '1.3.7');
   assert.equal(context.source.allowedHosts.length, 5);
   return {source: context.source, requested, statuses, logs};
 }
@@ -104,6 +104,8 @@ assert.ok(rendered.statuses.some(s => /about 4 min \(estimate\)/.test(s)), 'only
 assert.match(rendered.statuses.at(-1), /Free partner wait ~4 min; EPUB unverified/);
 assert.ok(rendered.logs.some(s => /185 seconds/.test(s)), 'retain detailed wait information in logs');
 assert.ok(rendered.statuses.every(s => !/download complete|download ready|successfully downloaded/i.test(s)));
+assert.equal(rendered.source.mirrorCooldowns['annas-archive.gl'], undefined,
+  'a direct 403 must not cool down a mirror when its normal background browser succeeds');
 
 // The language is per EPUB RECORD, not inherited from the query or the first
 // row. Use a public-domain Austen text in different synthetic editions. Unknown
@@ -622,6 +624,54 @@ const offline = harness(() => { throw new Error('offline'); });
 assert.deepEqual(Array.from(offline.source.mirrors()), official);
 assert.equal(offline.statuses.length, 1, 'fallback mirror refresh should report a single status');
 
+// Mirror membership comes only from the published official declaration, while
+// transient host transport failures are runtime-local, not permanent removals.
+const unavailableReasons = {
+  'annas-archive.gl': 'A server with the specified hostname could not be found.',
+  'annas-archive.pk': 'The request timed out.',
+  'annas-archive.gd': 'The network connection was lost.'
+};
+const unreachable = harness(url => {
+  if (url.includes('raw.githubusercontent.com')) return githubConfig;
+  for (const host of official) {
+    if (url.startsWith('https://' + host + '/')) throw new Error(unavailableReasons[host]);
+  }
+  throw new Error('Unexpected URL ' + url);
+});
+assert.throws(() => unreachable.source.search('Pride and Prejudice Jane Austen', 0),
+  /free search is unavailable/i, 'unreachable mirrors should not masquerade as empty results');
+assert.match(unreachable.statuses.at(-1), /Official mirrors unreachable \(network, DNS or TLS\)/,
+  'network failures must not be misreported as only CAPTCHA/browser verification');
+assert.deepEqual(Array.from(unreachable.source.orderedMirrors()), [],
+  'temporarily skip mirrors that just failed with DNS, TLS, or timeout');
+assert.deepEqual(Array.from(unreachable.source.mirrors()), official,
+  'temporary unavailability must not change verified official mirror membership');
+assert.ok(unreachable.logs.some(s => /annas-archive\.pk: connection timeout failed/i.test(s)));
+assert.ok(unreachable.logs.some(s => /annas-archive\.gd: network connection failed/i.test(s)));
+const requestsAfterFailure = unreachable.requested.length;
+assert.throws(() => unreachable.source.search('Pride and Prejudice Jane Austen', 0),
+  /official mirrors are temporarily unreachable/i,
+  'immediate repeated searches should explain the temporary cooldown');
+assert.equal(unreachable.requested.length, requestsAfterFailure,
+  'rapid retry must not refetch known-unreachable official hosts or the GitHub list');
+unreachable.source.mirrorCooldowns['annas-archive.gl'].until = Date.now() - 1;
+assert.deepEqual(Array.from(unreachable.source.orderedMirrors()), ['annas-archive.gl'],
+  'expired cooldown immediately restores the original official host');
+const requestsBeforeSingleRecovery = unreachable.requested.length;
+assert.throws(() => unreachable.source.search('Pride and Prejudice Jane Austen', 0),
+  /free search is unavailable/i);
+assert.deepEqual(unreachable.requested.slice(requestsBeforeSingleRecovery)
+  .filter(u => u.includes('/search?')).map(u => new URL(u).hostname), ['annas-archive.gl'],
+  'retry only the host whose temporary cooldown has expired');
+assert.equal(unreachable.source.transportFailure('The mirror requires verification in a web browser'), null,
+  'browser verification is not a DNS/TLS outage');
+assert.equal(unreachable.source.transportFailure('The record contains no published free partner links'), null,
+  'edition-specific free-link absence is not a mirror transport outage');
+assert.equal(unreachable.source.transportFailure('An SSL error has occurred and a secure connection to the server cannot be made.'),
+  'TLS or connection security', 'certificate/TLS failures are classified for accurate queue diagnostics');
+assert.equal(unreachable.source.transportFailure('A server with the specified hostname could not be found.'),
+  'DNS resolution', 'iOS DNS resolution failure receives a specific diagnosis');
+
 // A parking page and a bot check must never be misrepresented as empty search results.
 const blocked = harness(url => {
   if (url.includes('raw.githubusercontent.com')) return githubConfig;
@@ -663,4 +713,4 @@ const legacy = harness(url => url.includes('raw.githubusercontent.com') ? github
 assert.equal(legacy.source.search('Pride and Prejudice', 0).length, 1, 'older Folio versions work without status');
 assert.ok(legacy.logs.length > 0, 'older Folio versions still receive diagnostics');
 
-console.log('PASS: Folio extension v1.3.6, source availability diagnostics, Want subtitle matches, language safeguards, and free countdown without verified-query resets.');
+console.log('PASS: Folio extension v1.3.7, runtime-local mirror transport cooldown, source availability diagnostics, Want subtitle matches, language safeguards, and free countdown without verified-query resets.');

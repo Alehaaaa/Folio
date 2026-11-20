@@ -50,3 +50,5 @@
 /checks/round-0/
 /checks/anna-integration/folio.png
 /checks/anna-free-webkit-trace
+/checks/.anna-urlsession-*-probe
+/checks/*-hang.sample.txt
