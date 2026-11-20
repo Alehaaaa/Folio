@@ -1,0 +1,32 @@
+{
+  "name": "Folio",
+  "subtitle": "Native book reader for iPhone and iPad",
+  "description": "Folio for iOS, distributed through AltStore Classic.",
+  "iconURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/app/iOS/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
+  "website": "https://github.com/Alehaaaa/Folio",
+  "featuredApps": [
+    "app.folio.reader.ios"
+  ],
+  "apps": [
+    {
+      "name": "Folio",
+      "bundleIdentifier": "app.folio.reader.ios",
+      "developerName": "Alehaaaa",
+      "subtitle": "Read and organize your books",
+      "localizedDescription": "Native EPUB reading, library management, and configurable book sources on iPhone and iPad.",
+      "iconURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/app/iOS/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
+      "category": "utilities",
+      "versions": [
+        {
+          "version": "1.0",
+          "buildVersion": "1",
+          "date": "2026-11-20",
+          "localizedDescription": "Initial AltStore distribution of Folio for iOS.",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0-1.ipa",
+          "size": 3283892,
+          "minOSVersion": "18.0"
+        }
+      ]
+    }
+  ]
+}

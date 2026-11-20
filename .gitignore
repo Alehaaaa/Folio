@@ -3,6 +3,8 @@
 /*
 !/.gitignore
 !/README.md
+!/altstore.json
+!/altstore/
 !/app/
 !/extensions/
 !/checks/
