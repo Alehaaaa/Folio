@@ -287,6 +287,7 @@ struct FolioMobileHomeView: View {
 
     @State private var discovery = FolioMobileHomeRecommendations()
     @State private var shelves = FolioMobileHomeShelves()
+    @State private var showingGoals = false
     @ScaledMetric(relativeTo: .body) private var tileWidth: CGFloat = 118
 
     /// Refresh only when a meaningful preference changes, rather than every
@@ -315,7 +316,6 @@ struct FolioMobileHomeView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 34) {
                 heading
-                if !store.books.isEmpty { FolioMobileReadingGoalStrip() }
                 let items = nookItems
                 if store.books.isEmpty && items.isEmpty {
                     emptyLibrary
@@ -335,6 +335,7 @@ struct FolioMobileHomeView: View {
                         }
                     }
                 }
+                FolioMobileHighlightOfTheDay()
                 FolioMobileBecauseYouReadRow(tileWidth: min(tileWidth, 180))
                 FolioMobileAuthorRows()
                 FolioMobileSavedSeriesRow()
@@ -353,6 +354,23 @@ struct FolioMobileHomeView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
         .folioScreen()
+        .sheet(isPresented: $showingGoals, onDismiss: openPendingBook) {
+            NavigationStack {
+                FolioMobileReadingActivity()
+                    .folioDetailDestinations()
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Done") { showingGoals = false }
+                        }
+                    }
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+        .onChange(of: navigation.pendingRead) { _, id in
+            guard id != nil else { return }
+            if showingGoals { showingGoals = false } else { openPendingBook() }
+        }
         .task(id: "\(hardcover.user?.id ?? -1)-\(FolioBecauseYouRead.seed(in: store)?.hardcoverBookID ?? 0)") {
             await FolioBecauseYouRead.shared.load(library: store, hardcover: hardcover)
         }
@@ -363,6 +381,12 @@ struct FolioMobileHomeView: View {
             await shelves.load(from: hardcover)
             await FolioReadBooks.shared.refresh(from: hardcover)
         }
+    }
+
+    private func openPendingBook() {
+        guard let id = navigation.pendingRead else { return }
+        navigation.pendingRead = nil
+        navigation.read(id)
     }
 
     /// The Folio wordmark and a single serif line, as on a book's title page.
@@ -376,6 +400,7 @@ struct FolioMobileHomeView: View {
                     .accessibilityLabel("Folio")
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
+                FolioMobileGoalRingsButton { showingGoals = true }
                 iconButton("plus", label: "Import books", action: showImporter)
                 iconButton("gearshape", label: "Settings") { navigation.openSettings() }
             }

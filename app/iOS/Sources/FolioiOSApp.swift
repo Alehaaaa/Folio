@@ -1,3 +1,4 @@
+import CoreSpotlight
 import SwiftUI
 import Observation
 
@@ -5,6 +6,8 @@ import Observation
 /// reading-preference implementations with the desktop target.
 @main
 struct FolioIOSApp: App {
+    @UIApplicationDelegateAdaptor(FolioAppDelegate.self) private var appDelegate
+    @State private var shortcuts = FolioShortcutRouter.shared
     @State private var library = LibraryStore.shared
     @State private var hardcover = HardcoverClient.shared
     @State private var preferences = ReaderPrefsStore.shared
@@ -26,6 +29,16 @@ struct FolioIOSApp: App {
                 .environment(extensions)
                 .environment(navigation)
                 .onOpenURL(perform: handleIncomingURL)
+                .onContinueUserActivity(CSSearchableItemActionType) { activity in
+                    if let id = FolioSystemIntegration.bookID(from: activity), library.book(id) != nil {
+                        navigation.read(id)
+                    }
+                }
+                .onChange(of: shortcuts.pending, initial: true) { _, id in
+                    guard let id else { return }
+                    shortcuts.pending = nil
+                    if library.book(id) != nil { navigation.read(id) }
+                }
                 .folioUpdatePrompt()
                 .folioLogsLifecycle()
                 .task {
@@ -36,6 +49,7 @@ struct FolioIOSApp: App {
                     library.enqueueUnlinkedEPUBs()
                     await ReadingReminders.shared.startup()
                     FolioWidgetBridge.publish()
+                    FolioSystemIntegration.update(library)
                     await FolioWidgetBridge.refreshHardcover()
                 }
         }
@@ -88,6 +102,9 @@ struct FolioMobileReading: Identifiable {
 final class FolioMobileNavigation {
     var selectedTab: FolioMobileTab = .home
     var reading: FolioMobileReading?
+    /// A book to open once Home's Reading sheet has closed (a full-screen reader
+    /// can't open over a sheet).
+    var pendingRead: UUID?
     /// Library shows either the imported books or the Hardcover/Goodreads shelves.
     var libraryScope: FolioMobileLibraryScope = .books
     /// Pages pushed inside the More tab, so Downloads can be opened from anywhere.

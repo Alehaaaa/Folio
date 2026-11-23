@@ -161,6 +161,7 @@ private struct FolioLogLifecycle: ViewModifier {
                 FolioLog.log("Background", "scene")
                 FolioLog.markClosedNormally()
                 LibraryStore.shared.flushWidgets()
+                FolioSystemIntegration.update(LibraryStore.shared)
             default: break
             }
         }

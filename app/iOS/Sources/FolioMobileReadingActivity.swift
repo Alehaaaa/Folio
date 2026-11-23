@@ -1,63 +1,120 @@
 import Charts
 import SwiftUI
+import UIKit
 
-// MARK: - Home strip
+// MARK: - Goal rings
 
-/// Today's reading against the daily goal: a small ring and one line, as in
-/// Apple Books' reading goals. Opens the reading activity page.
-struct FolioMobileReadingGoalStrip: View {
-    @Environment(LibraryStore.self) private var store
+/// The three reading goals and how far along each is, shared by Home's rings and
+/// the Reading page.
+@MainActor
+struct FolioReadingGoals {
+    let todayMinutes: Double
+    let dailyGoal: Int
+    let daysThisWeek: Int
+    let booksThisYear: Int
+    let yearlyGoal: Int
 
-    var body: some View {
-        let goal = max(1, store.data.goals.dailyMinutes)
-        let today = store.todayMinutes
-        NavigationLink {
-            FolioMobileReadingActivity()
-        } label: {
-            HStack(spacing: 12) {
-                FolioGoalRing(fraction: today / Double(goal), lineWidth: 4)
-                    .frame(width: 28, height: 28)
-                Text(Self.line(today: today, goal: goal, streak: store.streak))
-                    .font(.subheadline)
-                    .foregroundStyle(FolioTheme.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(FolioTheme.muted)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .contentShape(Rectangle())
-            .folioCard(cornerRadius: 18)
+    init(_ store: LibraryStore) {
+        todayMinutes = store.todayMinutes
+        dailyGoal = max(1, store.data.goals.dailyMinutes)
+        let goalSeconds = Double(dailyGoal) * 60
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let weekStart = cal.dateInterval(of: .weekOfYear, for: today)?.start ?? today
+        var days = 0
+        var day = weekStart
+        while day <= today {
+            if (store.data.secondsByDay[day.dayKey] ?? 0) >= goalSeconds { days += 1 }
+            guard let next = cal.date(byAdding: .day, value: 1, to: day) else { break }
+            day = next
         }
-        .buttonStyle(.plain)
-        .accessibilityHint("Shows your reading activity")
+        daysThisWeek = days
+        booksThisYear = store.finishedThisYear
+        yearlyGoal = max(1, store.data.goals.booksPerYear)
     }
 
-    static func line(today: Double, goal: Int, streak: Int) -> String {
-        let minutes = Int(today.rounded(.down))
-        var text = minutes >= goal ? "Daily goal reached" : "\(minutes) of \(goal) min today"
-        if streak > 1 { text += " · \(streak)-day streak" }
-        return text
+    var minutesFraction: Double { todayMinutes / Double(dailyGoal) }
+    var weekFraction: Double { Double(daysThisWeek) / 7 }
+    var yearFraction: Double { Double(booksThisYear) / Double(yearlyGoal) }
+}
+
+/// Ring colors: the validated blue, orange and aqua slots, stepped for each mode.
+enum FolioRingColors {
+    static let minutes = Color(UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(red: 0xD9 / 255, green: 0x59 / 255, blue: 0x26 / 255, alpha: 1)
+        : UIColor(red: 0xEB / 255, green: 0x68 / 255, blue: 0x34 / 255, alpha: 1) })
+    static let week = Color(UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(red: 0x19 / 255, green: 0x9E / 255, blue: 0x70 / 255, alpha: 1)
+        : UIColor(red: 0x1B / 255, green: 0xAF / 255, blue: 0x7A / 255, alpha: 1) })
+    static let year = Color(UIColor { $0.userInterfaceStyle == .dark
+        ? UIColor(red: 0x39 / 255, green: 0x87 / 255, blue: 0xE5 / 255, alpha: 1)
+        : UIColor(red: 0x2A / 255, green: 0x78 / 255, blue: 0xD6 / 255, alpha: 1) })
+}
+
+/// One radial progress bar: a faint track and a rounded arc from the top.
+/// Past a full turn the arc keeps going, as Apple Watch rings do.
+struct FolioRadialBar: View {
+    let fraction: Double
+    let color: Color
+    var lineWidth: CGFloat
+
+    var body: some View {
+        let value = max(0, fraction)
+        ZStack {
+            Circle().stroke(color.opacity(0.18), lineWidth: lineWidth)
+            Circle()
+                .trim(from: 0, to: min(1, value))
+                .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+            if value > 1 {
+                Circle()
+                    .trim(from: 0, to: min(1, value - 1))
+                    .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .shadow(color: .black.opacity(0.25), radius: lineWidth / 4)
+            }
+        }
+        .padding(lineWidth / 2)
+        .accessibilityHidden(true)
     }
 }
 
-/// A thin progress ring in the theme's olive.
-struct FolioGoalRing: View {
-    let fraction: Double
-    var lineWidth: CGFloat = 4
+/// Daily minutes outside, days this week in the middle, books this year inside.
+struct FolioGoalRings: View {
+    let goals: FolioReadingGoals
+    var lineWidth: CGFloat
+    var gap: CGFloat
 
     var body: some View {
         ZStack {
-            Circle().stroke(FolioTheme.line, lineWidth: lineWidth)
-            Circle()
-                .trim(from: 0, to: min(1, max(0, fraction)))
-                .stroke(FolioTheme.olive, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .rotationEffect(.degrees(-90))
+            FolioRadialBar(fraction: goals.minutesFraction, color: FolioRingColors.minutes, lineWidth: lineWidth)
+            FolioRadialBar(fraction: goals.weekFraction, color: FolioRingColors.week, lineWidth: lineWidth)
+                .padding(lineWidth + gap)
+            FolioRadialBar(fraction: goals.yearFraction, color: FolioRingColors.year, lineWidth: lineWidth)
+                .padding((lineWidth + gap) * 2)
         }
-        .accessibilityHidden(true)
+        .aspectRatio(1, contentMode: .fit)
+    }
+}
+
+/// Home's top-bar button: the rings, opening the Reading page.
+struct FolioMobileGoalRingsButton: View {
+    @Environment(LibraryStore.self) private var store
+    let action: () -> Void
+
+    var body: some View {
+        let goals = FolioReadingGoals(store)
+        Button(action: action) {
+            FolioGoalRings(goals: goals, lineWidth: 3.5, gap: 1.5)
+                .frame(width: 30, height: 30)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Reading goals")
+        .accessibilityValue("\(Int(goals.todayMinutes)) of \(goals.dailyGoal) minutes today, "
+                            + "\(goals.daysThisWeek) of 7 days this week, "
+                            + "\(goals.booksThisYear) of \(goals.yearlyGoal) books this year")
     }
 }
 
@@ -135,6 +192,7 @@ struct FolioMobileReadingActivity: View {
                 today
                 thisWeek
                 thisYear
+                highlightsLink
                 goals
             }
             .padding(20)
@@ -149,30 +207,40 @@ struct FolioMobileReadingActivity: View {
     // MARK: Sections
 
     private var today: some View {
-        let minutes = store.todayMinutes
-        return HStack(spacing: 22) {
-            ZStack {
-                FolioGoalRing(fraction: minutes / Double(goal), lineWidth: 10)
-                VStack(spacing: 0) {
-                    Text("\(Int(minutes.rounded(.down)))")
-                        .font(.system(size: 34, weight: .regular, design: .serif))
-                        .foregroundStyle(FolioTheme.ink)
-                        .monospacedDigit()
-                    Text("of \(goal) min")
-                        .font(.caption)
-                        .foregroundStyle(FolioTheme.muted)
+        let goals = FolioReadingGoals(store)
+        return VStack(alignment: .leading, spacing: 22) {
+            HStack(spacing: 24) {
+                FolioGoalRings(goals: goals, lineWidth: 14, gap: 3)
+                    .frame(width: 150, height: 150)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 14) {
+                    ringFigure(FolioRingColors.minutes, "\(Int(goals.todayMinutes.rounded(.down)))/\(goals.dailyGoal) min", "Today")
+                    ringFigure(FolioRingColors.week, "\(goals.daysThisWeek)/7 days", "This week")
+                    ringFigure(FolioRingColors.year, "\(goals.booksThisYear)/\(goals.yearlyGoal) books", "This year")
                 }
+                Spacer(minLength: 0)
             }
-            .frame(width: 128, height: 128)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Today, \(Int(minutes.rounded(.down))) of \(goal) minutes")
-
-            VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 28) {
                 figure("\(store.streak)", store.streak == 1 ? "day streak" : "days streak")
                 figure("\(bestStreak)", "best streak")
             }
-            Spacer(minLength: 0)
         }
+    }
+
+    private func ringFigure(_ color: Color, _ value: String, _ label: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Circle().fill(color).frame(width: 9, height: 9).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(value)
+                    .font(.system(.headline, design: .serif))
+                    .foregroundStyle(FolioTheme.ink)
+                    .monospacedDigit()
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(FolioTheme.muted)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private var thisWeek: some View {
@@ -261,6 +329,32 @@ struct FolioMobileReadingActivity: View {
                 .padding(.horizontal, -20)
             }
         }
+    }
+
+    private var highlightsLink: some View {
+        NavigationLink {
+            FolioMobileHighlightsView()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "highlighter")
+                    .foregroundStyle(FolioTheme.olive)
+                    .frame(width: 24)
+                Text("Highlights")
+                    .foregroundStyle(FolioTheme.ink)
+                Spacer(minLength: 0)
+                Text("\(FolioHighlights.all().count)")
+                    .foregroundStyle(FolioTheme.muted)
+                    .monospacedDigit()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(FolioTheme.muted)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
+            .folioCard(cornerRadius: 18)
+        }
+        .buttonStyle(.plain)
     }
 
     private var goals: some View {
