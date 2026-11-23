@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.17",
+          "buildVersion": "18",
+          "date": "2026-11-23",
+          "localizedDescription": "Update checker: offers new builds from the AltStore feed and installs them through LiveContainer (1.0.17)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.17-18.ipa",
+          "size": 4057421,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.16",
           "buildVersion": "17",
           "date": "2026-11-23",
