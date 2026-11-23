@@ -511,6 +511,7 @@ struct FolioMobileLibraryView: View {
     @State private var sorting: FolioMobileSort = .recent
     @State private var newCollection = ""
     @State private var addingCollection = false
+    @State private var fixingLibrary = false
 
     private var visibleBooks: [LocalBook] {
         let candidates = collection.map { store.books(in: $0, search: search) }
@@ -564,6 +565,8 @@ struct FolioMobileLibraryView: View {
                             Button(c.name) { collection = c.id }
                         }
                         Button("New Collection", systemImage: "plus") { addingCollection = true }
+                        Divider()
+                        Button("Fix Library Metadata…", systemImage: "wand.and.stars") { fixingLibrary = true }
                     } label: {
                         Label("Filter and Sort", systemImage: "line.3.horizontal.decrease")
                     }
@@ -574,6 +577,7 @@ struct FolioMobileLibraryView: View {
                     .folioGlassPill()
             }
         }
+        .sheet(isPresented: $fixingLibrary) { FolioMobileBulkMetadataFixer() }
         .alert("New Collection", isPresented: $addingCollection) {
             TextField("Collection name", text: $newCollection)
             Button("Cancel", role: .cancel) { newCollection = "" }

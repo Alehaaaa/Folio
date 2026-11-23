@@ -336,28 +336,104 @@ final class LibraryStore {
             details.description = nil
         }
 
-        let coverPNG: Data?
-        if let coverURL = details.imageURL {
-            guard coverURL.scheme?.lowercased() == "https" else {
-                throw NSError(domain: "Folio", code: 42, userInfo: [NSLocalizedDescriptionKey: "Hardcover returned an invalid cover image address."])
-            }
-            var request = URLRequest(url: coverURL)
-            request.timeoutInterval = 25
-            let (bytes, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode),
-                  !bytes.isEmpty, bytes.count <= 15_000_000,
-                  let image = FolioImageLoader.decode(bytes),
-                  let png = CoverMaker.pngData(image, maxHeight: 1200) else {
-                throw NSError(domain: "Folio", code: 43, userInfo: [NSLocalizedDescriptionKey: "The Hardcover cover could not be downloaded or decoded. The EPUB has not been changed."])
-            }
-            coverPNG = png
-        } else {
-            // A catalogue entry may have no cover; keep the EPUB's original artwork.
-            coverPNG = nil
-        }
+        var coverPNG: Data?
+        if let url = details.imageURL { coverPNG = try await Self.downloadCoverPNG(url) }
+        let enrichedDetails = details
+        let updated = try await rewriteEPUB(id, expectedFile: originalBook.fileName, details: details,
+                                            coverPNG: coverPNG, extras: EPUBMetadataExtras())
 
-        guard let current = book(id), current.fileName == originalBook.fileName else {
+        guard book(id) != nil else { return }
+        update(id) { book in
+            book.title = updated.title
+            if !updated.author.isEmpty { book.author = updated.author }
+            if let cover = updated.coverFile { book.coverFileName = cover }
+            if let isbn = updated.isbn { book.isbn = isbn }
+            if let summary = enrichedDetails.description?.plainText, !summary.isEmpty { book.summary = summary }
+            if let year = enrichedDetails.year { book.publishedYear = year }
+            book.hardcoverBookID = enrichedDetails.id
+            book.hardcoverPages = enrichedDetails.pages
+            book.hardcoverSlug = enrichedDetails.slug
+            book.hardcoverAutoLinkChecked = true
+        }
+    }
+
+    /// The fields chosen in the metadata editor.
+    struct MetadataChoice: Sendable, Hashable {
+        var title: String
+        var author: String
+        var summary: String?
+        var publisher: String?
+        var language: String?
+        var isbn: String?
+        var series: String?
+        var seriesIndex: Double?
+        var year: Int?
+        var pages: Int?
+        var coverURL: URL?
+    }
+
+    /// Saves edited metadata to the library and, for EPUBs when asked, into the file
+    /// itself (verified, with the original kept in EPUB Backups).
+    func applyMetadata(_ id: UUID, _ choice: MetadataChoice, writeFile: Bool) async throws {
+        guard let original = book(id) else { return }
+        var coverPNG: Data?
+        if let url = choice.coverURL { coverPNG = try await Self.downloadCoverPNG(url) }
+        var newCover: String?
+        if writeFile, original.format == .epub {
+            let details = HCBook(id: original.hardcoverBookID ?? 0, title: choice.title, authors: choice.author,
+                                 imageURL: nil, year: choice.year, pages: choice.pages, rating: nil,
+                                 ratingsCount: nil, description: choice.summary, slug: nil)
+            let extras = EPUBMetadataExtras(publisher: choice.publisher, language: choice.language,
+                                            series: choice.series, seriesIndex: choice.seriesIndex, replaceYear: true)
+            let updated = try await rewriteEPUB(id, expectedFile: original.fileName, details: details,
+                                                coverPNG: coverPNG, extras: extras)
+            newCover = updated.coverFile
+        } else if let coverPNG {
+            let name = "\(id.uuidString)-meta-\(UUID().uuidString).png"
+            try coverPNG.write(to: coversDir.appendingPathComponent(name), options: .atomic)
+            newCover = name
+        }
+        guard book(id) != nil else { return }
+        update(id) { b in
+            let title = choice.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !title.isEmpty { b.title = title }
+            let author = choice.author.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !author.isEmpty { b.author = author }
+            b.summary = choice.summary
+            b.publisher = choice.publisher
+            b.language = choice.language
+            b.isbn = choice.isbn
+            b.series = choice.series
+            b.seriesIndex = choice.seriesIndex
+            b.publishedYear = choice.year
+            if let pages = choice.pages, pages > 0 { b.hardcoverPages = pages }
+            if let newCover { b.coverFileName = newCover }
+        }
+    }
+
+    /// Downloads a cover and normalizes it to PNG, or throws without touching anything.
+    nonisolated static func downloadCoverPNG(_ coverURL: URL) async throws -> Data {
+        guard coverURL.scheme?.lowercased() == "https" else {
+            throw NSError(domain: "Folio", code: 42, userInfo: [NSLocalizedDescriptionKey: "The cover address is not secure."])
+        }
+        var request = URLRequest(url: coverURL)
+        request.timeoutInterval = 25
+        let (bytes, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse,
+              (200..<300).contains(http.statusCode),
+              !bytes.isEmpty, bytes.count <= 15_000_000,
+              let image = FolioImageLoader.decode(bytes),
+              let png = CoverMaker.pngData(image, maxHeight: 1200) else {
+            throw NSError(domain: "Folio", code: 43, userInfo: [NSLocalizedDescriptionKey: "The cover could not be downloaded or decoded. The EPUB has not been changed."])
+        }
+        return png
+    }
+
+    /// Writes metadata (and optionally a cover) into the EPUB file itself, after
+    /// verifying the result and keeping the original in EPUB Backups.
+    private func rewriteEPUB(_ id: UUID, expectedFile: String, details: HCBook, coverPNG: Data?,
+                             extras: EPUBMetadataExtras) async throws -> (title: String, author: String, coverFile: String?, isbn: String?) {
+        guard let current = book(id), current.fileName == expectedFile else {
             throw NSError(domain: "Folio", code: 44, userInfo: [NSLocalizedDescriptionKey: "This book is no longer in the library."])
         }
         let file = fileURL(current)
@@ -365,7 +441,8 @@ final class LibraryStore {
         let base = baseDir
         let covers = coversDir
         let enrichedDetails = details
-        let updated = try await Task.detached(priority: .userInitiated) { () throws -> (title: String, author: String, coverFile: String?, isbn: String?) in
+        let enrichedExtras = extras
+        return try await Task.detached(priority: .userInitiated) { () throws -> (title: String, author: String, coverFile: String?, isbn: String?) in
             let fm = FileManager.default
             let temporary = base.appendingPathComponent("EPUB-Enrichment-\(UUID().uuidString)", isDirectory: true)
             let expanded = temporary.appendingPathComponent("Expanded", isDirectory: true)
@@ -375,7 +452,7 @@ final class LibraryStore {
             defer { try? fm.removeItem(at: temporary) }
 
             try Unzip.extract(file, to: expanded)
-            try EPUBHardcoverEnricher.apply(in: expanded, book: enrichedDetails, coverData: coverPNG)
+            try EPUBHardcoverEnricher.apply(in: expanded, book: enrichedDetails, coverData: coverPNG, extras: enrichedExtras)
             try Unzip.packageEPUBFolder(expanded, to: replacement)
             // Verify the zipped EPUB through Folio's actual importer, not just the XML parser.
             try Unzip.extract(replacement, to: check)
@@ -409,24 +486,10 @@ final class LibraryStore {
             // Existing reader windows use these paths. Update the extracted metadata and cover
             // in place while leaving chapter files intact until their current session ends.
             if fm.fileExists(atPath: activeExtract.appendingPathComponent("META-INF/container.xml").path) {
-                try? EPUBHardcoverEnricher.apply(in: activeExtract, book: enrichedDetails, coverData: coverPNG)
+                try? EPUBHardcoverEnricher.apply(in: activeExtract, book: enrichedDetails, coverData: coverPNG, extras: enrichedExtras)
             }
             return (package.title, package.author, newCover, package.isbn)
         }.value
-
-        guard book(id) != nil else { return }
-        update(id) { book in
-            book.title = updated.title
-            if !updated.author.isEmpty { book.author = updated.author }
-            if let cover = updated.coverFile { book.coverFileName = cover }
-            if let isbn = updated.isbn { book.isbn = isbn }
-            if let summary = enrichedDetails.description?.plainText, !summary.isEmpty { book.summary = summary }
-            if let year = enrichedDetails.year { book.publishedYear = year }
-            book.hardcoverBookID = enrichedDetails.id
-            book.hardcoverPages = enrichedDetails.pages
-            book.hardcoverSlug = enrichedDetails.slug
-            book.hardcoverAutoLinkChecked = true
-        }
     }
 
     struct Meta: Sendable {

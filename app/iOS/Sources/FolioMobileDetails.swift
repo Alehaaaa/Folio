@@ -28,6 +28,7 @@ struct FolioMobileBookDetail: View {
     /// unlinked library file or a Goodreads shelf entry).
     @State private var resolvedID: Int?
     @State private var editingMetadata = false
+    @State private var fixingMetadata = false
     @State private var choosingHardcover = false
     @State private var choosingSource = false
     @State private var deletingLocal = false
@@ -155,6 +156,11 @@ struct FolioMobileBookDetail: View {
         .sheet(isPresented: $editingMetadata) {
             if let local {
                 FolioMobileEditBook(bookID: local.id)
+            }
+        }
+        .sheet(isPresented: $fixingMetadata) {
+            if let local {
+                FolioMobileMetadataFixer(bookID: local.id)
             }
         }
         .sheet(isPresented: $choosingHardcover) {
@@ -374,6 +380,7 @@ struct FolioMobileBookDetail: View {
             Menu {
                 if let local {
                     Button("Edit Book Details", systemImage: "square.and.pencil") { editingMetadata = true }
+                    Button("Fix Metadata…", systemImage: "wand.and.stars") { fixingMetadata = true }
                     ShareLink(item: library.fileURL(local)) {
                         Label("Export File", systemImage: "square.and.arrow.up")
                     }

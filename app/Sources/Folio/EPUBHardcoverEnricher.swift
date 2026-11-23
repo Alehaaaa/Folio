@@ -2,10 +2,21 @@ import Foundation
 
 /// Writes a selected Hardcover catalogue record into an extracted EPUB's OPF package.
 /// The caller supplies a normalized PNG and repackages/verifies the EPUB before replacing it.
+/// Fields beyond the Hardcover record that the metadata editor can write.
+struct EPUBMetadataExtras: Sendable, Hashable {
+    var publisher: String? = nil
+    var language: String? = nil
+    var series: String? = nil
+    var seriesIndex: Double? = nil
+    /// Replace the publication date with the record's year (the editor's choice),
+    /// rather than only adding one when the file has none.
+    var replaceYear = false
+}
+
 enum EPUBHardcoverEnricher {
     private static let dublinCore = "http://purl.org/dc/elements/1.1/"
 
-    static func apply(in extractedRoot: URL, book: HCBook, coverData: Data?) throws {
+    static func apply(in extractedRoot: URL, book: HCBook, coverData: Data?, extras: EPUBMetadataExtras = .init()) throws {
         let fileManager = FileManager.default
         guard let container = EPUBPackage.xml(extractedRoot.appendingPathComponent("META-INF/container.xml")),
               let packagePath = first(container, "//*[local-name()='rootfile']")?.attribute(forName: "full-path")?.stringValue,
@@ -52,8 +63,20 @@ enum EPUBHardcoverEnricher {
             setText(description, localName: "description", metadata: metadata)
         }
         if let year = book.year, (1000...3000).contains(year),
-           first(metadata, "./*[local-name()='date']") == nil {
+           extras.replaceYear || first(metadata, "./*[local-name()='date']") == nil {
             setText(String(year), localName: "date", metadata: metadata)
+        }
+        if let publisher = extras.publisher?.trimmingCharacters(in: .whitespacesAndNewlines), !publisher.isEmpty {
+            setText(publisher, localName: "publisher", metadata: metadata)
+        }
+        if let language = extras.language?.trimmingCharacters(in: .whitespacesAndNewlines), !language.isEmpty {
+            setText(language, localName: "language", metadata: metadata)
+        }
+        if let series = extras.series?.trimmingCharacters(in: .whitespacesAndNewlines), !series.isEmpty {
+            setMeta("calibre:series", series, metadata: metadata)
+            if let index = extras.seriesIndex {
+                setMeta("calibre:series_index", index == index.rounded() ? String(Int(index)) : String(index), metadata: metadata)
+            }
         }
 
         if let coverData {
@@ -122,6 +145,20 @@ enum EPUBHardcoverEnricher {
             existing.stringValue = text
         } else {
             metadata.addChild(XMLElement(name: "dc:\(localName)", stringValue: text))
+        }
+    }
+
+    /// Calibre-style <meta name="…" content="…"/>, which readers and Calibre both understand.
+    private static func setMeta(_ name: String, _ content: String, metadata: XMLElement) {
+        if let existing = all(metadata, "./*[local-name()='meta']").first(where: {
+            $0.attribute(forName: "name")?.stringValue == name
+        }) {
+            existing.addAttribute(XMLNode.attribute(withName: "content", stringValue: content) as! XMLNode)
+        } else {
+            let meta = XMLElement(name: "meta")
+            meta.addAttribute(XMLNode.attribute(withName: "name", stringValue: name) as! XMLNode)
+            meta.addAttribute(XMLNode.attribute(withName: "content", stringValue: content) as! XMLNode)
+            metadata.addChild(meta)
         }
     }
 
