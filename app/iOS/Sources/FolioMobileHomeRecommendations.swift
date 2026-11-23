@@ -19,14 +19,19 @@ final class FolioMobileHomeRecommendations {
     func load(from hardcover: HardcoverClient, books: [LocalBook], tracked: [TrackedBook]) async {
         let run = UUID()
         generation = run
-        byYourAuthors = []
-        authorNames = []
         error = nil
         loaded = false
 
         guard hardcover.isConnected else {
+            byYourAuthors = []
+            authorNames = []
             loading = false
             return
+        }
+        // Keep what is on screen, or show the last saved row, while refreshing.
+        let userID = hardcover.user?.id ?? -1
+        if byYourAuthors.isEmpty, let cached = FolioMobileHomeCache.forYou(for: userID) {
+            byYourAuthors = cached
         }
         loading = true
 
@@ -124,6 +129,9 @@ final class FolioMobileHomeRecommendations {
         }
         byYourAuthors = Array(chosen.prefix(12))
         authorNames = contributingAuthors
+        if problems.isEmpty || !byYourAuthors.isEmpty {
+            FolioMobileHomeCache.saveForYou(userID: userID, books: byYourAuthors)
+        }
         error = byYourAuthors.isEmpty ?
             (problems.first ?? "Hardcover did not return any new books. Try again later.") : nil
         loaded = true

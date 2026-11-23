@@ -478,6 +478,12 @@ final class FolioMobileHomeShelves {
             error = nil
             return
         }
+        let userID = hardcover.user?.id ?? -1
+        // Show the last known shelves at once; the network only refreshes them.
+        if reading.isEmpty && wantToRead.isEmpty, let cached = FolioMobileHomeCache.shelves(for: userID) {
+            reading = cached.reading
+            wantToRead = cached.wantToRead
+        }
         loading = true
         defer { loading = false }
         do {
@@ -487,6 +493,7 @@ final class FolioMobileHomeShelves {
             reading = r
             wantToRead = w
             error = nil
+            FolioMobileHomeCache.saveShelves(userID: userID, reading: r, wantToRead: w)
         } catch is CancellationError {
             return
         } catch let urlError as URLError where urlError.code == .cancelled {
