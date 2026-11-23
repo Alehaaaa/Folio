@@ -65,7 +65,8 @@ struct ManualCopyPicker: View {
             } else if copies.isEmpty {
                 Label(exts.enabled.isEmpty ? "No sources are turned on." : "None of your sources has a copy Folio can read.", systemImage: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                SettingsLink { Text("Manage Sources…") }.buttonStyle(.glass).controlSize(.small)
+                Button("Manage Sources…") { NotificationCenter.default.post(name: .folioShowSources, object: nil) }
+                    .buttonStyle(.glass).controlSize(.small)
             } else {
                 Text("Choose a format or edition to add to your library.")
                     .font(.caption).foregroundStyle(.secondary)

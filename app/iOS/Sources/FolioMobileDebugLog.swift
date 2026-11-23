@@ -1,7 +1,9 @@
 import Darwin
 import Foundation
 import SwiftUI
+#if os(iOS)
 import UIKit
+#endif
 
 /// A plain-text runtime log at Documents/Folio.log, visible in the Files app.
 ///
@@ -16,7 +18,15 @@ enum FolioLog {
     static var previousURL: URL { documents.appendingPathComponent("Folio.previous.log") }
 
     private static var documents: URL {
+        #if os(macOS)
+        // On the Mac the log sits with other app logs, in ~/Library/Logs/Folio.
+        let logs = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Logs/Folio", isDirectory: true)
+        try? FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+        return logs
+        #else
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        #endif
     }
 
     private static var markerURL: URL { documents.appendingPathComponent(".folio-running") }
@@ -51,7 +61,7 @@ enum FolioLog {
         if manager.fileExists(atPath: markerURL.path) {
             log("The previous session ended without closing normally: iOS killed it (often for memory) or it crashed before anything below was written.", "launch")
         }
-        log("Folio \(version) (\(build)), iOS \(UIDevice.current.systemVersion), \(machine()), memory \(footprintMB()) MB", "launch")
+        log("Folio \(version) (\(build)), \(systemName) \(systemVersion), \(machine()), memory \(footprintMB()) MB", "launch")
         log("Log file: \(path)", "launch")
         markRunning()
 
@@ -63,11 +73,30 @@ enum FolioLog {
             previousHandlers[sig] = signal(sig, folioSignalHandler)
         }
         watchMainThread()
+        #if os(iOS)
         NotificationCenter.default.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: nil
         ) { _ in
             FolioLog.log("Memory warning, using \(FolioLog.footprintMB()) MB", "memory")
         }
+        #endif
+    }
+
+    private static var systemName: String {
+        #if os(macOS)
+        "macOS"
+        #else
+        "iOS"
+        #endif
+    }
+
+    private static var systemVersion: String {
+        #if os(macOS)
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
+        #else
+        UIDevice.current.systemVersion
+        #endif
     }
 
     /// Pings the main thread every second from a background thread and logs any time

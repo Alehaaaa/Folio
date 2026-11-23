@@ -2,6 +2,7 @@ import CoreSpotlight
 import SwiftUI
 import Observation
 
+#if os(iOS)
 /// The iPhone and iPad app shares its library, metadata, account and
 /// reading-preference implementations with the desktop target.
 @main
@@ -77,6 +78,7 @@ struct FolioIOSApp: App {
         }
     }
 }
+#endif
 
 enum FolioMobileTab: Hashable {
     case home

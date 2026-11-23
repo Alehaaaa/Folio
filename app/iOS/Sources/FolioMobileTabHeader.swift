@@ -1,4 +1,6 @@
+#if os(iOS)
 import UIKit
+#endif
 import SwiftUI
 
 /// The top of each tab, as on Home: one serif title and plain icon buttons on the same
@@ -131,6 +133,7 @@ extension View {
     }
 }
 
+#if os(iOS)
 /// Keeps the swipe-from-the-edge back gesture working on pages that hide the navigation bar.
 extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
     override open func viewDidLoad() {
@@ -142,3 +145,4 @@ extension UINavigationController: @retroactive UIGestureRecognizerDelegate {
         viewControllers.count > 1
     }
 }
+#endif

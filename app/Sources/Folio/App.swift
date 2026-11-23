@@ -134,19 +134,40 @@ struct FolioApp: App {
     @State private var prefs = ReaderPrefsStore.shared
     @State private var exts = ExtensionStore.shared
     @State private var popups = PopupCenter.shared
+    @State private var navigation = FolioMobileNavigation()
+
+    init() {
+        FolioLog.start()
+        FolioShelfSync.install()
+    }
 
     var body: some Scene {
         WindowGroup("Folio", id: "main") {
-            ContentView()
+            FolioMacRootView()
+                .folioCoverPeekHost()
+                .tint(FolioTheme.accent)
                 .environment(store)
                 .environment(hc)
                 .environment(gr)
                 .environment(prefs)
                 .environment(exts)
                 .environment(popups)
+                .environment(navigation)
+                .folioLogsLifecycle()
+                .task {
+                    // Restore persisted jobs on every launch, even when Downloads
+                    // has never been opened in the current session.
+                    _ = DownloadQueue.shared
+                    FolioShelfSync.shared.pushPending(library: store)
+                    store.enqueueUnlinkedEPUBs()
+                }
         }
-        .defaultSize(width: 1280, height: 820)
+        .defaultSize(width: 1280, height: 860)
         .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { NotificationCenter.default.post(name: .folioShowSettings, object: nil) }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
             CommandGroup(after: .newItem) {
                 Button("Add to Library…") { NotificationCenter.default.post(name: .folioImport, object: nil) }
                     .keyboardShortcut("a", modifiers: [.command, .shift])
@@ -160,30 +181,12 @@ struct FolioApp: App {
                     .environment(hc)
                     .environment(gr)
                     .environment(prefs)
-                .environment(exts)
-                .environment(popups)
+                    .environment(exts)
+                    .environment(popups)
+                    .environment(navigation)
             }
         }
         .defaultSize(width: 1100, height: 780)
         .restorationBehavior(.disabled)
-
-        Window("Welcome to Folio", id: "onboarding") {
-            OnboardingView()
-                .id(OnboardingCoordinator.shared.presentationID)
-                .environment(store)
-        }
-        .defaultLaunchBehavior(.suppressed)
-        .windowResizability(.contentSize)
-        .restorationBehavior(.disabled)
-
-        Settings {
-            SettingsView()
-                .environment(store)
-                .environment(hc)
-                .environment(gr)
-                .environment(prefs)
-                .environment(exts)
-                .environment(popups)
-        }
     }
 }
