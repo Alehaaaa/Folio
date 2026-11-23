@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.3",
+          "buildVersion": "4",
+          "date": "2026-11-23",
+          "localizedDescription": "Cleaner reader bottom bar; Scroll mode text flows under the screen edges",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.3-4.ipa",
+          "size": 3501796,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.2",
           "buildVersion": "3",
           "date": "2026-11-23",
