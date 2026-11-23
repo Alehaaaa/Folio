@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.42",
+          "buildVersion": "43",
+          "date": "2026-11-23",
+          "localizedDescription": "Covers download ahead of the rows that show them, once per cover (1.0.42)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.42-43.ipa",
+          "size": 4561944,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.39",
           "buildVersion": "40",
           "date": "2026-11-23",
