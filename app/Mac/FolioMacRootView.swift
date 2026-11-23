@@ -30,55 +30,97 @@ struct FolioMacRootView: View {
         lifecycle(events(presentations(tabs)))
     }
 
+    private static let sidebarTabs: [(FolioMobileTab, String, String)] = [
+        (.home, "Home", "house"),
+        (.library, "Library", "books.vertical"),
+        (.search, "Discover", "magnifyingglass"),
+        (.downloads, "Downloads", "arrow.down.circle"),
+        (.sources, "Sources", "square.stack.3d.up"),
+        (.settings, "Settings", "gearshape"),
+    ]
+
+    /// A native split view: the sidebar is the system's floating Liquid Glass
+    /// panel, and each page's background extends under it.
     @ViewBuilder
     private var tabs: some View {
         @Bindable var navigation = navigation
-        TabView(selection: $navigation.selectedTab) {
-            Tab("Home", systemImage: "house.fill", value: .home) {
-                NavigationStack {
-                    FolioMobileHomeView(showImporter: { importing = true })
-                        .folioDetailDestinations()
+        NavigationSplitView {
+            // Rows draw their own selection in the nook's olive, not the
+            // system blue the Mac would otherwise use.
+            List {
+                ForEach(Self.sidebarTabs, id: \.0) { tab, title, symbol in
+                    let selected = navigation.selectedTab == tab
+                    Button { navigation.selectedTab = tab } label: {
+                        Label {
+                            Text(title).foregroundStyle(FolioTheme.ink)
+                        } icon: {
+                            Image(systemName: selected && symbol != "magnifyingglass" ? symbol + ".fill" : symbol)
+                                .foregroundStyle(FolioTheme.olive)
+                        }
+                        .font(.body.weight(selected ? .semibold : .regular))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 5)
+                        .padding(.horizontal, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .background {
+                        if selected {
+                            Capsule().fill(FolioTheme.olive.opacity(0.22))
+                        }
+                    }
+                    .listRowInsets(EdgeInsets(top: 1, leading: 8, bottom: 1, trailing: 8))
+                    .accessibilityAddTraits(selected ? .isSelected : [])
                 }
             }
-            Tab("Library", systemImage: "books.vertical.fill", value: .library) {
-                NavigationStack {
-                    FolioMobileLibraryView(showImporter: { importing = true })
-                        .folioDetailDestinations()
-                }
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 280)
+        } detail: {
+            NavigationStack {
+                page(navigation.selectedTab)
+                    .environment(\.folioTabRoot, true)
+                    .folioDetailDestinations()
             }
-            Tab("Discover", systemImage: "magnifyingglass", value: .search) {
-                NavigationStack {
-                    FolioMobileDiscoverView()
-                        .folioDetailDestinations()
-                }
-            }
-            Tab("Downloads", systemImage: "arrow.down.circle", value: .downloads) {
-                NavigationStack {
-                    DownloadingView()
-                        .folioScreen()
-                        .folioDetailDestinations()
-                }
-            }
-            Tab("Sources", systemImage: "square.stack.3d.up", value: .sources) {
-                NavigationStack {
-                    FolioMobileSourcesView()
-                        .folioDetailDestinations()
-                }
-            }
-            Tab("Settings", systemImage: "gearshape", value: .settings) {
-                NavigationStack {
-                    FolioMobileSettingsView(showImporter: { importing = true })
-                        .folioDetailDestinations()
+            .id(navigation.selectedTab)
+        }
+        // Each screen draws its own title row, so the window toolbar only
+        // carries the window buttons and floats clear over the content.
+        .toolbar(removing: .title)
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        // Settings and other Forms use the grouped Mac style, like System Settings,
+        // instead of the two-column default that misaligns the shared rows.
+        .formStyle(.grouped)
+        .onAppear {
+            navigation.compactTabs = false
+            // Testing aid: screenshot runs can open a tab with FOLIO_SHOT_TAB.
+            if ScreenshotMode.path != nil {
+                switch ProcessInfo.processInfo.environment["FOLIO_SHOT_TAB"] {
+                case "library": navigation.selectedTab = .library
+                case "search": navigation.selectedTab = .search
+                case "downloads": navigation.selectedTab = .downloads
+                case "sources": navigation.selectedTab = .sources
+                case "settings": navigation.selectedTab = .settings
+                default: break
                 }
             }
         }
-        .tabViewStyle(.sidebarAdaptable)
-        .onAppear { navigation.compactTabs = false }
         .onChange(of: navigation.reading?.id) { _, id in
             // The shared screens ask to read a book; on the Mac that is the reader window.
             guard let id else { return }
             navigation.reading = nil
             openWindow(id: "reader", value: id)
+        }
+    }
+
+    @ViewBuilder
+    private func page(_ tab: FolioMobileTab) -> some View {
+        switch tab {
+        case .home: FolioMobileHomeView(showImporter: { importing = true })
+        case .library: FolioMobileLibraryView(showImporter: { importing = true })
+        case .search: FolioMobileDiscoverView()
+        case .downloads: DownloadingView().folioScreen()
+        case .sources: FolioMobileSourcesView()
+        case .settings: FolioMobileSettingsView(showImporter: { importing = true })
         }
     }
 

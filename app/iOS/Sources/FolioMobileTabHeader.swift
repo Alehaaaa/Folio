@@ -82,15 +82,22 @@ struct FolioSearchField: View {
 
 /// The header of a pushed page: the back chevron and the title on one row, at the same
 /// height and size as the tab titles, instead of a large title dropping below the back button.
+extension EnvironmentValues {
+    /// True for the first page of a tab, which has nothing to go back to
+    /// (the Mac reports such pages as presented).
+    @Entry var folioTabRoot = false
+}
+
 struct FolioPageHeaderBar<Trailing: View>: View {
     let title: String
     @ViewBuilder var trailing: () -> Trailing
     @Environment(\.dismiss) private var dismiss
     @Environment(\.isPresented) private var isPresented
+    @Environment(\.folioTabRoot) private var tabRoot
 
     var body: some View {
         HStack(alignment: .center, spacing: 2) {
-            if isPresented {
+            if isPresented && !tabRoot {
                 Button { dismiss() } label: {
                     Image(systemName: "chevron.left")
                         .font(.title2.weight(.regular))

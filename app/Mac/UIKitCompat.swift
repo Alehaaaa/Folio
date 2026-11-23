@@ -184,8 +184,10 @@ extension ToolbarItemPlacement {
 
 extension ToolbarPlacement {
     /// The shared screens hide the iOS navigation bar to draw their own title
-    /// rows; on the Mac that is the window toolbar.
-    static var navigationBar: ToolbarPlacement { .windowToolbar }
+    /// rows. On the Mac the window toolbar holds the close, minimize and zoom
+    /// buttons and the sidebar toggle, so it stays; hiding this unused
+    /// accessory bar does nothing.
+    static var navigationBar: ToolbarPlacement { .accessoryBar(id: "folio.navigationBar") }
 }
 
 enum UserInterfaceSizeClass { case compact, regular }

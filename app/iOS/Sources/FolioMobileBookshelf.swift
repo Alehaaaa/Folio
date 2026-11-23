@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// A wooden bookcase, the centerpiece of Home. Books keep their places like
 /// in a real library: new books go at the end, a long press and drag moves
@@ -9,7 +10,12 @@ struct FolioMobileBookshelf: View {
 
     @State private var nook = FolioNookStore.shared
     @State private var width: CGFloat = 340
-    @State private var target: String?
+    /// The book being dragged. It leaves its place while it is in the hand,
+    /// and the shelf makes room for it wherever it hovers.
+    @State private var dragging: String?
+    /// The last book the dragged one swapped places with, so hovering over
+    /// the same book doesn't move it back and forth.
+    @State private var lastSwap: String?
     @Namespace private var shelfSpace
     @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 186
 
@@ -52,11 +58,16 @@ struct FolioMobileBookshelf: View {
                 .frame(height: shelfHeight + 24, alignment: .bottom)
                 .background(shelfBack)
                 .contentShape(Rectangle())
-                .dropDestination(for: String.self) { keys, _ in
-                    guard let key = keys.first, let end = row.last, key != end.id else { return false }
-                    withAnimation(.snappy) { nook.move(key, after: end.id) }
-                    return true
-                }
+                .onDrop(of: [.plainText], delegate: FolioNookDropDelegate(
+                    entered: {
+                        // Over the empty end of a shelf: the book goes last on it.
+                        guard let key = dragging, let end = row.last, key != end.id,
+                              lastSwap != "end:\(end.id)" else { return }
+                        lastSwap = "end:\(end.id)"
+                        withAnimation(Self.makeRoom) { nook.move(key, after: end.id) }
+                    },
+                    dropped: endDrag
+                ))
                 plank(last: last)
             }
         }
@@ -210,26 +221,44 @@ struct FolioMobileBookshelf: View {
         link(item)
             .buttonStyle(FolioSpineButtonStyle())
             .folioNookMenu(item)
-            .draggable(item.id) {
+            // Only the book in the hand is seen; its place on the shelf is
+            // an empty gap that follows it.
+            .opacity(dragging == item.id && FolioNookDragEnd.tracked ? 0 : 1)
+            .onDrag {
+                startDrag(item.id)
+                return NSItemProvider(object: item.id as NSString)
+            } preview: {
                 FolioMobileSpine(item: item, shelfHeight: shelfHeight)
+                    .shadow(color: .black.opacity(0.28), radius: 14, y: 10)
             }
-            .dropDestination(for: String.self) { keys, _ in
-                guard let key = keys.first, key != item.id else { return false }
-                withAnimation(.snappy) { nook.move(key, onto: item.id, visible: items) }
-                target = nil
-                return true
-            } isTargeted: { over in
-                withAnimation(.snappy(duration: 0.2)) {
-                    if over { target = item.id } else if target == item.id { target = nil }
-                }
-            }
-            // Books lean apart where a dragged book would go.
-            .offset(x: target == item.id ? 8 : 0)
+            .onDrop(of: [.plainText], delegate: FolioNookDropDelegate(
+                entered: {
+                    // The shelf makes room as soon as the book hovers, so the
+                    // drop is just letting go.
+                    guard let key = dragging, key != item.id, lastSwap != item.id else { return }
+                    lastSwap = item.id
+                    withAnimation(Self.makeRoom) { nook.move(key, onto: item.id, visible: items) }
+                },
+                dropped: endDrag
+            ))
+            .modifier(FolioNookDragEnd { endDrag() })
             .accessibilityLabel(accessibilityLabel(item))
             .accessibilityHint("Opens book details. Long press for more.")
             .accessibilityAction(named: "Move left") { shift(item, by: -1) }
             .accessibilityAction(named: "Move right") { shift(item, by: 1) }
             .accessibilityAction(named: "Hide from nook") { withAnimation(.snappy) { nook.hide(item) } }
+    }
+
+    private static let makeRoom = Animation.spring(response: 0.32, dampingFraction: 0.82)
+
+    private func startDrag(_ id: String) {
+        lastSwap = nil
+        withAnimation(.easeOut(duration: 0.15)) { dragging = id }
+    }
+
+    private func endDrag() {
+        lastSwap = nil
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { dragging = nil }
     }
 
     private func shift(_ item: FolioNookItem, by step: Int) {
@@ -435,8 +464,8 @@ struct FolioMobileSpine: View {
     /// shelved in Europe. Thin spines show only the surname.
     private func title(ink: Color) -> some View {
         let length = max(30, height - top - bottom)
-        let thickness = max(14, width - 8)
-        let size = min(16, max(10, width * 0.34))
+        let thickness = max(8, width - 6)
+        let size = min(16, max(7, width * 0.36))
         return HStack(spacing: 6) {
             Text(binding == .paperback ? item.title.uppercased() : item.title)
                 .font(titleFont(size))
@@ -544,4 +573,43 @@ struct FolioSpineLean {
     var after: CGFloat = 0
     /// Leaning books pivot on the bottom corner they tip toward.
     var anchor: UnitPoint = .bottom
+}
+
+/// A move within the nook: the system shows no "+" copy badge, and the shelf
+/// rearranges as the book passes over it.
+struct FolioNookDropDelegate: DropDelegate {
+    let entered: () -> Void
+    let dropped: () -> Void
+
+    func validateDrop(info: DropInfo) -> Bool { info.hasItemsConforming(to: [.plainText]) }
+    func dropEntered(info: DropInfo) { entered() }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func performDrop(info: DropInfo) -> Bool {
+        dropped()
+        return true
+    }
+}
+
+/// Brings a dragged book back when the drag ends anywhere, even outside the
+/// shelf. Before iOS 27 there is no such signal, so the book stays in view
+/// while it is dragged.
+struct FolioNookDragEnd: ViewModifier {
+    let ended: () -> Void
+
+    /// Whether this system tells us when a drag ends, so a lifted book can
+    /// safely leave its place.
+    static var tracked: Bool {
+        if #available(iOS 27.0, macOS 26.0, *) { return true }
+        return false
+    }
+
+    func body(content: Content) -> some View {
+        if #available(iOS 27.0, macOS 26.0, *) {
+            content.onDragSessionUpdated { session in
+                if case .ended = session.phase { ended() }
+            }
+        } else {
+            content
+        }
+    }
 }

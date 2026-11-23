@@ -674,13 +674,14 @@ enum FolioSpineMetrics {
     static func width(for item: FolioNookItem) -> CGFloat {
         let jitter = CGFloat(hash(item.id + "w") % 5) - 2
         guard let pages = item.pages, pages > 0 else {
-            if item.format == .comic { return 18 + jitter }
+            if item.format == .comic { return 12 + jitter }
             // Unknown length: anything from a slim novella to a doorstop.
-            return 24 + CGFloat(hash(item.id) % 44)
+            return 14 + CGFloat(hash(item.id) % 54)
         }
         // Straight proportion to the page count, so a 600 page book is
-        // twice as thick as a 250 page one.
-        return min(98, max(18, 12 + CGFloat(pages) * 0.09 + jitter))
+        // about two and a half times as thick as a 250 page one,
+        // and a novella is a sliver beside a doorstop.
+        return min(98, max(10, 4 + CGFloat(pages) * 0.1 + jitter))
     }
 
     /// Height as a share of the shelf: most books vary a little, big books and
