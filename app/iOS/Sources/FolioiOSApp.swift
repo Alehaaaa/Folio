@@ -45,6 +45,7 @@ struct FolioIOSApp: App {
                 .folioUpdatePrompt()
                 .folioLogsLifecycle()
                 .task {
+                    await extensions.checkForExtensionUpdates()
                     // Restore persisted jobs on every launch, even when Downloads
                     // has never been opened in the current session.
                     _ = DownloadQueue.shared

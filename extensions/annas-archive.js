@@ -7,7 +7,7 @@ var source = {
   id: "annas-archive-free",
   name: "Anna's Archive — Free",
   description: "Free EPUB search and published Slow Partner file delivery after a normal background countdown. No paid API or keys.",
-  version: "1.3.7",
+  version: "1.3.8",
   allowedHosts: [
     "https://raw.githubusercontent.com",
     "https://annas-archive.gl",
@@ -46,6 +46,19 @@ var source = {
   fetchPage: function (url) {
     try { return folio.fetchText(url); }
     catch (error) {
+      // iOS can briefly return cannotFindHost/networkConnectionLost while its
+      // resolver or interface is changing, even though the same host works a
+      // moment later. Give that transport request one fresh chance before
+      // involving WebKit or condemning the mirror for this source session.
+      // HTTP errors, verification pages and parsing failures are not retried.
+      if (this.transportFailure(error)) {
+        this.diagnostic("Transient connection failure; retrying direct request once for " + url + ": " + error);
+        try { return folio.fetchText(url); }
+        catch (retryError) {
+          this.diagnostic("Direct retry unavailable for " + url + ": " + retryError);
+          error = retryError;
+        }
+      }
       if (!folio.browser || typeof folio.browser.open !== "function") {
         this.diagnostic("Direct request unavailable, with no background browser: " + url + ": " + error);
         throw error;

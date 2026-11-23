@@ -155,6 +155,7 @@ struct FolioApp: App {
                 .environment(navigation)
                 .folioLogsLifecycle()
                 .task {
+                    await exts.checkForExtensionUpdates()
                     // Restore persisted jobs on every launch, even when Downloads
                     // has never been opened in the current session.
                     _ = DownloadQueue.shared

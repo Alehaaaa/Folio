@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import JavaScriptCore
 import Observation
 
@@ -148,6 +149,16 @@ final class SourceRuntime: @unchecked Sendable {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.httpCookieStorage = nil
         cfg.urlCache = nil
+        // Let iOS follow a Wi-Fi/cellular/VPN transition instead of failing a
+        // just-created task immediately with a TCP/DNS connectivity error.
+        // URLSession still performs connect-by-name (including IPv4/IPv6
+        // Happy Eyeballs) and the request/resource deadlines remain bounded.
+        cfg.waitsForConnectivity = true
+        cfg.allowsCellularAccess = true
+        cfg.allowsExpensiveNetworkAccess = true
+        cfg.allowsConstrainedNetworkAccess = true
+        cfg.timeoutIntervalForRequest = 30
+        cfg.timeoutIntervalForResource = 45
         cfg.httpAdditionalHeaders = ["User-Agent": "Folio / demeter-compatible"]
         session = URLSession(configuration: cfg, delegate: guard_, delegateQueue: nil)
     }
@@ -463,6 +474,17 @@ final class RedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable
 final class ExtensionStore {
     static let shared = ExtensionStore()
 
+    private struct UpdateManifest: Decodable {
+        var extensions: [UpdateEntry]
+    }
+
+    private struct UpdateEntry: Decodable {
+        var id: String
+        var version: String
+        var url: URL
+        var sha256: String
+    }
+
     struct Saved: Codable {
         var file: String
         var enabled = true
@@ -486,6 +508,10 @@ final class ExtensionStore {
     private var dir: URL { LibraryStore.shared.baseDir.appendingPathComponent("Extensions", isDirectory: true) }
     private var savedURL: URL { dir.appendingPathComponent("extensions.json") }
     private var savedByID: [String: Saved] = [:]
+    private static let updateManifestURL = URL(string:
+        "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/versions.json")!
+    private static let updateCheckKey = "folio.extensions.lastUpdateCheck"
+    private static let updateCheckInterval: TimeInterval = 6 * 60 * 60
 
     /// Enabled download sources (metadata sources never take part in finding copies).
     var enabled: [Installed] { installed.filter { $0.saved.enabled && !$0.manifest.isMetadata } }
@@ -533,7 +559,16 @@ final class ExtensionStore {
             let id = String(script[range])
             guard !DefaultSources.builtIn.contains(where: { $0.id == id }) else { continue }
             let file = id + ".js"
-            try? script.write(to: dir.appendingPathComponent(file), atomically: true, encoding: .utf8)
+            let destination = dir.appendingPathComponent(file)
+            let installedScript = try? String(contentsOf: destination, encoding: .utf8)
+            let installedVersion = installedScript.flatMap(Self.declaredVersion)
+            let bundledVersion = Self.declaredVersion(in: script)
+            // Never downgrade a remotely updated managed extension to the
+            // older copy embedded in an app build on the next launch.
+            if installedScript == nil || installedVersion == nil || bundledVersion == nil ||
+                Self.version(bundledVersion!, isNewerThan: installedVersion!) {
+                try? script.write(to: destination, atomically: true, encoding: .utf8)
+            }
             if savedByID[id] == nil { savedByID[id] = Saved(file: file, builtIn: true) }
             savedByID[id]?.file = file
             savedByID[id]?.builtIn = true
@@ -562,6 +597,113 @@ final class ExtensionStore {
             }
         }
         installed = out
+    }
+
+    /// At launch, refresh Folio-managed JavaScript extensions at most once per
+    /// interval. The remote manifest is only an index: every downloaded script
+    /// must match its SHA-256 and declare the advertised id/version before it
+    /// can replace the local atomic file. User-installed extensions are never
+    /// overwritten.
+    func checkForExtensionUpdates(force: Bool = false) async {
+        let defaults = UserDefaults.standard
+        if !force, let last = defaults.object(forKey: Self.updateCheckKey) as? Date,
+           Date().timeIntervalSince(last) < Self.updateCheckInterval { return }
+
+        var request = URLRequest(url: Self.updateManifestURL,
+                                 cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+                                 timeoutInterval: 20)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let manifest: UpdateManifest
+        do {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.waitsForConnectivity = true
+            configuration.timeoutIntervalForRequest = 20
+            configuration.timeoutIntervalForResource = 30
+            let session = URLSession(configuration: configuration)
+            defer { session.finishTasksAndInvalidate() }
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return }
+            manifest = try JSONDecoder().decode(UpdateManifest.self, from: data)
+            defaults.set(Date(), forKey: Self.updateCheckKey)
+        } catch {
+            // Launch must remain quiet and fully usable while offline. A failed
+            // check is not timestamped, so a later launch can try again.
+            return
+        }
+
+        var changed = false
+        for entry in manifest.extensions {
+            let safeID = entry.id.filter { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+            guard safeID == entry.id, entry.url.scheme == "https",
+                  entry.url.host == "raw.githubusercontent.com",
+                  entry.sha256.range(of: #"^[0-9a-f]{64}$"#, options: .regularExpression) != nil else { continue }
+
+            if let saved = savedByID[entry.id], !saved.builtIn { continue }
+            if let local = ext(entry.id), !Self.version(entry.version, isNewerThan: local.manifest.version) { continue }
+
+            do {
+                var scriptRequest = URLRequest(url: entry.url,
+                                               cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+                                               timeoutInterval: 30)
+                scriptRequest.setValue("text/javascript", forHTTPHeaderField: "Accept")
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.waitsForConnectivity = true
+                configuration.timeoutIntervalForRequest = 30
+                configuration.timeoutIntervalForResource = 45
+                let session = URLSession(configuration: configuration)
+                defer { session.finishTasksAndInvalidate() }
+                let (data, response) = try await session.data(for: scriptRequest)
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+                      data.count <= 2_000_000 else { continue }
+                let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+                guard digest == entry.sha256,
+                      let script = String(data: data, encoding: .utf8) else { continue }
+
+                let validator = SourceRuntime(script: script, label: "update.\(entry.id)")
+                let candidate: SourceManifest
+                do { candidate = try await validator.manifest() }
+                catch { await validator.close(); continue }
+                await validator.close()
+                guard candidate.id == entry.id, candidate.version == entry.version else { continue }
+
+                let file = entry.id + ".js"
+                try data.write(to: dir.appendingPathComponent(file), options: .atomic)
+                var saved = savedByID[entry.id] ?? Saved(file: file, builtIn: true)
+                saved.file = file
+                saved.builtIn = true
+                savedByID[entry.id] = saved
+                changed = true
+            } catch {
+                continue
+            }
+        }
+
+        guard changed else { return }
+        persist()
+        let previous = installed
+        installed = []
+        for item in previous { await item.runtime.close() }
+        await loadAll()
+    }
+
+    private static func version(_ candidate: String, isNewerThan current: String) -> Bool {
+        func parts(_ value: String) -> [Int] {
+            value.split(separator: ".").map { Int($0) ?? 0 }
+        }
+        let left = parts(candidate), right = parts(current)
+        for index in 0..<max(left.count, right.count) {
+            let a = index < left.count ? left[index] : 0
+            let b = index < right.count ? right[index] : 0
+            if a != b { return a > b }
+        }
+        return false
+    }
+
+    private static func declaredVersion(in script: String) -> String? {
+        guard let expression = try? NSRegularExpression(pattern: #"\bversion\s*:\s*["']([^"']+)["']"#),
+              let match = expression.firstMatch(in: script, range: NSRange(script.startIndex..., in: script)),
+              let range = Range(match.range(at: 1), in: script) else { return nil }
+        return String(script[range])
     }
 
     /// Installs a JavaScript source extension the person picked.

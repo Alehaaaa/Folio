@@ -36,7 +36,7 @@ function harness(fetch, browser, withStatus = true) {
   vm.runInContext(script, context, {timeout: 5000});
   assert.equal(context.source.name, "Anna's Archive — Free");
   assert.equal(context.source.id, 'annas-archive-free');
-  assert.equal(context.source.version, '1.3.7');
+  assert.equal(context.source.version, '1.3.8');
   assert.equal(context.source.allowedHosts.length, 5);
   return {source: context.source, requested, statuses, logs};
 }
@@ -624,6 +624,22 @@ const offline = harness(() => { throw new Error('offline'); });
 assert.deepEqual(Array.from(offline.source.mirrors()), official);
 assert.equal(offline.statuses.length, 1, 'fallback mirror refresh should report a single status');
 
+// A short-lived iOS resolver/interface failure gets one direct retry. A
+// recovered request must not open WebKit or place the mirror on cooldown.
+let transientAttempts = 0;
+const transient = harness(url => {
+  transientAttempts++;
+  if (transientAttempts === 1)
+    throw new Error('A server with the specified hostname could not be found.');
+  return searchPage;
+});
+assert.equal(transient.source.fetchPage('https://annas-archive.gl/search?q=Austen'), searchPage);
+assert.equal(transientAttempts, 2, 'transient transport failure should retry directly once');
+assert.equal(transient.source.mirrorCooldowns['annas-archive.gl'], undefined,
+  'a recovered direct request must not cool down the mirror');
+assert.ok(transient.logs.some(s => /retrying direct request once/i.test(s)),
+  'the recovery attempt should remain visible in diagnostics');
+
 // Mirror membership comes only from the published official declaration, while
 // transient host transport failures are runtime-local, not permanent removals.
 const unavailableReasons = {
@@ -661,8 +677,9 @@ const requestsBeforeSingleRecovery = unreachable.requested.length;
 assert.throws(() => unreachable.source.search('Pride and Prejudice Jane Austen', 0),
   /free search is unavailable/i);
 assert.deepEqual(unreachable.requested.slice(requestsBeforeSingleRecovery)
-  .filter(u => u.includes('/search?')).map(u => new URL(u).hostname), ['annas-archive.gl'],
-  'retry only the host whose temporary cooldown has expired');
+  .filter(u => u.includes('/search?')).map(u => new URL(u).hostname),
+  ['annas-archive.gl', 'annas-archive.gl'],
+  'retry only the host whose temporary cooldown has expired, with one bounded transport retry');
 assert.equal(unreachable.source.transportFailure('The mirror requires verification in a web browser'), null,
   'browser verification is not a DNS/TLS outage');
 assert.equal(unreachable.source.transportFailure('The record contains no published free partner links'), null,
@@ -713,4 +730,4 @@ const legacy = harness(url => url.includes('raw.githubusercontent.com') ? github
 assert.equal(legacy.source.search('Pride and Prejudice', 0).length, 1, 'older Folio versions work without status');
 assert.ok(legacy.logs.length > 0, 'older Folio versions still receive diagnostics');
 
-console.log('PASS: Folio extension v1.3.7, runtime-local mirror transport cooldown, source availability diagnostics, Want subtitle matches, language safeguards, and free countdown without verified-query resets.');
+console.log('PASS: Folio extension v1.3.8, bounded transient transport retry, runtime-local mirror cooldown, source availability diagnostics, Want subtitle matches, language safeguards, and free countdown without verified-query resets.');
