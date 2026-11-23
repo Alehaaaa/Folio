@@ -5,7 +5,6 @@ struct FolioMobileSettingsView: View {
     @Environment(HardcoverClient.self) private var hardcover
     @Environment(ReaderPrefsStore.self) private var preferences
     let showImporter: () -> Void
-    @State private var token = ""
     @AppStorage(BookLanguage.readingLanguageKey) private var bookLanguage = ""
 
     var body: some View {
@@ -23,38 +22,7 @@ struct FolioMobileSettingsView: View {
             }
             .folioRow()
 
-            Section("Hardcover Account") {
-                if let user = hardcover.user {
-                    Label(user.name ?? user.username, systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(FolioTheme.success)
-                    Button("Disconnect", role: .destructive) {
-                        hardcover.disconnect()
-                    }
-                } else {
-                    SecureField("Hardcover API token", text: $token)
-                        .textContentType(.password)
-                        .autocorrectionDisabled()
-                    Link("Get token at hardcover.app", destination: URL(string: "https://hardcover.app/account/api")!)
-                    Button {
-                        Task {
-                            await hardcover.connect(token: token)
-                            if hardcover.isConnected { token = "" }
-                        }
-                    } label: {
-                        if hardcover.connecting {
-                            ProgressView()
-                        } else {
-                            Label("Connect Hardcover", systemImage: "person.crop.circle.badge.checkmark")
-                        }
-                    }
-                    .folioGlassPill(prominent: true)
-                    .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hardcover.connecting)
-                    if let error = hardcover.lastError {
-                        Text(error).font(.footnote).foregroundStyle(FolioTheme.danger)
-                    }
-                }
-            }
-            .folioRow()
+            FolioMobileHardcoverAccountSection()
 
             Section {
                 Picker("Book Language", selection: $bookLanguage) {
@@ -139,5 +107,46 @@ struct FolioMobileSettingsView: View {
         .navigationTitle("Settings")
         .folioPageHeader("Settings")
         .folioScreen()
+    }
+}
+
+/// Hardcover's token sign-in, shared by Settings and the Sync screen.
+struct FolioMobileHardcoverAccountSection: View {
+    @Environment(HardcoverClient.self) private var hardcover
+    @State private var token = ""
+
+    var body: some View {
+        Section("Hardcover Account") {
+            if let user = hardcover.user {
+                Label(user.name ?? user.username, systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(FolioTheme.success)
+                Button("Disconnect", role: .destructive) {
+                    hardcover.disconnect()
+                }
+            } else {
+                SecureField("Hardcover API token", text: $token)
+                    .textContentType(.password)
+                    .autocorrectionDisabled()
+                Link("Get token at hardcover.app", destination: URL(string: "https://hardcover.app/account/api")!)
+                Button {
+                    Task {
+                        await hardcover.connect(token: token)
+                        if hardcover.isConnected { token = "" }
+                    }
+                } label: {
+                    if hardcover.connecting {
+                        ProgressView()
+                    } else {
+                        Label("Connect Hardcover", systemImage: "person.crop.circle.badge.checkmark")
+                    }
+                }
+                .folioGlassPill(prominent: true)
+                .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hardcover.connecting)
+                if let error = hardcover.lastError {
+                    Text(error).font(.footnote).foregroundStyle(FolioTheme.danger)
+                }
+            }
+        }
+        .folioRow()
     }
 }

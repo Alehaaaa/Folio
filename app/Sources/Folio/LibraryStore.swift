@@ -741,6 +741,9 @@ final class LibraryStore {
         save()
     }
 
+    /// Lets other reading services (iOS sync) follow status changes.
+    static var statusChanged: ((UUID) -> Void)?
+
     func setStatus(_ id: UUID, _ status: ReadingStatus, hardcover: HardcoverClient? = nil) {
         update(id) { b in
             b.status = status
@@ -749,6 +752,7 @@ final class LibraryStore {
         if let hc = hardcover, let b = book(id), let hcID = b.hardcoverBookID, let s = status.hardcover {
             Task { await hc.setStatus(bookID: hcID, status: s) }
         }
+        Self.statusChanged?(id)
     }
 
     func addCollection(_ name: String) -> UUID {

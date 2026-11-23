@@ -7,6 +7,11 @@ struct FolioMobileMoreSettings: View {
     var body: some View {
         Section("Accounts & Library") {
             NavigationLink {
+                FolioMobileSyncServicesView()
+            } label: {
+                Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+            }
+            NavigationLink {
                 FolioMobileGoodreadsSettings()
             } label: {
                 Label("Goodreads Shelves", systemImage: "books.vertical.circle")

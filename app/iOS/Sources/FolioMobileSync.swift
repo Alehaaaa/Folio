@@ -17,6 +17,7 @@ enum FolioSync {
 
     /// Sends the progress of up to five recently read books whose last page never reached Hardcover.
     static func pushPending(library: LibraryStore = .shared, hardcover: HardcoverClient = .shared) {
+        FolioShelfSync.shared.pushPending(library: library)
         guard hardcover.isConnected else { return }
         let pending = library.books.filter { book in
             guard book.status != .finished, book.hardcoverBookID != nil,

@@ -1157,6 +1157,10 @@ enum FolioPendingProgress {
 @MainActor
 enum FolioHardcoverProgressSync {
     static func push(_ bookID: UUID, store: LibraryStore, hardcover: HardcoverClient = .shared, pages known: Int? = nil) {
+        // The other services (StoryGraph, Goodreads, Fable, Pagebound, LibraryThing) get the same page.
+        if FolioShelfSync.shared.anyConnected {
+            Task { await FolioShelfSync.shared.sync(bookID: bookID, library: store) }
+        }
         guard let book = store.book(bookID), let hcID = book.hardcoverBookID,
               hardcover.isConnected, book.status != .finished,
               let total = book.hardcoverPages ?? known, total > 0 else { return }

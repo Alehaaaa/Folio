@@ -17,6 +17,7 @@ struct FolioIOSApp: App {
     init() {
         FolioLog.start()
         FolioTheme.applyAppearance()
+        FolioShelfSync.install()
     }
 
     var body: some Scene {
@@ -47,6 +48,7 @@ struct FolioIOSApp: App {
                     // has never been opened in the current session.
                     _ = DownloadQueue.shared
                     await hardcover.restore()
+                    FolioShelfSync.shared.pushPending(library: library)
                     library.enqueueUnlinkedEPUBs()
                     await ReadingReminders.shared.startup()
                     FolioWidgetBridge.publish()
