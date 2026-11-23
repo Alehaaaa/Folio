@@ -138,6 +138,7 @@ enum FolioNookShelf {
                 // The library copy stands for the book; the shelf adds its progress.
                 items[i].reading = true
                 items[i].entry = entry
+                if items[i].localCover == nil { items[i].remoteCover = entry.cover }
                 if (items[i].progress ?? 0) <= 0.004, let hcPages, hcPages > 0 {
                     items[i].pagesRead = hcPages
                     if items[i].pages == nil { items[i].pages = entry.hardcover?.book.pages }
@@ -148,14 +149,16 @@ enum FolioNookShelf {
 
             let book = entry.hardcover?.book ?? entry.goodreads?.folioBook
             guard let book else { continue }
+            // The same title, cover and pages the book page shows, with the reader's edits.
+            let shown = FolioBookOverrides.shared.apply(book)
             var aliases = ["key-\(match)"]
             if let hcID, hcID > 0 { aliases.append("hc-\(hcID)") }
             let id = hcID.map { "hc-\($0)" } ?? "key-\(match)"
             aliases.removeAll { $0 == id }
             let item = FolioNookItem(
                 id: id, aliases: aliases,
-                title: entry.title, author: entry.author,
-                pages: book.pages ?? entry.goodreads?.pages,
+                title: shown.title, author: shown.authors.isEmpty ? entry.author : shown.authors,
+                pages: shown.pages ?? entry.goodreads?.pages,
                 source: .remote(book),
                 // The same cover as the book page: your edit, then the edition on your shelf.
                 remoteCover: hcID.flatMap { FolioBookOverrides.shared.override(for: $0)?.coverURL } ?? entry.cover ?? book.imageURL,
@@ -463,28 +466,79 @@ final class FolioSpinePalettes {
         item.coverKey.flatMap { palettes[$0] } ?? .fallback(for: item.id)
     }
 
-    /// Reads the colors of any cover not seen before.
+    /// The left edge of each cover, where it wraps onto the spine, kept small
+    /// in memory and on disk so spines show their art on the first frame.
+    private(set) var strips: [String: UIImage] = [:]
+    @ObservationIgnored private var stripsPending: Set<String> = []
+
+    private static var stripDirectory: URL {
+        let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("folio-spine-strips", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private static func stripFile(_ key: String) -> URL {
+        stripDirectory.appendingPathComponent(String(FolioSpineMetrics.hash(key), radix: 36) + ".jpg")
+    }
+
+    func strip(for item: FolioNookItem) -> UIImage? {
+        item.coverKey.flatMap { strips[$0] }
+    }
+
+    /// Reads the colors and spine strip of any cover not seen before.
     func prepare(_ items: [FolioNookItem]) {
         for item in items {
-            guard let key = item.coverKey, palettes[key] == nil, !pending.contains(key) else { continue }
-            pending.insert(key)
+            guard let key = item.coverKey else { continue }
+            let needsPalette = palettes[key] == nil && !pending.contains(key)
+            let needsStrip = strips[key] == nil && !stripsPending.contains(key)
+            guard needsPalette || needsStrip else { continue }
+            if needsPalette { pending.insert(key) }
+            if needsStrip { stripsPending.insert(key) }
             let local = item.localCover
             let remote = item.remoteCover
+            let file = Self.stripFile(key)
             Task {
+                if needsStrip, !needsPalette {
+                    let saved = await Task.detached(priority: .userInitiated) { UIImage(contentsOfFile: file.path) }.value
+                    if let saved {
+                        strips[key] = saved
+                        return
+                    }
+                }
                 var image: CGImage?
                 if let local {
-                    image = await Task.detached(priority: .utility) { Self.thumbnail(at: local) }.value
+                    image = await Task.detached(priority: .userInitiated) { Self.thumbnail(at: local) }.value
                 } else if let remote {
                     image = await FolioImageCache.shared.load(remote)?.cgImage
                 }
-                guard let image else { return }
-                let palette = await Task.detached(priority: .utility) { FolioSpinePalette.extract(from: image) }.value
-                if let palette {
+                guard let image else {
+                    pending.remove(key)
+                    stripsPending.remove(key)
+                    return
+                }
+                let palette = await Task.detached(priority: .userInitiated) { FolioSpinePalette.extract(from: image) }.value
+                let strip = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+                    guard let strip = Self.spineStrip(from: image) else { return nil }
+                    if let data = strip.jpegData(compressionQuality: 0.85) {
+                        try? data.write(to: file, options: .atomic)
+                    }
+                    return strip
+                }.value
+                if needsStrip, let strip { strips[key] = strip }
+                if needsPalette, let palette {
                     palettes[key] = palette
                     scheduleSave()
                 }
             }
         }
+    }
+
+    /// The leftmost fifth of a cover, which is roughly what wraps onto a real spine.
+    private nonisolated static func spineStrip(from image: CGImage) -> UIImage? {
+        let width = max(1, Int(Double(image.width) * 0.2))
+        guard let cropped = image.cropping(to: CGRect(x: 0, y: 0, width: width, height: image.height)) else { return nil }
+        return UIImage(cgImage: cropped)
     }
 
     private nonisolated static func thumbnail(at url: URL) -> CGImage? {
@@ -493,7 +547,7 @@ final class FolioSpinePalettes {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: 96
+            kCGImageSourceThumbnailMaxPixelSize: 360
         ]
         return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }

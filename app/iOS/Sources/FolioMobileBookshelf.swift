@@ -199,13 +199,25 @@ struct FolioMobileSpine: View {
 
     var body: some View {
         let palette = FolioSpinePalettes.shared.palette(for: item)
-        let ink = binding == .leather ? Self.gilt : palette.textColor
+        let art = FolioSpinePalettes.shared.strip(for: item)
+        let ink = art == nil && binding == .leather ? Self.gilt : palette.textColor
         let shape = UnevenRoundedRectangle(topLeadingRadius: binding == .paperback ? 1.5 : 3, bottomLeadingRadius: 1,
                                            bottomTrailingRadius: 1, topTrailingRadius: binding == .paperback ? 1.5 : 3)
         ZStack {
             palette.baseColor
-            if binding == .leather { Color.black.opacity(0.28) }
-            content(palette: palette, ink: ink)
+            if let art {
+                // The cover's own left edge wraps onto the spine, toned a little
+                // toward its main color so the title stays readable.
+                Image(uiImage: art)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: width, height: height)
+                    .clipped()
+                palette.baseColor.opacity(0.38)
+            } else if binding == .leather {
+                Color.black.opacity(0.28)
+            }
+            content(palette: palette, ink: ink, art: art != nil)
             // Light catches the rounded spine on the left and falls off to the right.
             LinearGradient(stops: [
                 .init(color: .white.opacity(0.18), location: 0),
@@ -248,15 +260,28 @@ struct FolioMobileSpine: View {
     }
 
     @ViewBuilder
-    private func content(palette: FolioSpinePalette, ink: Color) -> some View {
+    private func content(palette: FolioSpinePalette, ink: Color, art: Bool) -> some View {
         VStack(spacing: 0) {
-            header(palette: palette, ink: ink)
-                .frame(height: top, alignment: .top)
+            Group {
+                if art {
+                    Color.clear
+                } else {
+                    header(palette: palette, ink: ink)
+                }
+            }
+            .frame(height: top, alignment: .top)
             title(ink: ink)
-            footer(palette: palette, ink: ink)
-                .frame(height: bottom, alignment: .bottom)
+            Group {
+                if art && item.progressLabel == nil {
+                    Color.clear
+                } else {
+                    footer(palette: palette, ink: ink)
+                }
+            }
+            .frame(height: bottom, alignment: .bottom)
         }
         .foregroundStyle(ink)
+        .shadow(color: art ? (palette.lightText ? Color.black : Color.white).opacity(0.45) : .clear, radius: 1.2)
     }
 
     @ViewBuilder
