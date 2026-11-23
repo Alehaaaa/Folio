@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.4",
+          "buildVersion": "5",
+          "date": "2026-11-23",
+          "localizedDescription": "Shelves on Home and in Library; fill missing book details from Hardcover",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.4-5.ipa",
+          "size": 3560444,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.3",
           "buildVersion": "4",
           "date": "2026-11-23",
