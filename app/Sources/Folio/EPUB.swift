@@ -66,15 +66,25 @@ enum Unzip {
         // ZIPFoundation's generic directory helper doesn't guarantee its order.
         let archive = try Archive(url: destination, accessMode: .create)
         try archive.addEntry(with: "mimetype", relativeTo: source, compressionMethod: .none)
-        let enumerator = fm.enumerator(at: source, includingPropertiesForKeys: [.isDirectoryKey],
-                                       options: [.skipsHiddenFiles])
+        // Ask the enumerator for paths relative to the folder. Cutting a URL enumerator's
+        // absolute paths by the folder's length breaks on iOS, where the app container can
+        // be reported as /var/... for the folder and /private/var/... for its contents,
+        // which produced entries such as "ded/META-INF" that don't exist.
         var entries: [String] = []
-        while let item = enumerator?.nextObject() as? URL {
-            let relative = String(item.path.dropFirst(source.path.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            guard relative != "mimetype", !relative.isEmpty else { continue }
-            entries.append(relative)
+        if let enumerator = fm.enumerator(atPath: source.path) {
+            while let relative = enumerator.nextObject() as? String {
+                let parts = relative.split(separator: "/")
+                guard relative != "mimetype", !relative.isEmpty,
+                      !parts.contains(where: { $0.hasPrefix(".") }) else { continue }
+                entries.append(relative)
+            }
         }
         for entry in entries.sorted() {
+            let isDirectory = (try? source.appendingPathComponent(entry)
+                .resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            // ZIP readers create parent folders from file entries; explicit folder
+            // entries add nothing and are where path mismatches surfaced.
+            if isDirectory { continue }
             try archive.addEntry(with: entry, relativeTo: source, compressionMethod: .deflate)
         }
         #else

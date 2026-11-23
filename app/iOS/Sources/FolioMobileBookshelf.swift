@@ -42,6 +42,7 @@ struct FolioMobileBookshelf: View {
                             FolioMobileSpine(book: book, shelfHeight: min(rowHeight, 260))
                         }
                         .buttonStyle(FolioSpineButtonStyle())
+                        .folioBookContextMenu(book)
                         .accessibilityLabel("\(book.title), \(book.author.isEmpty ? "unknown author" : book.author)")
                         .accessibilityHint("Open book details")
                     }
