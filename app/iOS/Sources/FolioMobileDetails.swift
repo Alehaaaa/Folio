@@ -1083,6 +1083,7 @@ enum FolioPendingProgress {
     }
 }
 
+@MainActor
 enum FolioHardcoverProgressSync {
     static func push(_ bookID: UUID, store: LibraryStore, hardcover: HardcoverClient = .shared, pages known: Int? = nil) {
         guard let book = store.book(bookID), let hcID = book.hardcoverBookID,
