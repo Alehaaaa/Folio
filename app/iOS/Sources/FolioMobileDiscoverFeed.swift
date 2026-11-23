@@ -230,7 +230,8 @@ final class FolioMobileDiscoverFeed {
     var visibleTopics: [FolioDiscoverTopic] {
         FolioDiscoverCatalog.rowTopics.filter { topic in
             guard let list = books[topic.id] else { return loading || books.isEmpty }
-            return list.count >= 3
+            // Rows count only books not read yet.
+            return FolioReadBooks.shared.unread(list).count >= 3
         }
     }
 

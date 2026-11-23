@@ -67,6 +67,7 @@ struct FolioMobileDiscoverView: View {
                 error = nil
             } else if !isSearching {
                 loading = false
+                await FolioReadBooks.shared.refresh(from: hardcover)
                 await feed.load(from: hardcover)
             } else {
                 loading = true
@@ -103,7 +104,7 @@ struct FolioMobileDiscoverView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 14) {
-                    if let books = feed.books[topic.id], !books.isEmpty {
+                    if let books = feed.books[topic.id].map(FolioReadBooks.shared.unread), !books.isEmpty {
                         ForEach(books) { book in
                             FolioMobileRemoteBookTile(book: book, width: min(tileWidth, 180))
                         }
@@ -128,12 +129,12 @@ struct FolioMobileDiscoverView: View {
                 .frame(maxWidth: .infinity, minHeight: 120)
         } else if let error {
             failureView(error)
-        } else if searchHits.isEmpty {
+        } else if FolioReadBooks.shared.unread(searchHits).isEmpty {
             ContentUnavailableView.search(text: searchText)
         } else {
             FolioMobileRemoteBookGridSection(
                 title: "Results",
-                books: FolioMobileDiscoverySections.unique(searchHits)
+                books: FolioReadBooks.shared.unread(FolioMobileDiscoverySections.unique(searchHits))
             )
         }
     }
@@ -261,13 +262,16 @@ struct FolioMobileDiscoverTopicPage: View {
     @State private var started = false
 
     private let pageSize = 30
+
+    /// The loaded books without the ones already read.
+    private var shown: [HCBook] { FolioReadBooks.shared.unread(books) }
     private let columns = [GridItem(.adaptive(minimum: 104, maximum: 170), spacing: 14, alignment: .top)]
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 filterBar
-                if let error, books.isEmpty {
+                if let error, shown.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         Label(error, systemImage: "wifi.exclamationmark")
                             .font(.subheadline)
@@ -275,19 +279,19 @@ struct FolioMobileDiscoverTopicPage: View {
                         Button("Retry") { Task { await reload() } }
                             .folioGlassPill(prominent: true)
                     }
-                } else if books.isEmpty && !loading && started {
+                } else if shown.isEmpty && !loading && started && (reachedEnd || books.isEmpty) {
                     ContentUnavailableView("No Books Found", systemImage: "books.vertical",
                                            description: Text("Try another year or rating."))
                 } else {
                     LazyVGrid(columns: columns, alignment: .leading, spacing: 22) {
-                        ForEach(books) { book in
+                        ForEach(shown) { book in
                             FolioMobileRemoteBookTile(book: book)
                                 .onAppear {
-                                    if book.id == books.last?.id { Task { await loadMore() } }
+                                    if book.id == shown.last?.id { Task { await loadMore() } }
                                 }
                         }
                         if loading {
-                            ForEach(0..<(books.isEmpty ? 9 : 3), id: \.self) { _ in
+                            ForEach(0..<(shown.isEmpty ? 9 : 3), id: \.self) { _ in
                                 FolioMobileBookSkeleton()
                             }
                         }
@@ -308,6 +312,10 @@ struct FolioMobileDiscoverTopicPage: View {
             started = true
             if !initial.isEmpty { books = initial }
             await reload()
+        }
+        .task(id: books.count) {
+            // Pages full of books already read show few tiles: fetch on until the screen fills.
+            if started, shown.count < 12, !books.isEmpty { await loadMore() }
         }
         .onChange(of: filters) { _, _ in
             books = []
