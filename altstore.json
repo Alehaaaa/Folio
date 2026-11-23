@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.39",
+          "buildVersion": "40",
+          "date": "2026-11-23",
+          "localizedDescription": "Metadata sources become JavaScript extensions; one Edit Details with suggested matches (1.0.39)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.39-40.ipa",
+          "size": 4533772,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.38",
           "buildVersion": "39",
           "date": "2026-11-23",
