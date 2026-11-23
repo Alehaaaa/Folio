@@ -71,6 +71,10 @@ struct FolioMobileReaderView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityAction(.magicTap) { toggleChrome() }
 
+            if engine != nil && !paginated {
+                scrollScrims.allowsHitTesting(false)
+            }
+
             if !showsChrome {
                 quietFooter
                     .frame(maxHeight: .infinity, alignment: .bottom)
@@ -236,6 +240,8 @@ struct FolioMobileReaderView: View {
                 background: palette.bg,
                 selectionAction: handleSelection
             )
+            // The page keeps itself inside the safe area; see FolioMobileReaderContainer.
+            .ignoresSafeArea()
         } else if let error {
             ContentUnavailableView("Cannot Open Book", systemImage: "exclamationmark.triangle", description: Text(error))
         } else {
@@ -262,6 +268,21 @@ struct FolioMobileReaderView: View {
                 .foregroundStyle(Color(hex: palette.fg).opacity(0.45))
                 .padding(.bottom, 6)
                 .accessibilityHidden(true)
+        }
+    }
+
+    /// In Scroll mode text runs under the status bar and home indicator;
+    /// soft page-colored fades keep those edges calm instead of cut off.
+    private var scrollScrims: some View {
+        let bg = Color(hex: palette.bg)
+        return VStack(spacing: 0) {
+            LinearGradient(colors: [bg, bg.opacity(0)], startPoint: .top, endPoint: .bottom)
+                .frame(height: 18)
+                .ignoresSafeArea(edges: .top)
+            Spacer(minLength: 0)
+            LinearGradient(colors: [bg.opacity(0), bg], startPoint: .top, endPoint: .bottom)
+                .frame(height: 22)
+                .ignoresSafeArea(edges: .bottom)
         }
     }
 
@@ -337,62 +358,58 @@ struct FolioMobileReaderView: View {
         .accessibilityLabel(label)
     }
 
+    /// A slim scrubber: chapter on the left, pages left and percent on the right.
+    /// The book jumps only when the thumb is released.
     private var bottomPanel: some View {
         let shown = scrubValue ?? progress
-        return VStack(spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(panelTitle(at: scrubValue))
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Text(panelDetail)
-                        .font(.caption)
-                        .foregroundStyle(Color(hex: palette.fg).opacity(0.6))
-                        .lineLimit(1)
+        let detail = panelDetail
+        return VStack(spacing: 6) {
+            Slider(value: Binding(
+                get: { scrubValue ?? progress },
+                set: { scrubValue = $0 }
+            ), in: 0...1, onEditingChanged: { editing in
+                if !editing, let value = scrubValue {
+                    seek(to: value)
+                    scrubValue = nil
                 }
-                Spacer(minLength: 8)
-                Text("\(Int((shown * 100).rounded()))%")
-                    .font(.footnote.weight(.semibold).monospacedDigit())
+            })
+            .tint(Color(hex: palette.accent))
+            .accessibilityLabel("Reading progress")
+            .accessibilityValue("\(Int((shown * 100).rounded())) percent")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: turn(1)
+                case .decrement: turn(-1)
+                @unknown default: break
+                }
             }
-            HStack(spacing: 12) {
-                pageButton(-1)
-                Slider(value: Binding(
-                    get: { scrubValue ?? progress },
-                    set: { scrubValue = $0 }
-                ), in: 0...1, onEditingChanged: { editing in
-                    if !editing, let value = scrubValue {
-                        seek(to: value)
-                        scrubValue = nil
-                    }
-                })
-                .tint(Color(hex: palette.accent))
-                .accessibilityLabel("Reading progress")
-                .accessibilityValue("\(Int((shown * 100).rounded())) percent")
-                pageButton(1)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background {
-            if #available(iOS 26, *) {
-                RoundedRectangle(cornerRadius: 26).glassEffect(.regular)
-            } else {
-                RoundedRectangle(cornerRadius: 26).fill(.regularMaterial)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 4)
-    }
 
-    private func pageButton(_ direction: Int) -> some View {
-        Button { turn(direction) } label: {
-            Image(systemName: direction > 0 ? "chevron.right" : "chevron.left")
-                .font(.body.weight(.semibold))
-                .frame(width: 30, height: 30)
+            HStack(spacing: 6) {
+                Text(panelTitle(at: scrubValue))
+                    .font(.footnote.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
+                Spacer(minLength: 8)
+                if !detail.isEmpty {
+                    Text(detail)
+                        .lineLimit(1)
+                        .foregroundStyle(Color(hex: palette.fg).opacity(0.6))
+                    Text("·").foregroundStyle(Color(hex: palette.fg).opacity(0.4))
+                }
+                Text("\(Int((shown * 100).rounded()))%")
+                    .monospacedDigit()
+                    .fontWeight(.semibold)
+            }
+            .font(.footnote)
+            .accessibilityElement(children: .combine)
         }
-        .folioGlassPill()
-        .disabled(direction > 0 ? atEnd : atStart)
-        .accessibilityLabel(direction > 0 ? "Next Page" : "Previous Page")
+        .padding(.horizontal, 18)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
+        .folioGlassBackground(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .padding(.horizontal, 14)
+        .padding(.bottom, 6)
     }
 
     private func panelTitle(at scrub: Double?) -> String {
@@ -406,14 +423,11 @@ struct FolioMobileReaderView: View {
     }
 
     private var panelDetail: String {
-        if pdf != nil { return book?.author ?? "" }
-        guard let engine else { return "" }
-        if scrubValue != nil { return "Release to jump here" }
-        if !paginated || engine.content.isComic { return book?.author ?? "" }
+        guard pdf == nil, let engine, scrubValue == nil, paginated, !engine.content.isComic else { return "" }
         switch engine.pagesLeftInChapter {
-        case 0: return engine.isLastChapter ? "End of book" : "Last page in chapter"
-        case 1: return "1 page left in chapter"
-        case let n: return "\(n) pages left in chapter"
+        case 0: return engine.isLastChapter ? "End of book" : "Last page"
+        case 1: return "1 page left"
+        case let n: return "\(n) pages left"
         }
     }
 
@@ -463,8 +477,6 @@ struct FolioMobileReaderView: View {
 
     // MARK: Navigation
 
-    private var atStart: Bool { pdf != nil ? pdfPage == 0 : (engine?.atStart ?? true) }
-    private var atEnd: Bool { pdf != nil ? pdfPage >= (pdf?.pageCount ?? 1) - 1 : (engine?.atEnd ?? true) }
 
     private func toggleChrome() {
         guard !voiceOver else { return }

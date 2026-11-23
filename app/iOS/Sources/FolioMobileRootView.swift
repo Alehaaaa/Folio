@@ -170,7 +170,7 @@ struct FolioMobileRootView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+                .folioGlassBackground(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .padding(.horizontal, 14)
                 .padding(.top, 6)
                 .accessibilityIdentifier("folio.downloadToast")
@@ -182,7 +182,7 @@ struct FolioMobileRootView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .background(.regularMaterial, in: Capsule())
+                .folioGlassBackground(in: Capsule())
                 .padding(.top, 6)
                 .accessibilityIdentifier("folio.importing")
             }
