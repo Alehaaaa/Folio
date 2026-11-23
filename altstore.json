@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.24",
+          "buildVersion": "25",
+          "date": "2026-11-23",
+          "localizedDescription": "Discover hides books you've already read (1.0.24)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.24-25.ipa",
+          "size": 4263268,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.23",
           "buildVersion": "24",
           "date": "2026-11-23",
