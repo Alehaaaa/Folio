@@ -124,6 +124,8 @@ struct LocalBook: Codable, Identifiable, Hashable {
     var language: String?
     /// Prevents re-linking after a manual unlink or a completed, inconclusive lookup.
     var hardcoverAutoLinkChecked: Bool?
+    /// Set when the reader removed the Hardcover link, so pages never re-link it.
+    var hardcoverManuallyUnlinked: Bool?
     var syncedProgressPages: Int?
     var series: String?
     var seriesIndex: Double?

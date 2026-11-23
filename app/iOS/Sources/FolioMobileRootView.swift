@@ -284,7 +284,6 @@ struct FolioMobileHomeView: View {
 
     @State private var discovery = FolioMobileHomeRecommendations()
     @State private var shelves = FolioMobileHomeShelves()
-    @State private var selectedTracked: TrackedBook?
     @ScaledMetric(relativeTo: .body) private var tileWidth: CGFloat = 118
 
     /// Refresh only when a meaningful preference changes, rather than every
@@ -343,9 +342,6 @@ struct FolioMobileHomeView: View {
         }
         .task(id: "\(hardcover.user?.id ?? -1)-\(hardcover.revision)") {
             await shelves.load(from: hardcover)
-        }
-        .sheet(item: $selectedTracked) { book in
-            FolioMobileTrackedBookDetail(book: book)
         }
     }
 
@@ -435,25 +431,8 @@ struct FolioMobileHomeView: View {
                         FolioMobileRemoteBookTile(book: item.book, width: min(tileWidth, 180))
                             .folioShelfEntryContextMenu(entry) { Task { await shelves.load(from: hardcover) } }
                     } else if let tracked = entry.goodreads {
-                        Button { selectedTracked = tracked } label: {
-                            VStack(alignment: .leading, spacing: 7) {
-                                FolioMobileRemoteCover(url: entry.cover, title: entry.title)
-                                    .aspectRatio(0.69, contentMode: .fit)
-                                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                                Text(entry.title)
-                                    .font(.system(.subheadline, design: .serif))
-                                    .foregroundStyle(FolioTheme.ink)
-                                    .lineLimit(2, reservesSpace: true)
-                                Text(entry.author)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                            .frame(width: min(tileWidth, 180), alignment: .topLeading)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityElement(children: .combine)
-                        .folioShelfEntryContextMenu(entry)
+                        FolioMobileRemoteBookTile(book: tracked.folioBook, width: min(tileWidth, 180))
+                            .folioShelfEntryContextMenu(entry)
                     }
                 }
             }

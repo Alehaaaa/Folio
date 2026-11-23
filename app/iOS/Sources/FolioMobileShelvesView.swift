@@ -62,8 +62,6 @@ struct FolioMobileShelvesView: View {
     @State private var hcItems: [HCUserBook] = []
     @State private var loading = false
     @State private var copying = false
-    @State private var selectedBook: HCBook?
-    @State private var selectedTracked: TrackedBook?
     @State private var notice: String?
 
     private var selectedStatus: HCStatus { navigation.shelfStatus }
@@ -160,10 +158,8 @@ struct FolioMobileShelvesView: View {
             } else {
                 LazyVStack(spacing: 0) {
                     ForEach(visible) { entry in
-                        Button {
-                            if let hardcover = entry.hardcover { selectedBook = hardcover.book }
-                            else { selectedTracked = entry.goodreads }
-                        } label: {
+                        NavigationLink(value: entry.hardcover?.book ?? entry.goodreads?.folioBook
+                                       ?? HCBook(id: 0, title: entry.title, authors: entry.author, imageURL: entry.cover)) {
                             HStack(alignment: .top, spacing: 12) {
                                 FolioCachedImage(url: entry.cover) {
                                     FolioClothCover(title: entry.title, compact: true)
@@ -214,12 +210,6 @@ struct FolioMobileShelvesView: View {
         }
         .padding(.bottom, 14)
         .task(id: selectedStatus.rawValue) { await refresh(includeGoodreads: false) }
-        .sheet(item: $selectedBook) { book in
-            NavigationStack { FolioMobileBookDetail(book: book).folioDetailDestinations() }
-        }
-        .sheet(item: $selectedTracked) { book in
-            FolioMobileTrackedBookDetail(book: book)
-        }
     }
 
     private func refresh(includeGoodreads: Bool) async {

@@ -22,6 +22,9 @@ struct FolioMobileBookDetail: View {
     @State private var edition: HCEdition?
     @State private var topReviews: [HCReview] = []
     @State private var remoteProgress = 0.0
+    /// The Hardcover record found for a book that arrived without one (an
+    /// unlinked library file or a Goodreads shelf entry).
+    @State private var resolvedID: Int?
     @State private var editingMetadata = false
     @State private var choosingHardcover = false
     @State private var choosingSource = false
@@ -71,7 +74,7 @@ struct FolioMobileBookDetail: View {
     }
 
     private var linkedID: Int? {
-        local?.hardcoverBookID ?? initialRemote.flatMap { $0.id > 0 ? $0.id : nil }
+        local?.hardcoverBookID ?? initialRemote.flatMap { $0.id > 0 ? $0.id : nil } ?? resolvedID
     }
 
     private var remote: HCBook? {
@@ -84,7 +87,7 @@ struct FolioMobileBookDetail: View {
     private var author: String { local?.author ?? remote?.authors ?? initialRemote?.authors ?? "" }
     private var pages: Int? { local?.hardcoverPages ?? remote?.pages ?? edition?.pages }
     private var overview: String? {
-        let value = local?.summary ?? remote?.description?.plainText
+        let value = local?.summary ?? (remote ?? initialRemote)?.description?.plainText
         return value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : value
     }
 
@@ -158,7 +161,7 @@ struct FolioMobileBookDetail: View {
                 author: author,
                 hardcoverBookID: linkedID,
                 hardcoverPages: pages,
-                cover: remote?.imageURL,
+                cover: (remote ?? initialRemote)?.imageURL,
                 failedJobID: nil
             )
         }
@@ -203,6 +206,7 @@ struct FolioMobileBookDetail: View {
             }
         }
         .task(id: "\(linkedID ?? 0)-\(hardcover.isConnected)") { await loadHardcoverData() }
+        .task(id: "\(local?.id.uuidString ?? title)-\(hardcover.isConnected)") { await resolveHardcover() }
     }
 
     // MARK: Hero
@@ -213,7 +217,7 @@ struct FolioMobileBookDetail: View {
                 if let local, library.coverURL(local) != nil {
                     FolioMobileCover(book: local)
                 } else {
-                    FolioMobileRemoteCover(url: remote?.imageURL, title: title)
+                    FolioMobileRemoteCover(url: (remote ?? initialRemote)?.imageURL, title: title)
                 }
             }
             .frame(width: sizeClass == .compact ? 110 : 142,
@@ -331,7 +335,7 @@ struct FolioMobileBookDetail: View {
                         author: author,
                         hardcoverBookID: linkedID,
                         hardcoverPages: pages,
-                        cover: remote?.imageURL
+                        cover: (remote ?? initialRemote)?.imageURL
                     )
                 }
                 .accessibilityIdentifier("folio.findSource")
@@ -779,9 +783,39 @@ struct FolioMobileBookDetail: View {
             $0.hardcoverPages = nil
             $0.hardcoverSlug = nil
             $0.hardcoverAutoLinkChecked = true
+            $0.hardcoverManuallyUnlinked = true
         }
+        resolvedID = nil
         remoteDetails = nil
         clearHardcoverData()
+    }
+
+    /// Every book page gets the same Hardcover data: books without a record
+    /// are matched by title and author, and library files keep the link.
+    @MainActor
+    private func resolveHardcover() async {
+        // A library copy opened from a Hardcover shelf keeps that record from now on.
+        if let local, local.hardcoverBookID == nil, local.hardcoverManuallyUnlinked != true,
+           let remoteID = initialRemote?.id, remoteID > 0 {
+            library.update(local.id) {
+                $0.hardcoverBookID = remoteID
+                if $0.hardcoverPages == nil { $0.hardcoverPages = initialRemote?.pages }
+                $0.hardcoverSlug = initialRemote?.slug
+            }
+            return
+        }
+        guard linkedID == nil, hardcover.isConnected, local?.hardcoverManuallyUnlinked != true else { return }
+        guard let match = await FolioHardcoverMatch.find(title: title, author: author, hardcover: hardcover),
+              linkedID == nil else { return }
+        if let local {
+            library.update(local.id) {
+                $0.hardcoverBookID = match.id
+                if $0.hardcoverPages == nil { $0.hardcoverPages = match.pages }
+                $0.hardcoverSlug = match.slug
+            }
+        } else {
+            resolvedID = match.id
+        }
     }
 
     /// Shows the cached page (if this is a different book than what is on
@@ -877,6 +911,45 @@ struct FolioMobileBookDetail: View {
     private func showError(_ text: String) {
         noticeIsError = true
         notice = text
+    }
+}
+
+/// Finds the Hardcover record for a title and author, remembering answers
+/// (including misses) for the session.
+@MainActor
+enum FolioHardcoverMatch {
+    private static var answers: [String: HCBook?] = [:]
+
+    /// "Red Rising (Red Rising Saga, #1)" is "Red Rising".
+    static func plainTitle(_ title: String) -> String {
+        var t = title
+        if let open = t.range(of: " (", options: .backwards), t.hasSuffix(")") { t = String(t[..<open.lowerBound]) }
+        return t.trimmingCharacters(in: .whitespaces)
+    }
+
+    static func find(title: String, author: String, hardcover: HardcoverClient) async -> HCBook? {
+        let key = BookMatch.key(author: author, title: title)
+        if let known = answers[key] { return known }
+        let wanted = plainTitle(title)
+        guard !BookAutoMatch.words(wanted).isEmpty,
+              let results = try? await hardcover.search(wanted) else { return nil }
+        let firstAuthor = FolioAuthorNames.split(author).first ?? author
+        // Search ranks the most-read edition first; take the first exact title and author.
+        let match = results.first { candidate in
+            BookAutoMatch.sameTitle(wanted, plainTitle(candidate.title)) &&
+                FolioAuthorNames.split(candidate.authors).contains { BookAutoMatch.sameAuthor(firstAuthor, $0) }
+        }
+        answers[key] = .some(match)
+        return match
+    }
+}
+
+extension TrackedBook {
+    /// A Goodreads shelf entry opens the same book page as everything else.
+    var folioBook: HCBook {
+        HCBook(id: hardcoverBookID ?? 0, title: title, authors: author,
+               imageURL: coverURL.flatMap(URL.init(string:)), year: year, pages: pages,
+               rating: averageRating, ratingsCount: nil, description: nil, slug: nil)
     }
 }
 
