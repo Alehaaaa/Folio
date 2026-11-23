@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.37",
+          "buildVersion": "38",
+          "date": "2026-11-23",
+          "localizedDescription": "Fix Metadata keeps each book's language and adds Amazon stores (1.0.37)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.37-38.ipa",
+          "size": 4500599,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.36",
           "buildVersion": "37",
           "date": "2026-11-23",
