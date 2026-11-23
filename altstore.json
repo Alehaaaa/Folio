@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.32",
+          "buildVersion": "33",
+          "date": "2026-11-23",
+          "localizedDescription": "Smoother page turns, fewer Hardcover requests, progress sent when leaving the app (1.0.32)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.32-33.ipa",
+          "size": 4469715,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.27",
           "buildVersion": "28",
           "date": "2026-11-23",
