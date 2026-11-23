@@ -109,6 +109,7 @@ struct FolioMobileDownloadsView: View {
         .sheet(item: $detailBook) { book in
             NavigationStack {
                 FolioMobileBookDetail(bookID: book.id)
+                    .folioDetailDestinations()
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
                             Button("Done") { detailBook = nil }

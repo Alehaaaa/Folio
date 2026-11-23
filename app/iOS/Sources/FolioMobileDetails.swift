@@ -17,13 +17,18 @@ struct FolioMobileBookDetail: View {
     @State private var remoteDetails: HCBook?
     @State private var myHardcoverBook: HCUserBook?
     @State private var bookSeries: [(id: Int, name: String, position: Double?)] = []
-    @State private var pagesRead = ""
+    @State private var seriesEntries: [(position: Double?, book: HCBook)] = []
+    @State private var stats: HCBookStats?
+    @State private var edition: HCEdition?
+    @State private var topReviews: [HCReview] = []
+    @State private var remoteProgress = 0.0
     @State private var editingMetadata = false
     @State private var choosingHardcover = false
     @State private var choosingSource = false
     @State private var deletingLocal = false
     @State private var removingHardcoverShelf = false
     @State private var resettingProgress = false
+    @State private var aboutExpanded = false
     @State private var busy = false
     @State private var notice: String?
     @State private var noticeIsError = false
@@ -59,11 +64,27 @@ struct FolioMobileBookDetail: View {
 
     private var title: String { local?.title ?? remote?.title ?? initialRemote?.title ?? "Book" }
     private var author: String { local?.author ?? remote?.authors ?? initialRemote?.authors ?? "" }
-    private var pages: Int? { local?.hardcoverPages ?? remote?.pages }
+    private var pages: Int? { local?.hardcoverPages ?? remote?.pages ?? edition?.pages }
     private var overview: String? {
         let value = local?.summary ?? remote?.description?.plainText
         return value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : value
     }
+
+    /// The byline as author pages: Hardcover ids when known, names otherwise.
+    private var authorRoutes: [FolioMobileAuthorRoute] {
+        if let refs = remote?.authorRefs, !refs.isEmpty {
+            return refs.map { FolioMobileAuthorRoute(name: $0.name, id: $0.id) }
+        }
+        return FolioAuthorNames.split(author).map { FolioMobileAuthorRoute(name: $0, id: nil) }
+    }
+
+    /// Status shown on the single status control: Hardcover's when the book is
+    /// on a Hardcover shelf, otherwise the library's.
+    private var currentStatus: HCStatus? {
+        myHardcoverBook?.status ?? local?.status.hardcover
+    }
+
+    private var canSyncHardcover: Bool { linkedID != nil && hardcover.isConnected }
 
     private var matchingDownload: DownloadJob? {
         let key = BookMatch.key(author: author, title: title)
@@ -78,44 +99,28 @@ struct FolioMobileBookDetail: View {
             if localBookID != nil && local == nil {
                 ContentUnavailableView("Book Unavailable", systemImage: "book.closed")
             } else {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 24) {
                     hero
                     primaryActions
-                    readingSection
-                    informationSection
-                    if let overview, !overview.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("About This Book").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
-                            Text(overview).font(.body).textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                    if let local {
-                        collectionsSection(local)
-                        hardcoverSection(local)
-                        libraryActions(local)
-                    } else {
-                        accountConnections
-                    }
-                    if let remote, let url = remote.webURL {
-                        Link(destination: url) {
-                            Label("Open on Hardcover", systemImage: "arrow.up.right.square")
-                        }
-                        .folioGlassPill()
-                    }
+                    readingCard
                     if let notice {
                         Label(notice, systemImage: noticeIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                             .font(.footnote)
                             .foregroundStyle(noticeIsError ? FolioTheme.danger : FolioTheme.success)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    if let overview, !overview.isEmpty { about(overview) }
+                    ratingsCard
+                    seriesSection
+                    detailsSection
+                    if let local, !library.data.collections.isEmpty { collectionsSection(local) }
                 }
                 .padding(20)
                 .frame(maxWidth: 760)
                 .frame(maxWidth: .infinity)
             }
         }
-        .navigationTitle("Book Details")
+        .navigationTitle(title)
         .folioScreen()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { detailToolbar }
@@ -182,6 +187,8 @@ struct FolioMobileBookDetail: View {
         .task(id: linkedID) { await loadHardcoverData() }
     }
 
+    // MARK: Hero
+
     private var hero: some View {
         HStack(alignment: .top, spacing: 17) {
             Group {
@@ -196,40 +203,46 @@ struct FolioMobileBookDetail: View {
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             .shadow(color: .black.opacity(0.2), radius: 14, x: 3, y: 7)
             .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 9) {
+            VStack(alignment: .leading, spacing: 10) {
                 Text(title)
                     .font(.system(size: sizeClass == .compact ? 26 : 34, weight: .regular, design: .serif))
                     .foregroundStyle(FolioTheme.ink)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(author.isEmpty ? "Unknown Author" : author)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let local {
-                    Label(local.format.label, systemImage: local.format.symbol)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                HStack(spacing: 10) {
-                    if let year = local?.publishedYear ?? remote?.year {
-                        Text(String(year))
-                    }
-                    if let pages {
-                        Text("\(pages) pages")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                if let rating = remote?.rating, rating > 0 {
-                    Label(String(format: "%.1f", rating), systemImage: "star.fill")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                byline
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 6)
+    }
+
+    /// Each author opens their page.
+    @ViewBuilder
+    private var byline: some View {
+        let routes = Array(authorRoutes.prefix(3))
+        if routes.isEmpty {
+            Text("Unknown Author").font(.subheadline).foregroundStyle(.secondary)
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) { authorLinks(routes) }
+                VStack(alignment: .leading, spacing: 4) { authorLinks(routes) }
+            }
+        }
+    }
+
+    private func authorLinks(_ routes: [FolioMobileAuthorRoute]) -> some View {
+        ForEach(routes, id: \.self) { route in
+            NavigationLink(value: route) {
+                Text(route.name)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(FolioTheme.olive)
+                    .underline(color: FolioTheme.olive.opacity(0.35))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Open author page")
+        }
     }
 
     private var primaryActions: some View {
@@ -240,15 +253,6 @@ struct FolioMobileBookDetail: View {
                     navigation.read(local.id)
                 }
                 .accessibilityIdentifier("folio.readBook")
-                HStack(spacing: 8) {
-                    Label(local.status == .none ? "Not Started" : local.status.label,
-                          systemImage: local.status.symbol)
-                    Spacer(minLength: 8)
-                    Text(local.progressLabel).monospacedDigit()
-                }
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
-                .accessibilityElement(children: .combine)
             } else {
                 FolioGlassButton(title: "Find Source", systemImage: "magnifyingglass", prominent: true, fullWidth: true) {
                     FolioMobileDownloadNotice.enqueue(
@@ -274,24 +278,51 @@ struct FolioMobileBookDetail: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
-
-                FolioGlassButton(title: "Choose a Source", systemImage: "list.bullet", fullWidth: true) {
-                    choosingSource = true
-                }
             }
         }
     }
 
+    // MARK: Toolbar
+
     @ToolbarContentBuilder
     private var detailToolbar: some ToolbarContent {
+        // The title sits on the page; the bar keeps it only as the back label.
+        ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
-                if local != nil {
+                if let local {
                     Button("Edit Book Details", systemImage: "square.and.pencil") { editingMetadata = true }
-                    Button("Match with Hardcover", systemImage: "link") { choosingHardcover = true }
+                    ShareLink(item: library.fileURL(local)) {
+                        Label("Export File", systemImage: "square.and.arrow.up")
+                    }
+                    if local.progress > 0 || local.lastOpenedAt != nil {
+                        Button("Reset Progress", systemImage: "arrow.counterclockwise") { resettingProgress = true }
+                    }
+                    Section("Hardcover") {
+                        Button(local.hardcoverBookID == nil ? "Match with Hardcover" : "Change Match",
+                               systemImage: "link") { choosingHardcover = true }
+                            .disabled(!hardcover.isConnected)
+                        if local.hardcoverBookID != nil {
+                            if local.format == .epub, hardcover.isConnected {
+                                Button("Update EPUB Details & Cover", systemImage: "arrow.down.doc") {
+                                    Task { await updateEPUB(local.id) }
+                                }
+                                .disabled(busy || remote == nil)
+                            }
+                            Button("Unlink", systemImage: "link.badge.minus") { unlink(local) }
+                        }
+                    }
                 } else {
                     Button("Choose a Source", systemImage: "list.bullet") { choosingSource = true }
                     Button("View Downloads", systemImage: "arrow.down.circle") { navigation.openDownloads() }
+                }
+                if let url = remote?.webURL {
+                    Link(destination: url) { Label("Open on Hardcover", systemImage: "arrow.up.right.square") }
+                }
+                if let myHardcoverBook, hardcover.isConnected, myHardcoverBook.id > 0 {
+                    Button("Remove from Hardcover Shelves", systemImage: "minus.circle", role: .destructive) {
+                        removingHardcoverShelf = true
+                    }
                 }
                 if local != nil {
                     Divider()
@@ -305,381 +336,406 @@ struct FolioMobileBookDetail: View {
         }
     }
 
-    private var readingSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Your Reading").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
-            if let local {
-                localReading(local)
-            } else if let linkedID {
-                hardcoverReading(bookID: linkedID)
-            } else {
-                Text("Add this book to your library to track your reading.")
+    // MARK: Reading
+
+    /// One status control, one progress bar and, on Hardcover, your stars.
+    @ViewBuilder
+    private var readingCard: some View {
+        if local == nil && !hardcover.isConnected {
+            HStack(spacing: 12) {
+                Text("Connect Hardcover to track this book.")
                     .font(.subheadline).foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                Button("Connect") { navigation.openSettings() }
+                    .folioGlassPill()
             }
+            .detailPanel()
+        } else if local != nil || linkedID != nil {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    statusMenu
+                    Spacer(minLength: 8)
+                    progressLabel
+                }
+                progressSlider
+                if canSyncHardcover, let myHardcoverBook {
+                    Divider()
+                    HStack {
+                        Text("Your rating").font(.subheadline).foregroundStyle(.secondary)
+                        Spacer()
+                        ratingStars(myHardcoverBook)
+                    }
+                }
+            }
+            .detailPanel()
         }
-        .detailPanel()
     }
 
-    private func localReading(_ local: LocalBook) -> some View {
-        VStack(alignment: .leading, spacing: 13) {
-            HStack {
-                Text("Progress").font(.subheadline)
-                Spacer()
-                Text(local.progressLabel).foregroundStyle(.secondary)
+    private var statusOptions: [HCStatus] {
+        canSyncHardcover ? HCStatus.allCases : [.wantToRead, .reading, .read]
+    }
+
+    private var statusMenu: some View {
+        Menu {
+            ForEach(statusOptions) { status in
+                Button {
+                    choose(status)
+                } label: {
+                    Label(status.label, systemImage: currentStatus == status ? "checkmark" : status.symbol)
+                }
             }
-            ProgressView(value: min(1, local.progress))
+            if currentStatus != nil {
+                Divider()
+                Button("Clear Status", systemImage: "xmark", role: .destructive) { clearStatus() }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: currentStatus?.symbol ?? "plus")
+                Text(currentStatus?.label ?? "Add to Shelf")
+                Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+            }
+            .font(.subheadline.weight(.medium))
+            .padding(.horizontal, 4)
+        }
+        .folioGlassPill(prominent: currentStatus == nil)
+        .disabled(busy)
+        .accessibilityLabel("Reading status, \(currentStatus?.label ?? "none")")
+    }
+
+    /// Books outside the library track pages on Hardcover while being read.
+    private var remotePagesTotal: Int? {
+        guard local == nil, canSyncHardcover, let total = pages, total > 0,
+              currentStatus == .reading || currentStatus == .paused else { return nil }
+        return total
+    }
+
+    /// The one progress control: drag it, and Hardcover follows when you let go.
+    @ViewBuilder
+    private var progressSlider: some View {
+        if let local {
             Slider(
                 value: Binding(
                     get: { min(1, library.book(local.id)?.progress ?? 0) },
-                    set: { fraction in
-                        library.update(local.id) { $0.progress = min(1, max(0, fraction)) }
-                    }
+                    set: { fraction in library.update(local.id) { $0.progress = min(1, max(0, fraction)) } }
                 ),
-                in: 0...1
+                in: 0...1,
+                onEditingChanged: { editing in
+                    if !editing { FolioHardcoverProgressSync.push(local.id, store: library, hardcover: hardcover) }
+                }
             )
+            .tint(FolioTheme.olive)
             .accessibilityLabel("Reading progress")
-            Text("Status").font(.subheadline.weight(.medium))
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 9) {
-                ForEach(ReadingStatus.allCases) { status in
-                    let isSelected = local.status == status
-                    Button {
-                        library.setStatus(local.id, status, hardcover: hardcover)
-                    } label: {
-                        Label(status == .none ? "Not Started" : status.label,
-                              systemImage: isSelected ? "checkmark.circle.fill" : status.symbol)
-                            .font(.subheadline)
-                            .frame(maxWidth: .infinity, minHeight: 33)
+        } else if let total = remotePagesTotal {
+            Slider(value: $remoteProgress, in: 0...1, onEditingChanged: { editing in
+                if !editing { savePages(Int((remoteProgress * Double(total)).rounded())) }
+            })
+            .tint(FolioTheme.olive)
+            .accessibilityLabel("Pages read")
+        }
+    }
+
+    @ViewBuilder
+    private var progressLabel: some View {
+        if let local {
+            Text(local.progressLabel)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        } else if let total = remotePagesTotal {
+            Text("p. \(Int((remoteProgress * Double(total)).rounded())) of \(total)")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+        }
+    }
+
+    private func ratingStars(_ item: HCUserBook) -> some View {
+        HStack(spacing: 6) {
+            ForEach(1...5, id: \.self) { number in
+                Button {
+                    myHardcoverBook?.rating = Double(number)
+                    Task {
+                        await hardcover.setRating(userBookID: item.id, rating: Double(number))
+                        if let linkedID {
+                            myHardcoverBook = try? await hardcover.userBook(bookID: linkedID)
+                        }
                     }
-                    .folioGlassPill(prominent: isSelected)
+                } label: {
+                    Image(systemName: number <= Int((item.rating ?? 0).rounded()) ? "star.fill" : "star")
+                        .font(.title3)
+                        .foregroundStyle(FolioTheme.caution)
                 }
-            }
-            if let date = local.lastOpenedAt {
-                Text("Last opened \(date.formatted(date: .abbreviated, time: .omitted))")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            if local.hardcoverBookID != nil {
-                remoteReadingControls
+                .buttonStyle(.plain)
+                .accessibilityLabel("Rate \(number) stars")
             }
         }
     }
 
-    private func hardcoverReading(bookID: Int) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if !hardcover.isConnected {
-                Text("Connect your Hardcover account to rate this book and track its status.")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                Button("Go to Account Settings") { navigation.openSettings() }
-                    .folioGlassPill()
-            } else {
-                hardcoverStatuses(bookID: bookID)
-                remoteReadingControls
-            }
+    private func choose(_ status: HCStatus) {
+        if let local {
+            library.setStatus(local.id, status.local)
+        }
+        guard canSyncHardcover, let linkedID else { return }
+        Task {
+            busy = true
+            let updated = await hardcover.setStatus(bookID: linkedID, status: status)
+            busy = false
+            if let updated { myHardcoverBook = updated } else { showError(hardcover.lastError ?? "Could not update status.") }
         }
     }
 
-    private func hardcoverStatuses(bookID: Int) -> some View {
+    private func clearStatus() {
+        if let local { library.setStatus(local.id, .none) }
+        if myHardcoverBook != nil, hardcover.isConnected { removingHardcoverShelf = true }
+    }
+
+    private func savePages(_ page: Int) {
+        guard let linkedID, let total = pages else { return }
+        Task {
+            busy = true
+            await hardcover.setProgress(bookID: linkedID, pages: min(total, max(0, page)))
+            myHardcoverBook = try? await hardcover.userBook(bookID: linkedID)
+            busy = false
+        }
+    }
+
+    // MARK: About, ratings, series, details
+
+    private func about(_ text: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Hardcover Shelf").font(.subheadline.weight(.medium))
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 9) {
-                ForEach(HCStatus.allCases) { status in
-                    let isSelected = myHardcoverBook?.status == status
-                    Button {
-                        Task {
-                            busy = true
-                            myHardcoverBook = await hardcover.setStatus(bookID: bookID, status: status)
-                            pagesRead = String(myHardcoverBook?.progressPages ?? 0)
-                            busy = false
-                            if myHardcoverBook == nil { showError(hardcover.lastError ?? "Could not update status.") }
-                        }
-                    } label: {
-                        Label(status.shortLabel,
-                              systemImage: isSelected ? "checkmark.circle.fill" : status.symbol)
-                            .font(.subheadline)
-                            .frame(maxWidth: .infinity, minHeight: 33)
-                    }
-                    .folioGlassPill(prominent: isSelected)
-                    .disabled(busy)
+            Text(text)
+                .font(.body)
+                .foregroundStyle(FolioTheme.ink)
+                .lineLimit(aboutExpanded ? nil : 6)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if text.count > 320 {
+                Button(aboutExpanded ? "Less" : "More") {
+                    withAnimation(.easeInOut(duration: 0.2)) { aboutExpanded.toggle() }
                 }
+                .font(.subheadline)
+                .foregroundStyle(FolioTheme.olive)
             }
         }
     }
 
-    private var remoteReadingControls: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            if hardcover.isConnected, let myHardcoverBook {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text("Your Rating").font(.subheadline.weight(.medium))
-                    HStack(spacing: 9) {
-                        ForEach(1...5, id: \.self) { number in
-                            Button {
-                                self.myHardcoverBook?.rating = Double(number)
-                                Task {
-                                    await hardcover.setRating(userBookID: myHardcoverBook.id, rating: Double(number))
-                                    if let linkedID {
-                                        self.myHardcoverBook = try? await hardcover.userBook(bookID: linkedID)
-                                    }
-                                }
-                            } label: {
-                                Image(systemName: number <= Int((myHardcoverBook.rating ?? 0).rounded()) ? "star.fill" : "star")
-                                    .font(.title2)
-                                    .foregroundStyle(FolioTheme.caution)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Rate \(number) stars")
-                        }
-                        if let rating = myHardcoverBook.rating {
-                            Text(rating.formatted(.number.precision(.fractionLength(1))))
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-            if hardcover.isConnected, let linkedID,
-               let total = pages, total > 0 {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Hardcover Page Progress").font(.subheadline.weight(.medium))
-                    ProgressView(
-                        value: Double(min(total, myHardcoverBook?.progressPages ?? 0)),
-                        total: Double(total)
-                    )
+    @ViewBuilder
+    private var ratingsCard: some View {
+        if let linkedID, let stats, (stats.ratingsCount ?? 0) > 0 {
+            let route = FolioMobileRatingsRoute(bookID: linkedID, title: title)
+            VStack(alignment: .leading, spacing: 16) {
+                NavigationLink(value: route) {
                     HStack {
-                        TextField("Pages read", text: $pagesRead)
-                            .keyboardType(.numberPad)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 110)
-                        Text("of \(total)")
-                            .foregroundStyle(.secondary)
+                        Text("Ratings & Reviews").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
                         Spacer()
-                        Button("Update") {
-                            Task {
-                                busy = true
-                                await hardcover.setProgress(
-                                    bookID: linkedID,
-                                    pages: min(total, max(0, Int(pagesRead) ?? 0))
-                                )
-                                self.myHardcoverBook = try? await hardcover.userBook(bookID: linkedID)
-                                busy = false
+                        Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                FolioMobileRatingsSummary(stats: stats)
+                ForEach(topReviews.prefix(2)) { review in
+                    Divider()
+                    FolioMobileReviewRow(review: review, lineLimit: 4)
+                }
+                if let count = stats.reviewsCount, count > 0 {
+                    NavigationLink(value: route) {
+                        Text(count == 1 ? "Read the review" : "Read all \(count.formatted()) reviews")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(FolioTheme.olive)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .detailPanel()
+        }
+    }
+
+    /// The saga as a shelf of covers, with this book marked.
+    @ViewBuilder
+    private var seriesSection: some View {
+        if let first = bookSeries.first {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(first.name)
+                        .font(.folioDisplay(.title2))
+                        .foregroundStyle(FolioTheme.ink)
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 8)
+                    NavigationLink("See all", value: FolioMobileSeriesRoute(id: first.id, name: first.name, currentBookID: linkedID))
+                        .font(.subheadline)
+                        .foregroundStyle(FolioTheme.olive)
+                }
+                if seriesEntries.isEmpty {
+                    NavigationLink(value: FolioMobileSeriesRoute(id: first.id, name: first.name, currentBookID: linkedID)) {
+                        Text(first.position.map { "Book \($0.formatted())" } ?? "Explore the series")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    ScrollViewReader { proxy in
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            LazyHStack(alignment: .top, spacing: 12) {
+                                ForEach(seriesEntries, id: \.book.id) { entry in
+                                    seriesTile(entry)
+                                }
                             }
+                            .padding(.vertical, 4)
                         }
-                        .folioGlassPill()
-                        .disabled(busy || Int(pagesRead) == nil)
+                        .contentMargins(.horizontal, 20)
+                        .padding(.horizontal, -20)
+                        .onAppear {
+                            if let linkedID { proxy.scrollTo(linkedID, anchor: .center) }
+                        }
                     }
                 }
-            }
-        }
-    }
-
-    private var informationSection: some View {
-        VStack(alignment: .leading, spacing: 11) {
-            HStack {
-                Text("Details").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
-                Spacer()
-                if local != nil {
-                    Button("Edit", systemImage: "pencil") { editingMetadata = true }
-                        .folioGlassPill()
-                }
-            }
-            if let local {
-                LabeledContent("Added", value: local.addedAt.formatted(date: .abbreviated, time: .omitted))
-                if let series = local.series, !series.isEmpty {
-                    LabeledContent("Series", value: local.seriesIndex.map { "\(series) #\($0.formatted())" } ?? series)
-                }
-                if let isbn = local.isbn, !isbn.isEmpty { LabeledContent("ISBN", value: isbn) }
-                if let publisher = local.publisher, !publisher.isEmpty {
-                    LabeledContent("Publisher", value: publisher)
-                }
-                if let language = local.language, !language.isEmpty {
-                    LabeledContent("Language", value: language)
-                }
-            }
-            if !bookSeries.isEmpty {
-                ForEach(bookSeries.prefix(3), id: \.id) { series in
-                    LabeledContent("Hardcover Series", value: series.name)
-                }
-            }
-            if let year = local?.publishedYear ?? remote?.year {
-                LabeledContent("Published", value: String(year))
-            }
-        }
-        .detailPanel()
-    }
-
-    private func collectionsSection(_ local: LocalBook) -> some View {
-        VStack(alignment: .leading, spacing: 11) {
-            HStack {
-                Text("Collections").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
-                Spacer()
-                Text("\(local.collections.count) selected")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            if library.data.collections.isEmpty {
-                Text("Create collections in Library to organize your books.")
-                    .font(.subheadline).foregroundStyle(.secondary)
-            } else {
-                ForEach(library.data.collections) { collection in
-                    Button {
-                        library.toggle(local.id, in: collection.id)
-                    } label: {
+                ForEach(bookSeries.dropFirst().prefix(2), id: \.id) { other in
+                    NavigationLink(value: FolioMobileSeriesRoute(id: other.id, name: other.name, currentBookID: linkedID)) {
                         HStack {
-                            Text(collection.name).foregroundStyle(.primary)
+                            Text(other.name).font(.subheadline).foregroundStyle(FolioTheme.ink)
                             Spacer()
-                            Image(systemName: local.collections.contains(collection.id) ? "checkmark.circle.fill" : "circle")
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                         }
-                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
             }
         }
-        .detailPanel()
     }
 
-    private func hardcoverSection(_ local: LocalBook) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Hardcover Association").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
-                Spacer()
-                if let id = local.hardcoverBookID {
-                    Label("Linked #\(id)", systemImage: "link")
-                        .font(.caption).foregroundStyle(FolioTheme.success)
-                }
+    private func seriesTile(_ entry: (position: Double?, book: HCBook)) -> some View {
+        let isCurrent = entry.book.id == linkedID
+        return NavigationLink(value: entry.book) {
+            VStack(alignment: .leading, spacing: 6) {
+                FolioMobileRemoteCover(url: entry.book.imageURL, title: entry.book.title)
+                    .frame(width: 92, height: 134)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 7)
+                            .strokeBorder(isCurrent ? FolioTheme.olive : .clear, lineWidth: 2.5)
+                    }
+                Text(entry.position.map { "Book \($0.formatted())" } ?? entry.book.title)
+                    .font(.caption.weight(isCurrent ? .semibold : .regular))
+                    .foregroundStyle(isCurrent ? FolioTheme.olive : .secondary)
+                    .lineLimit(1)
             }
-            if let id = local.hardcoverBookID {
-                Text(remote?.title ?? "Hardcover book #\(id)")
-                    .font(.subheadline.weight(.semibold))
-                HStack(spacing: 8) {
-                    FolioGlassButton(title: "Change Match", systemImage: "magnifyingglass") {
-                        choosingHardcover = true
-                    }
-                    .disabled(!hardcover.isConnected || busy)
-                    FolioGlassButton(title: "Unlink", systemImage: "link.badge.minus") {
-                        library.update(local.id) {
-                            $0.hardcoverBookID = nil
-                            $0.hardcoverPages = nil
-                            $0.hardcoverSlug = nil
-                            $0.hardcoverAutoLinkChecked = true
-                        }
-                        remoteDetails = nil
-                        myHardcoverBook = nil
-                        bookSeries = []
-                    }
-                }
-                if !hardcover.isConnected {
-                    Text("Connect your Hardcover account in Settings before changing the match or refreshing EPUB metadata.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                if local.format == .epub, hardcover.isConnected {
-                    Button {
-                        Task { await updateEPUB(local.id) }
-                    } label: {
-                        HStack {
-                            Label("Update EPUB Details & Cover", systemImage: "arrow.down.doc")
-                            if busy { ProgressView().controlSize(.small) }
-                        }
-                    }
-                    .folioGlassPill(prominent: true)
-                    .disabled(busy || remote == nil)
-                    Text("Updates the embedded metadata and cover, with a backup of the original EPUB.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            } else if hardcover.isConnected {
-                Text("Link this local book to its Hardcover catalogue record.")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                FolioGlassButton(title: "Find on Hardcover", systemImage: "magnifyingglass") {
-                    choosingHardcover = true
-                }
-            } else {
-                Text("Connect Hardcover in Settings to link metadata and synchronize your reading.")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                FolioGlassButton(title: "Account Settings", systemImage: "person.crop.circle") {
-                    navigation.openSettings()
-                }
-            }
-            Divider()
-            Label(
-                GoodreadsClient.shared.isLinked ? "Goodreads shelves linked" : "Goodreads shelves not linked",
-                systemImage: GoodreadsClient.shared.isLinked ? "checkmark.circle.fill" : "books.vertical"
-            )
-            .font(.subheadline).foregroundStyle(.secondary)
+            .frame(width: 92, alignment: .leading)
         }
+        .buttonStyle(.plain)
+        .disabled(isCurrent)
+        .id(entry.book.id)
+        .accessibilityLabel("\(entry.position.map { "Book \($0.formatted()), " } ?? "")\(entry.book.title)")
+    }
+
+    private var detailsSection: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            Text("Details").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
+            if let publisher = nonEmpty(local?.publisher) ?? nonEmpty(edition?.publisher) {
+                LabeledContent("Publisher", value: publisher)
+            }
+            if let published = publishedText {
+                LabeledContent("Published", value: published)
+            }
+            if let pages { LabeledContent("Pages", value: pages.formatted()) }
+            if let format = nonEmpty(edition?.format) {
+                LabeledContent("Edition", value: format.capitalized)
+            }
+            if let language = nonEmpty(local?.language) ?? nonEmpty(edition?.language) {
+                LabeledContent("Language", value: language.count <= 3
+                               ? (Locale.current.localizedString(forLanguageCode: language) ?? language) : language)
+            }
+            if let isbn = nonEmpty(local?.isbn) ?? nonEmpty(edition?.isbn13) ?? nonEmpty(edition?.isbn10) {
+                LabeledContent("ISBN") { Text(isbn).textSelection(.enabled).monospacedDigit() }
+            }
+            if bookSeries.isEmpty, let local, let series = nonEmpty(local.series) {
+                LabeledContent("Series", value: local.seriesIndex.map { "\(series) #\($0.formatted())" } ?? series)
+            }
+            if let local {
+                LabeledContent("File", value: local.format.label)
+                LabeledContent("Added", value: local.addedAt.formatted(date: .abbreviated, time: .omitted))
+            }
+        }
+        .font(.subheadline)
         .detailPanel()
     }
 
-    private var accountConnections: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Connections").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
-            HStack(spacing: 9) {
-                Image(systemName: hardcover.isConnected ? "checkmark.circle.fill" : "person.crop.circle.badge.plus")
-                    .foregroundStyle(hardcover.isConnected ? .green : .secondary)
-                Text(hardcover.isConnected ? "Hardcover account connected" : "Connect Hardcover to save ratings and shelf status.")
-                    .font(.subheadline)
-            }
-            if !hardcover.isConnected {
-                FolioGlassButton(title: "Account Settings", systemImage: "gearshape") {
-                    navigation.openSettings()
-                }
-            }
-            let goodreads = GoodreadsClient.shared
-            Label(
-                goodreads.isLinked ? "Goodreads shelves linked" : "Goodreads shelves not linked",
-                systemImage: goodreads.isLinked ? "checkmark.circle.fill" : "books.vertical"
-            )
-            .font(.subheadline).foregroundStyle(.secondary)
-            if let myHardcoverBook, hardcover.isConnected {
-                Button(role: .destructive) {
-                    removingHardcoverShelf = true
+    private var publishedText: String? {
+        if let date = stats?.releaseDate ?? edition?.releaseDate { return date.folioReadableDate }
+        return (local?.publishedYear ?? remote?.year).map { String($0) }
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    private func collectionsSection(_ local: LocalBook) -> some View {
+        VStack(alignment: .leading, spacing: 11) {
+            Text("Collections").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
+            ForEach(library.data.collections) { collection in
+                Button {
+                    library.toggle(local.id, in: collection.id)
                 } label: {
-                    Label("Remove from Hardcover Shelves", systemImage: "trash")
+                    HStack {
+                        Text(collection.name).foregroundStyle(.primary)
+                        Spacer()
+                        Image(systemName: local.collections.contains(collection.id) ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(FolioTheme.olive)
+                    }
+                    .contentShape(Rectangle())
                 }
-                .folioGlassPill()
-                .disabled(busy || myHardcoverBook.id <= 0)
+                .buttonStyle(.plain)
             }
         }
         .detailPanel()
     }
 
-    private func libraryActions(_ local: LocalBook) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 10) { libraryUtilityActions(local) }
-                VStack(alignment: .leading, spacing: 9) { libraryUtilityActions(local) }
-            }
-            Button(role: .destructive) {
-                deletingLocal = true
-            } label: {
-                Label("Remove from Library", systemImage: "trash")
-            }
-            .folioGlassPill()
-        }
-        .padding(.vertical, 8)
-    }
+    // MARK: Loading and actions
 
-    @ViewBuilder
-    private func libraryUtilityActions(_ local: LocalBook) -> some View {
-        FolioGlassButton(title: "Edit Details", systemImage: "square.and.pencil") {
-            editingMetadata = true
+    private func unlink(_ local: LocalBook) {
+        library.update(local.id) {
+            $0.hardcoverBookID = nil
+            $0.hardcoverPages = nil
+            $0.hardcoverSlug = nil
+            $0.hardcoverAutoLinkChecked = true
         }
-        ShareLink(item: library.fileURL(local)) {
-            Label("Export File", systemImage: "square.and.arrow.up")
-        }
-        .folioGlassPill()
-        FolioGlassButton(title: "Reset Progress", systemImage: "arrow.counterclockwise") {
-            resettingProgress = true
-        }
+        remoteDetails = nil
+        myHardcoverBook = nil
+        bookSeries = []
+        seriesEntries = []
+        stats = nil
+        edition = nil
+        topReviews = []
     }
 
     @MainActor
     private func loadHardcoverData() async {
         myHardcoverBook = nil
         bookSeries = []
+        seriesEntries = []
+        stats = nil
+        edition = nil
+        topReviews = []
         guard let linkedID, hardcover.isConnected else { return }
+        if let local { FolioHardcoverProgressSync.push(local.id, store: library, hardcover: hardcover) }
         if let refreshed = try? await hardcover.book(id: linkedID) {
             remoteDetails = refreshed
         }
         myHardcoverBook = try? await hardcover.userBook(bookID: linkedID)
-        bookSeries = (try? await hardcover.series(forBook: linkedID)) ?? []
-        pagesRead = String(myHardcoverBook?.progressPages ?? 0)
+        if let total = pages, total > 0 {
+            remoteProgress = min(1, Double(myHardcoverBook?.progressPages ?? 0) / Double(total))
+        }
+        async let loadedStats = try? hardcover.stats(bookID: linkedID)
+        async let loadedEdition = try? hardcover.edition(bookID: linkedID)
+        async let loadedSeries = try? hardcover.series(forBook: linkedID)
+        async let loadedReviews = try? hardcover.reviews(bookID: linkedID, limit: 2)
+        bookSeries = (await loadedSeries) ?? []
+        stats = await loadedStats
+        edition = await loadedEdition
+        topReviews = (await loadedReviews) ?? []
+        if let first = bookSeries.first {
+            seriesEntries = (try? await hardcover.seriesBooks(first.id)) ?? []
+        }
     }
 
     @MainActor
@@ -700,6 +756,24 @@ struct FolioMobileBookDetail: View {
     private func showError(_ text: String) {
         noticeIsError = true
         notice = text
+    }
+}
+
+/// Sends a library book's reading progress to Hardcover as pages, so the app
+/// and Hardcover agree without a separate page field.
+@MainActor
+enum FolioHardcoverProgressSync {
+    static func push(_ bookID: UUID, store: LibraryStore, hardcover: HardcoverClient = .shared) {
+        guard let book = store.book(bookID), let hcID = book.hardcoverBookID,
+              hardcover.isConnected, book.status != .finished,
+              let total = book.hardcoverPages, total > 0 else { return }
+        let pages = Int((min(1, book.progress) * Double(total)).rounded())
+        guard pages > 0, pages != book.syncedProgressPages else { return }
+        Task {
+            if await hardcover.setProgress(bookID: hcID, pages: pages) {
+                store.update(bookID) { $0.syncedProgressPages = pages }
+            }
+        }
     }
 }
 

@@ -27,15 +27,13 @@ struct FolioMobileRootView: View {
             Tab("Home", systemImage: "house.fill", value: .home) {
                 NavigationStack {
                     FolioMobileHomeView(showImporter: { importing = true })
-                        .navigationDestination(for: UUID.self) { FolioMobileBookDetail(bookID: $0) }
-                        .navigationDestination(for: HCBook.self) { FolioMobileBookDetail(book: $0) }
+                        .folioDetailDestinations()
                 }
             }
             Tab("Library", systemImage: "books.vertical.fill", value: .library) {
                 NavigationStack {
                     FolioMobileLibraryView(showImporter: { importing = true })
-                        .navigationDestination(for: UUID.self) { FolioMobileBookDetail(bookID: $0) }
-                        .navigationDestination(for: HCBook.self) { FolioMobileBookDetail(book: $0) }
+                        .folioDetailDestinations()
                 }
             }
             if sizeClass == .compact {
@@ -57,6 +55,7 @@ struct FolioMobileRootView: View {
                         }
                         .navigationTitle("More")
                         .folioScreen()
+                        .folioDetailDestinations()
                         .navigationDestination(for: FolioMobileMoreRoute.self) { route in
                             switch route {
                             case .downloads: FolioMobileDownloadsView()
@@ -81,8 +80,7 @@ struct FolioMobileRootView: View {
             Tab("Discover", systemImage: "magnifyingglass", value: .search, role: .search) {
                 NavigationStack {
                     FolioMobileDiscoverView()
-                        .navigationDestination(for: HCBook.self) { FolioMobileBookDetail(book: $0) }
-                        .navigationDestination(for: UUID.self) { FolioMobileBookDetail(bookID: $0) }
+                        .folioDetailDestinations()
                 }
             }
         }
@@ -95,7 +93,7 @@ struct FolioMobileRootView: View {
                 case .downloads: navigation.openDownloads()
                 case .sources:
                     navigation.selectedTab = .settings
-                    navigation.morePath = [.sources]
+                    navigation.morePath = NavigationPath([FolioMobileMoreRoute.sources])
                 default: break
                 }
             }
@@ -247,13 +245,13 @@ struct FolioMobileRootView: View {
 extension FolioMobileNavigation {
     func openSettings() {
         selectedTab = .settings
-        if compactTabs { morePath = [.settings] }
+        if compactTabs { morePath = NavigationPath([FolioMobileMoreRoute.settings]) }
     }
 
     func openDownloads() {
         if compactTabs {
             selectedTab = .settings
-            morePath = [.downloads]
+            morePath = NavigationPath([FolioMobileMoreRoute.downloads])
         } else {
             selectedTab = .downloads
         }
@@ -324,6 +322,7 @@ struct FolioMobileHomeView: View {
                         }
                     }
                 }
+                FolioMobileAuthorRows()
             }
             .padding(.horizontal, 20)
             .padding(.top, 12)

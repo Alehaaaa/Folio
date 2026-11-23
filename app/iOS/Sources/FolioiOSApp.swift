@@ -88,7 +88,7 @@ final class FolioMobileNavigation {
     /// Library shows either the imported books or the Hardcover/Goodreads shelves.
     var libraryScope: FolioMobileLibraryScope = .books
     /// Pages pushed inside the More tab, so Downloads can be opened from anywhere.
-    var morePath: [FolioMobileMoreRoute] = []
+    var morePath = NavigationPath()
     /// iPhone layout: Downloads, Sources and Settings live under More.
     var compactTabs = true
     var shelfStatus: HCStatus = .reading

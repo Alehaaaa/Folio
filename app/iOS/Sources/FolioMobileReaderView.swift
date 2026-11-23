@@ -204,6 +204,7 @@ struct FolioMobileReaderView: View {
                 store.addReading(seconds: min(30, Date().timeIntervalSince(lastTick)))
             }
             savePosition()
+            FolioHardcoverProgressSync.push(bookID, store: store)
         }
         .preferredColorScheme(preferences.appearance == .system ? nil : (dark ? .dark : .light))
     }

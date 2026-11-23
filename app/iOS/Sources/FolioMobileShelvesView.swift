@@ -217,7 +217,7 @@ struct FolioMobileShelvesView: View {
         .padding(.bottom, 14)
         .task(id: selectedStatus.rawValue) { await refresh(includeGoodreads: false) }
         .sheet(item: $selectedBook) { book in
-            NavigationStack { FolioMobileBookDetail(book: book) }
+            NavigationStack { FolioMobileBookDetail(book: book).folioDetailDestinations() }
         }
         .sheet(item: $selectedTracked) { book in
             FolioMobileTrackedBookDetail(book: book)

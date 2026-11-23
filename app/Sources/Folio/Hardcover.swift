@@ -107,17 +107,25 @@ struct HCBook: Identifiable, Hashable {
     var ratingsCount: Int?
     var description: String?
     var slug: String?
+    /// Credited authors with their Hardcover ids, when the response carried them.
+    var authorRefs: [HCAuthorRef] = []
 
     var webURL: URL? { slug.flatMap { URL(string: "https://hardcover.app/books/\($0)") } }
 
     static func from(book j: JSON) -> HCBook? {
         guard let id = j["id"].int else { return nil }
         var names: [String] = []
-        for c in j["cached_contributors"].array {
-            if let n = c["author"]["name"].string ?? c["name"].string { names.append(n) }
+        var refs: [HCAuthorRef] = []
+        for c in j["cached_contributors"].array + j["contributions"].array {
+            guard let n = c["author"]["name"].string ?? c["name"].string, !names.contains(n) else { continue }
+            // Translators, illustrators and editors are credited too; the byline is the authors.
+            if let role = c["contribution"].string, !role.isEmpty, role.lowercased() != "author" { continue }
+            names.append(n)
+            refs.append(HCAuthorRef(id: c["author"]["id"].int ?? c["id"].int, name: n))
         }
-        if names.isEmpty {
-            for c in j["contributions"].array { if let n = c["author"]["name"].string { names.append(n) } }
+        if names.isEmpty, let c = j["cached_contributors"].array.first, let n = c["author"]["name"].string {
+            names.append(n)
+            refs.append(HCAuthorRef(id: c["author"]["id"].int, name: n))
         }
         let img = j["image"]["url"].string ?? j["cached_image"]["url"].string
         return HCBook(
@@ -130,13 +138,20 @@ struct HCBook: Identifiable, Hashable {
             rating: j["rating"].double,
             ratingsCount: j["ratings_count"].int,
             description: j["description"].string,
-            slug: j["slug"].string
+            slug: j["slug"].string,
+            authorRefs: refs
         )
     }
 
     static func from(searchDocument d: JSON) -> HCBook? {
         guard let id = d["id"].int else { return nil }
         let authors = d["author_names"].array.compactMap(\.string)
+        var refs: [HCAuthorRef] = []
+        for c in d["contributions"].array {
+            if let n = c["author"]["name"].string, authors.contains(n), !refs.contains(where: { $0.name == n }) {
+                refs.append(HCAuthorRef(id: c["author"]["id"].int, name: n))
+            }
+        }
         let img = d["image"]["url"].string
         return HCBook(
             id: id,
@@ -148,9 +163,82 @@ struct HCBook: Identifiable, Hashable {
             rating: d["rating"].double,
             ratingsCount: d["ratings_count"].int,
             description: d["description"].string,
-            slug: d["slug"].string
+            slug: d["slug"].string,
+            authorRefs: refs
         )
     }
+}
+
+struct HCAuthorRef: Hashable, Codable {
+    var id: Int?
+    var name: String
+}
+
+struct HCAuthor: Identifiable, Hashable {
+    var id: Int
+    var name: String
+    var slug: String?
+    var bio: String?
+    var imageURL: URL?
+    var bornYear: Int?
+    var deathYear: Int?
+    var booksCount: Int?
+    var followers: Int?
+
+    var webURL: URL? { slug.flatMap { URL(string: "https://hardcover.app/authors/\($0)") } }
+
+    static func from(_ j: JSON) -> HCAuthor? {
+        guard let id = j["id"].int, let name = j["name"].string else { return nil }
+        let img = j["image"]["url"].string ?? j["cached_image"]["url"].string
+        let bio = j["bio"].string?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return HCAuthor(id: id, name: name, slug: j["slug"].string,
+                        bio: bio?.isEmpty == false ? bio : nil,
+                        imageURL: img.flatMap(URL.init(string:)),
+                        bornYear: j["born_year"].int, deathYear: j["death_year"].int,
+                        booksCount: j["books_count"].int, followers: j["users_count"].int)
+    }
+}
+
+/// Community numbers for a book's ratings page.
+struct HCBookStats: Hashable {
+    var rating: Double?
+    var ratingsCount: Int?
+    var reviewsCount: Int?
+    var readersCount: Int?
+    var readCount: Int?
+    var releaseDate: String?
+    /// Share of ratings for 5, 4, 3, 2 and 1 stars (half stars round up), in that order.
+    var distribution: [Int] = []
+}
+
+struct HCEdition: Hashable {
+    var publisher: String?
+    var releaseDate: String?
+    var pages: Int?
+    var isbn13: String?
+    var isbn10: String?
+    var format: String?
+    var language: String?
+    var editionsCount: Int?
+}
+
+struct HCReview: Identifiable, Hashable {
+    var id: Int
+    var rating: Double?
+    var text: String
+    var spoilers: Bool
+    var date: String?
+    var likes: Int
+    var username: String?
+    var userImage: URL?
+}
+
+struct HCSeriesRef: Identifiable, Hashable {
+    var id: Int
+    var name: String
+    var booksCount: Int?
+    /// The author's books in this series, as far as the author page knows them.
+    var bookIDs: [Int] = []
 }
 
 struct HCUserBook: Identifiable, Hashable {
@@ -461,6 +549,162 @@ final class HardcoverClient {
         }
         let d = try await query("query Popular { books(order_by: {users_count: desc}, limit: 30) { \(Self.bookFields) } }")
         return d["books"].array.compactMap(HCBook.from(book:))
+    }
+
+    // MARK: Authors, ratings, editions
+
+    static let authorFields = "id name slug bio born_year death_year books_count users_count image { url }"
+
+    func author(id: Int) async throws -> HCAuthor? {
+        let d = try await query("query Author($id: Int!) { authors(where: {id: {_eq: $id}}, limit: 1) { \(Self.authorFields) } }", ["id": id])
+        return d["authors"].array.first.flatMap(HCAuthor.from)
+    }
+
+    /// The best-known author with exactly this name (local books only carry a name).
+    func author(named name: String) async throws -> HCAuthor? {
+        let d = try await query("""
+        query AuthorByName($n: String!) { authors(where: {name: {_eq: $n}}, order_by: {users_count: desc}, limit: 1) { \(Self.authorFields) } }
+        """, ["n": name])
+        return d["authors"].array.first.flatMap(HCAuthor.from)
+    }
+
+    /// An author's books, most-read first, one entry per title.
+    func authorBooks(id: Int) async throws -> [HCBook] {
+        var rows: [JSON]
+        if let d = try? await query("""
+        query AuthorBooks($id: Int!) { contributions(where: {author_id: {_eq: $id}, contributable_type: {_eq: "Book"}}, order_by: {book: {users_count: desc}}, limit: 120) { contribution book { users_count compilation \(Self.bookFields) } } }
+        """, ["id": id]) {
+            rows = d["contributions"].array
+        } else {
+            let d = try await query("""
+            query AuthorBooksPlain($id: Int!) { contributions(where: {author_id: {_eq: $id}}, limit: 120) { book { \(Self.bookFields) } } }
+            """, ["id": id])
+            rows = d["contributions"].array
+        }
+        rows = rows.filter { r in
+            let role = r["contribution"].string?.lowercased() ?? ""
+            return (role.isEmpty || role == "author") && r["book"]["compilation"] != .bool(true)
+        }
+        let top = rows.compactMap { $0["book"]["users_count"].int }.max() ?? 0
+        var titles = Set<String>()
+        var out: [HCBook] = []
+        for r in rows {
+            guard let b = HCBook.from(book: r["book"]) else { continue }
+            // Translations and split editions are separate records with few readers.
+            if top > 50, (r["book"]["users_count"].int ?? 0) < max(3, top / 200) { continue }
+            let key = b.title.lowercased().folding(options: .diacriticInsensitive, locale: nil)
+                .components(separatedBy: CharacterSet.alphanumerics.inverted).joined()
+            guard titles.insert(key).inserted else { continue }
+            out.append(b)
+        }
+        return out
+    }
+
+    /// The series a set of books belongs to, most represented first.
+    func series(forBooks ids: [Int]) async throws -> [HCSeriesRef] {
+        guard !ids.isEmpty else { return [] }
+        let d: JSON
+        if let rich = try? await query("""
+        query AuthorSeries($ids: [Int!]) { book_series(where: {book_id: {_in: $ids}}) { book_id series { id name books_count } } }
+        """, ["ids": ids]) {
+            d = rich
+        } else {
+            d = try await query("""
+            query AuthorSeriesPlain($ids: [Int!]) { book_series(where: {book_id: {_in: $ids}}) { book_id series { id name } } }
+            """, ["ids": ids])
+        }
+        var out: [HCSeriesRef] = []
+        for r in d["book_series"].array {
+            guard let sid = r["series"]["id"].int, let name = r["series"]["name"].string else { continue }
+            let bookID = r["book_id"].int
+            let key = Self.seriesKey(name)
+            if let i = out.firstIndex(where: { $0.id == sid || Self.seriesKey($0.name) == key }) {
+                if let bookID, !out[i].bookIDs.contains(bookID) { out[i].bookIDs.append(bookID) }
+                if name.count > out[i].name.count, out[i].id != sid { out[i].name = name; out[i].id = sid }
+            } else {
+                out.append(HCSeriesRef(id: sid, name: name, booksCount: r["series"]["books_count"].int,
+                                       bookIDs: bookID.map { [$0] } ?? []))
+            }
+        }
+        return out.sorted { $0.bookIDs.count > $1.bookIDs.count }
+    }
+
+    func stats(bookID: Int) async throws -> HCBookStats {
+        let d = try await query("""
+        query BookStats($id: Int!) { books(where: {id: {_eq: $id}}, limit: 1) { rating ratings_count reviews_count users_count users_read_count release_date } }
+        """, ["id": bookID])
+        let b = d["books"].array.first ?? .null
+        var stats = HCBookStats(rating: b["rating"].double, ratingsCount: b["ratings_count"].int,
+                                reviewsCount: b["reviews_count"].int, readersCount: b["users_count"].int,
+                                readCount: b["users_read_count"].int, releaseDate: b["release_date"].string)
+        stats.distribution = await ratingDistribution(bookID: bookID)
+        return stats
+    }
+
+    /// Counts per star (5 to 1). Uses Hardcover's stored distribution when it is
+    /// available, otherwise tallies a sample of up to 1,000 public ratings.
+    private func ratingDistribution(bookID: Int) async -> [Int] {
+        var buckets = [0, 0, 0, 0, 0]
+        func add(_ rating: Double, _ count: Int) {
+            guard rating > 0 else { return }
+            let star = min(5, max(1, Int(rating.rounded(.up))))
+            buckets[5 - star] += count
+        }
+        if let d = try? await query("query Dist($id: Int!) { books(where: {id: {_eq: $id}}, limit: 1) { ratings_distribution } }", ["id": bookID]) {
+            let dist = d["books"].array.first?["ratings_distribution"] ?? .null
+            switch dist {
+            case .array(let rows):
+                for r in rows { if let rating = r["rating"].double, let n = r["count"].int { add(rating, n) } }
+            case .object(let map):
+                for (k, v) in map { if let rating = Double(k), let n = v.int { add(rating, n) } }
+            default: break
+            }
+            if buckets.reduce(0, +) > 0 { return buckets }
+        }
+        if let d = try? await query("""
+        query Ratings($id: Int!) { user_books(where: {book_id: {_eq: $id}, rating: {_is_null: false}}, limit: 1000) { rating } }
+        """, ["id": bookID]) {
+            for r in d["user_books"].array { if let rating = r["rating"].double { add(rating, 1) } }
+        }
+        return buckets.reduce(0, +) > 0 ? buckets : []
+    }
+
+    /// The most-read edition, for publishing details.
+    func edition(bookID: Int) async throws -> HCEdition? {
+        let d = try await query("""
+        query Edition($id: Int!) { editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 1) { release_date pages isbn_10 isbn_13 edition_format physical_format publisher { name } language { language } } }
+        """, ["id": bookID])
+        guard let e = d["editions"].array.first else { return nil }
+        let format = [e["edition_format"].string, e["physical_format"].string]
+            .compactMap { $0?.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
+        return HCEdition(publisher: e["publisher"]["name"].string, releaseDate: e["release_date"].string,
+                         pages: e["pages"].int, isbn13: e["isbn_13"].string, isbn10: e["isbn_10"].string,
+                         format: format, language: e["language"]["language"].string)
+    }
+
+    /// Public reviews, most-liked first.
+    func reviews(bookID: Int, limit: Int = 30) async throws -> [HCReview] {
+        let attempts = [
+            "user_books(where: {book_id: {_eq: $id}, has_review: {_eq: true}}, order_by: {likes_count: desc}, limit: $n) { id rating review_raw review_has_spoilers reviewed_at likes_count user { username image { url } } }",
+            "user_books(where: {book_id: {_eq: $id}, has_review: {_eq: true}}, order_by: {reviewed_at: desc}, limit: $n) { id rating review_raw review_has_spoilers reviewed_at likes_count }",
+        ]
+        var failure: Error?
+        for body in attempts {
+            do {
+                let d = try await query("query Reviews($id: Int!, $n: Int!) { \(body) }", ["id": bookID, "n": limit])
+                return d["user_books"].array.compactMap { r in
+                    guard let id = r["id"].int,
+                          let text = r["review_raw"].string?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          !text.isEmpty else { return nil }
+                    return HCReview(id: id, rating: r["rating"].double, text: text,
+                                    spoilers: r["review_has_spoilers"] == .bool(true),
+                                    date: r["reviewed_at"].string, likes: r["likes_count"].int ?? 0,
+                                    username: r["user"]["username"].string,
+                                    userImage: r["user"]["image"]["url"].string.flatMap(URL.init(string:)))
+                }
+            } catch { failure = error }
+        }
+        throw failure ?? HCError(message: "Reviews are unavailable.")
     }
 
     // MARK: Writes
