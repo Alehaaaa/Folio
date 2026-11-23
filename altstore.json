@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.44",
+          "buildVersion": "45",
+          "date": "2026-11-23",
+          "localizedDescription": "Nook spine art is blurred with a cloth weave and paper grain, baked once into the cache (1.0.44)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.44-45.ipa",
+          "size": 4662020,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.42",
           "buildVersion": "43",
           "date": "2026-11-23",
