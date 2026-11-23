@@ -1,0 +1,40 @@
+name: macOS build check
+
+# Compile check for the macOS app (the Swift package in app/). Nothing is
+# packaged or published: Folio.app is built locally with `cargo build` in app/.
+on:
+  push:
+    branches: [main, "mac/**"]
+    paths: ["app/**", "extensions/**", ".github/workflows/macos-app.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the newest Xcode
+        run: |
+          XCODE="$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Build the app
+        working-directory: app
+        run: |
+          set -o pipefail
+          if ! swift build -c release 2>&1 | tee build.log; then
+            echo "::group::Errors"
+            grep -E "error:" build.log | sort -u | head -300
+            echo "::endgroup::"
+            exit 1
+          fi

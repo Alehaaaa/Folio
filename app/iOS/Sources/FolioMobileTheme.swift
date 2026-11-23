@@ -1,5 +1,9 @@
 import SwiftUI
+#if os(iOS)
 import UIKit
+#else
+import AppKit
+#endif
 
 /// Folio's "reading nook" design language: warm paper backgrounds, deep
 /// forest ink, olive accents, New York serif display type and soft cream
@@ -62,6 +66,7 @@ enum FolioTheme {
     /// Called once at launch, before the first window is created.
     @MainActor
     static func applyAppearance() {
+        #if os(iOS)
         let inkUI = UIColor.folioInk
         let nav = UINavigationBar.appearance()
         nav.largeTitleTextAttributes = [
@@ -85,8 +90,10 @@ enum FolioTheme {
 
         UIPageControl.appearance().currentPageIndicatorTintColor = inkUI
         UIPageControl.appearance().pageIndicatorTintColor = UIColor.folioLine
+        #endif
     }
 
+    #if os(iOS)
     /// The system New York face at a Dynamic Type size.
     static func serifFont(style: UIFont.TextStyle, weight: UIFont.Weight) -> UIFont {
         let base = UIFont.preferredFont(forTextStyle: style)
@@ -96,6 +103,7 @@ enum FolioTheme {
         let descriptor = weighted.withDesign(.serif) ?? weighted
         return UIFont(descriptor: descriptor, size: base.pointSize)
     }
+    #endif
 
     private static func dynamic(light: UInt32, dark: UInt32) -> Color {
         Color(uiColor: dynamicUI(light: light, dark: dark))

@@ -24,7 +24,7 @@ struct FolioMobileOnboardingView: View {
                 .padding(.horizontal, 26)
                 .padding(.top, 14)
 
-                TabView(selection: $page) {
+                FolioPager(selection: $page) {
                     pageBody(
                         symbol: "books.vertical.fill",
                         headline: "A little reading, every day.",
@@ -106,7 +106,6 @@ struct FolioMobileOnboardingView: View {
                     }
                     .tag(3)
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
 
                 HStack(spacing: 12) {
                     Button(page == 3 ? "Skip Import" : "Skip Tour") { finished() }
@@ -163,5 +162,29 @@ struct FolioMobileOnboardingView: View {
             .frame(maxWidth: .infinity)
         }
         .scrollIndicators(.hidden)
+    }
+}
+
+/// Swipeable pages on iPhone and iPad; on the Mac, the selected page alone,
+/// moved by the Continue button.
+struct FolioPager<Content: View>: View {
+    @Binding var selection: Int
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        #if os(iOS)
+        TabView(selection: $selection) { content }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+        #else
+        Group(subviews: content) { pages in
+            ZStack {
+                ForEach(pages) { page in
+                    if page.containerValues.tag(for: Int.self) == selection {
+                        page.transition(.opacity)
+                    }
+                }
+            }
+        }
+        #endif
     }
 }

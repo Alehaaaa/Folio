@@ -1,7 +1,11 @@
 import CoreImage
 import ImageIO
 import SwiftUI
+#if os(iOS)
 import UIKit
+#else
+import AppKit
+#endif
 
 // MARK: - Items
 

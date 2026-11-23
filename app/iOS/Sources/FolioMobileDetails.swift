@@ -1,6 +1,10 @@
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(iOS)
 import UIKit
+#else
+import AppKit
+#endif
 
 /// A single native detail experience for a library file, a Hardcover result,
 /// or a Hardcover result that is already represented in the local library.

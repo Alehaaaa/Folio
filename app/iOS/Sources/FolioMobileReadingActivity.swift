@@ -1,6 +1,10 @@
 import Charts
 import SwiftUI
+#if os(iOS)
 import UIKit
+#else
+import AppKit
+#endif
 
 // MARK: - Goal rings
 

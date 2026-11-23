@@ -1,6 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+#if os(iOS)
 struct FolioMobileRootView: View {
     @Environment(LibraryStore.self) private var store
     @Environment(FolioMobileNavigation.self) private var navigation
@@ -251,6 +252,7 @@ struct FolioMobileRootView: View {
         }
     }
 }
+#endif
 
 extension FolioMobileNavigation {
     func openSettings() {

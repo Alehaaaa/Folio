@@ -39,16 +39,10 @@ struct DownloadingView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Downloads").font(.largeTitle.weight(.bold))
-                        Text("Manage active downloads and retry those that need attention.")
-                            .font(.callout).foregroundStyle(.secondary)
-                    }
-                    Spacer()
+                FolioTabHeader(title: "Downloads") {
                     Text("\(activeJobs.count) active · \(attentionJobs.count) need attention")
                         .font(.callout.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(FolioTheme.muted)
                 }
                 HStack(spacing: 12) {
                     Label("Parallel downloads", systemImage: "arrow.down.circle.dotted")
@@ -93,6 +87,8 @@ struct DownloadingView: View {
             .frame(maxWidth: .infinity)
         }
         .scrollEdgeEffectStyle(.soft, for: .top)
+        .navigationTitle("Downloads")
+        .toolbar(.hidden, for: .windowToolbar)
         .sheet(item: $inspectedJob) { selection in
             downloadDetailSheet(for: selection.id)
         }
@@ -375,7 +371,7 @@ struct DownloadingView: View {
                 .buttonStyle(BookPrimaryActionStyle())
                 .buttonBorderShape(.capsule)
                 .controlSize(.large)
-                Button("Book Details") { BookDetailsPresenter.showLocal(bookID) }
+                Button("Book Details") { inspectedJob = nil; BookDetailsPresenter.showLocal(bookID) }
                     .buttonStyle(BookSecondaryActionStyle())
                     .controlSize(.regular)
             }
