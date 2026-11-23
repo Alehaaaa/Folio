@@ -53,3 +53,5 @@
 /checks/anna-free-webkit-trace
 /checks/.anna-urlsession-*-probe
 /checks/*-hang.sample.txt
+/app/build/Folio.app/
+/app/build/.widget-adhoc.entitlements
