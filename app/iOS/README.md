@@ -36,8 +36,8 @@ Reading is immersive: tap the middle of the page to show or hide the controls,
 tap or swipe the sides to turn pages. Highlight, Add Note and Save Quote appear
 in the native text-selection menu. PDFs swipe page by page in Pages mode.
 
-**CI:** `.github/workflows/ios-ipa.yml` builds the unsigned IPA for every pull
-request. On main it also publishes `altstore/Folio-<version>-<build>.ipa` and
+**CI:** `.github/workflows/ios-ipa.yml` runs on changes pushed to main: it builds
+the unsigned IPA and publishes `altstore/Folio-<version>-<build>.ipa` and
 updates `altstore.json` when that version/build (from `generate_project.py`)
 is not published yet, so bump `APP_VERSION`/`BUILD_VERSION` for each release.
 

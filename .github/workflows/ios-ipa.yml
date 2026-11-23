@@ -1,12 +1,9 @@
 name: iOS IPA
 
-# Pull requests: build the unsigned IPA as a compile check.
-# Pushes to main: build it and publish it to the AltStore Classic feed
-# (altstore/Folio-<version>-<build>.ipa + altstore.json) when that
-# version/build from app/iOS/generate_project.py is not published yet.
+# Pushes to main: build the unsigned IPA and publish it to the AltStore
+# Classic feed (altstore/Folio-<version>-<build>.ipa + altstore.json) when
+# that version/build from app/iOS/generate_project.py is not published yet.
 on:
-  pull_request:
-    paths: ["app/**", "extensions/**", ".github/workflows/ios-ipa.yml"]
   push:
     branches: [main]
     paths: ["app/**", "extensions/**", ".github/workflows/ios-ipa.yml"]
@@ -54,7 +51,7 @@ jobs:
           path: app/iOS/dist/Folio.ipa
 
       - name: Publish to the AltStore feed
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main'
         env:
           VERSION: ${{ steps.version.outputs.version }}
           BUILD: ${{ steps.version.outputs.build }}
