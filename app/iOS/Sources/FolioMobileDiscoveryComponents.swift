@@ -3,13 +3,22 @@ import SwiftUI
 /// A reusable, cover-first Hardcover tile for Discover and Home.
 /// Navigation uses the existing HCBook destination provided by the parent NavigationStack.
 struct FolioMobileRemoteBookTile: View {
-    let book: HCBook
+    private let original: HCBook
     var width: CGFloat? = nil
+    @State private var overrides = FolioBookOverrides.shared
+
+    init(book: HCBook, width: CGFloat? = nil) {
+        original = book
+        self.width = width
+    }
+
+    /// The book with the reader's own edits; navigation keeps the Hardcover record.
+    private var book: HCBook { overrides.apply(original) }
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
-        NavigationLink(value: book) {
+        NavigationLink(value: original) {
             VStack(alignment: .leading, spacing: 7) {
                 GeometryReader { geometry in
                     FolioCachedImage(url: book.imageURL) {

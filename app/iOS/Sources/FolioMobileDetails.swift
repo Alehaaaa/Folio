@@ -29,6 +29,9 @@ struct FolioMobileBookDetail: View {
     @State private var resolvedID: Int?
     @State private var editingMetadata = false
     @State private var fixingMetadata = false
+    @State private var editingRemote = false
+    @State private var inspectingCover = false
+    @State private var overrides = FolioBookOverrides.shared
     @State private var choosingHardcover = false
     @State private var choosingSource = false
     @State private var deletingLocal = false
@@ -97,16 +100,25 @@ struct FolioMobileBookDetail: View {
         return edition
     }
 
-    /// The cover to show: the language edition's, else the work's.
-    private var remoteCover: URL? { languageEdition?.imageURL ?? (remote ?? initialRemote)?.imageURL }
+    /// The reader's own edits to a book outside the library.
+    private var edits: FolioBookOverride? {
+        guard local == nil, let linkedID else { return nil }
+        return overrides.override(for: linkedID)
+    }
+
+    /// The cover to show: the reader's choice, the language edition's, else the work's.
+    private var remoteCover: URL? {
+        edits?.coverURL ?? languageEdition?.imageURL ?? (remote ?? initialRemote)?.imageURL
+    }
 
     private var title: String {
-        local?.title ?? languageEdition?.title.flatMap { $0.isEmpty ? nil : $0 } ?? remote?.title ?? initialRemote?.title ?? "Book"
+        local?.title ?? edits?.title ?? languageEdition?.title.flatMap { $0.isEmpty ? nil : $0 }
+            ?? remote?.title ?? initialRemote?.title ?? "Book"
     }
-    private var author: String { local?.author ?? remote?.authors ?? initialRemote?.authors ?? "" }
+    private var author: String { local?.author ?? edits?.authors ?? remote?.authors ?? initialRemote?.authors ?? "" }
     private var pages: Int? { local?.hardcoverPages ?? remote?.pages ?? edition?.pages }
     private var overview: String? {
-        let value = local?.summary?.plainText ?? (remote ?? initialRemote)?.description?.plainText
+        let value = local?.summary?.plainText ?? edits?.summary ?? (remote ?? initialRemote)?.description?.plainText
         return value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : value
     }
 
@@ -169,6 +181,9 @@ struct FolioMobileBookDetail: View {
             if let local {
                 FolioMobileEditBook(bookID: local.id)
             }
+        }
+        .sheet(isPresented: $editingRemote) {
+            FolioMobileRemoteBookEditor(book: shownBook, editionID: editionID)
         }
         .sheet(isPresented: $fixingMetadata) {
             if let local {
@@ -249,7 +264,16 @@ struct FolioMobileBookDetail: View {
                    height: sizeClass == .compact ? 158 : 202)
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             .shadow(color: .black.opacity(0.2), radius: 14, x: 3, y: 7)
-            .accessibilityHidden(true)
+            .contentShape(Rectangle())
+            .onTapGesture { inspectingCover = true }
+            .accessibilityElement()
+            .accessibilityLabel("Cover")
+            .accessibilityHint("Shows the cover full screen")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { inspectingCover = true }
+            .fullScreenCover(isPresented: $inspectingCover) {
+                FolioCoverViewer(fileURL: local.flatMap { library.coverURL($0) }, remoteURL: remoteCover, title: title)
+            }
             VStack(alignment: .leading, spacing: 10) {
                 Text(title)
                     .font(.system(size: sizeClass == .compact ? 26 : 34, weight: .regular, design: .serif))
@@ -415,6 +439,9 @@ struct FolioMobileBookDetail: View {
                     }
                 } else {
                     Button("Choose a Source", systemImage: "list.bullet") { choosingSource = true }
+                    if linkedID != nil {
+                        Button("Edit Details", systemImage: "square.and.pencil") { editingRemote = true }
+                    }
                     Button("View Downloads", systemImage: "arrow.down.circle") { navigation.openDownloads() }
                 }
                 if let url = remote?.webURL {
