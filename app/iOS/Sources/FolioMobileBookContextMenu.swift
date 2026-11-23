@@ -31,7 +31,7 @@ private struct FolioMobileBookContextMenu<Extra: View>: ViewModifier {
                 )
             }
             .sheet(isPresented: $editing) {
-                FolioMobileEditBook(bookID: bookID)
+                FolioMobileEditDetails(bookID: bookID)
             }
             .confirmationDialog("Remove this book and its imported file?",
                                 isPresented: $removing, titleVisibility: .visible) {

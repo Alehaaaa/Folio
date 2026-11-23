@@ -77,6 +77,10 @@ struct SourceManifest: Hashable {
     var canPrepareDownload: Bool = false
     /// Servers the source always needs (declared as `allowedHosts`), shown to the person.
     var fixedHosts: [String] = []
+    /// "source" finds books to download; "metadata" answers Edit Details with book records.
+    var kind: String = "source"
+
+    var isMetadata: Bool { kind == "metadata" }
 }
 
 struct ExtensionError: LocalizedError {
@@ -118,6 +122,9 @@ final class SourceRuntime: @unchecked Sendable {
     private var fixedHosts: Set<String> = []
     private var config: [String: Any] = [:]
     private var guard_: RedirectGuard!
+    /// Set by Folio for its own bundled Hardcover source only: runs a GraphQL query with the
+    /// reader's account (the token never reaches JavaScript) and returns the data as JSON text.
+    var hardcoverBridge: ((String, String) -> String?)?
     /// WebKit itself is created on demand. Synchronize construction of its
     /// lightweight bridge because a cancelled job can close it while a JS
     /// worker is opening its first page.
@@ -254,6 +261,23 @@ final class SourceRuntime: @unchecked Sendable {
         folio.setObject(log, forKeyedSubscript: "log" as NSString)
         folio.setObject(status, forKeyedSubscript: "status" as NSString)
         folio.setObject(fetchText, forKeyedSubscript: "fetchText" as NSString)
+        // Like fetchText, with request headers: folio.fetchWith(url, JSON.stringify({headers: {...}})).
+        let fetchWith: @convention(block) (String, String) -> String? = { [weak self] urlString, optionsJSON in
+            guard let self else { return nil }
+            let options = (try? JSONSerialization.jsonObject(with: Data(optionsJSON.utf8))) as? [String: Any]
+            let headers = (options?["headers"] as? [String: String]) ?? [:]
+            do { return try self.blockingFetch(urlString, headers: headers) } catch {
+                JSContext.current()?.exception = JSValue(newErrorFromMessage: error.localizedDescription, in: JSContext.current())
+                return nil
+            }
+        }
+        folio.setObject(fetchWith, forKeyedSubscript: "fetchWith" as NSString)
+        if hardcoverBridge != nil {
+            let hardcover: @convention(block) (String, String) -> String? = { [weak self] query, variables in
+                self?.hardcoverBridge?(query, variables)
+            }
+            folio.setObject(hardcover, forKeyedSubscript: "hardcover" as NSString)
+        }
         folio.setObject(browserAPI, forKeyedSubscript: "browser" as NSString)
         folio.setObject(config, forKeyedSubscript: "config" as NSString)
         ctx.setObject(folio, forKeyedSubscript: "folio" as NSString)
@@ -270,7 +294,7 @@ final class SourceRuntime: @unchecked Sendable {
     }
 
     /// Runs on the extension's own queue, so this blocking request never touches the app's main thread.
-    private func blockingFetch(_ urlString: String) throws -> String {
+    private func blockingFetch(_ urlString: String, headers: [String: String] = [:]) throws -> String {
         guard let url = URL(string: urlString) else { throw ExtensionError(message: "Bad address: \(urlString)") }
         guard let key = Self.hostKey(url), allowedHosts.contains(key) else {
             throw ExtensionError(message: "Blocked: this extension may only reach the servers in its settings (\(url.host ?? urlString)).")
@@ -278,6 +302,7 @@ final class SourceRuntime: @unchecked Sendable {
         var req = URLRequest(url: url)
         req.timeoutInterval = 30
         req.setValue("Folio / demeter-compatible", forHTTPHeaderField: "User-Agent")
+        for (name, value) in headers { req.setValue(value, forHTTPHeaderField: name) }
         let sem = DispatchSemaphore(value: 0)
         nonisolated(unsafe) var result: Result<String, Error> = .failure(ExtensionError(message: "Timed out"))
         session.dataTask(with: req) { data, resp, err in
@@ -310,7 +335,8 @@ final class SourceRuntime: @unchecked Sendable {
                 id: id, name: name, description: str("description") ?? "", version: str("version") ?? "1",
                 syncIntervalHours: s.objectForKeyedSubscript("syncIntervalHours")?.toNumber()?.doubleValue ?? 12,
                 settings: settings, canSearch: isFn("search"), canSync: isFn("sync"),
-                canPrepareDownload: isFn("prepareDownload"), fixedHosts: fixed
+                canPrepareDownload: isFn("prepareDownload"), fixedHosts: fixed,
+                kind: str("kind") ?? "source"
             )
         }
     }
@@ -461,7 +487,28 @@ final class ExtensionStore {
     private var savedURL: URL { dir.appendingPathComponent("extensions.json") }
     private var savedByID: [String: Saved] = [:]
 
-    var enabled: [Installed] { installed.filter(\.saved.enabled) }
+    /// Enabled download sources (metadata sources never take part in finding copies).
+    var enabled: [Installed] { installed.filter { $0.saved.enabled && !$0.manifest.isMetadata } }
+
+    /// Every metadata source, in the reader's priority order.
+    var metadataSources: [Installed] {
+        let order = UserDefaults.standard.stringArray(forKey: Self.metadataOrderKey) ?? []
+        return installed.filter(\.manifest.isMetadata).sorted {
+            (order.firstIndex(of: $0.id) ?? Int.max, $0.manifest.name) < (order.firstIndex(of: $1.id) ?? Int.max, $1.manifest.name)
+        }
+    }
+
+    static let metadataOrderKey = "folio.metadataSources.extensionOrder"
+
+    func setMetadataOrder(_ ids: [String]) {
+        UserDefaults.standard.set(ids, forKey: Self.metadataOrderKey)
+    }
+
+    /// Runs one metadata source for a book and returns its raw records.
+    func metadata(_ e: Installed, for input: [String: Any]) async throws -> [[String: Any]] {
+        let r = try await e.runtime.invoke("metadata", [input])
+        return (r as? [Any] ?? []).compactMap { $0 as? [String: Any] }
+    }
 
     func ext(_ id: String) -> Installed? { installed.first { $0.id == id } }
 
@@ -505,6 +552,7 @@ final class ExtensionStore {
         for (id, saved) in savedByID.sorted(by: { ($0.value.builtIn ? 0 : 1, $0.key) < ($1.value.builtIn ? 0 : 1, $1.key) }) {
             guard let script = try? String(contentsOf: dir.appendingPathComponent(saved.file), encoding: .utf8) else { continue }
             let rt = SourceRuntime(script: script, label: id)
+            if id == "metadata-hardcover", saved.builtIn { rt.hardcoverBridge = Self.hardcoverQuery }
             rt.configure(saved.config)
             do {
                 let m = try await rt.manifest()
@@ -536,6 +584,24 @@ final class ExtensionStore {
         } catch {
             lastError = "Couldn't install \(url.lastPathComponent): \(error.localizedDescription)"
         }
+    }
+
+    /// Runs a Hardcover query for the bundled Hardcover metadata source, from its JavaScript
+    /// queue (never the main thread), through the app's rate-limited client.
+    nonisolated static func hardcoverQuery(_ query: String, _ variablesJSON: String) -> String? {
+        final class Box: @unchecked Sendable { var text: String? }
+        let box = Box()
+        let sem = DispatchSemaphore(value: 0)
+        let variables = SourceQueuePayload(value: (try? JSONSerialization.jsonObject(with: Data(variablesJSON.utf8))) as? [String: Any] ?? [:])
+        Task { @MainActor in
+            defer { sem.signal() }
+            guard HardcoverClient.shared.isConnected,
+                  let data = try? await HardcoverClient.shared.query(query, variables.value),
+                  let json = try? JSONSerialization.data(withJSONObject: data.anyValue, options: [.fragmentsAllowed]) else { return }
+            box.text = String(data: json, encoding: .utf8)
+        }
+        _ = sem.wait(timeout: .now() + 90)
+        return box.text
     }
 
     func remove(_ id: String) {

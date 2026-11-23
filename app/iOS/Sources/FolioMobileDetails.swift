@@ -116,7 +116,7 @@ struct FolioMobileBookDetail: View {
             ?? remote?.title ?? initialRemote?.title ?? "Book"
     }
     private var author: String { local?.author ?? edits?.authors ?? remote?.authors ?? initialRemote?.authors ?? "" }
-    private var pages: Int? { local?.hardcoverPages ?? remote?.pages ?? edition?.pages }
+    private var pages: Int? { local?.hardcoverPages ?? edits?.pages ?? remote?.pages ?? edition?.pages }
     private var overview: String? {
         let value = local?.summary?.plainText ?? edits?.summary ?? (remote ?? initialRemote)?.description?.plainText
         return value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : value
@@ -179,16 +179,11 @@ struct FolioMobileBookDetail: View {
         .toolbar { detailToolbar }
         .sheet(isPresented: $editingMetadata) {
             if let local {
-                FolioMobileEditBook(bookID: local.id)
+                FolioMobileEditDetails(bookID: local.id)
             }
         }
         .sheet(isPresented: $editingRemote) {
-            FolioMobileRemoteBookEditor(book: shownBook, editionID: editionID)
-        }
-        .sheet(isPresented: $fixingMetadata) {
-            if let local {
-                FolioMobileMetadataFixer(bookID: local.id)
-            }
+            FolioMobileEditDetails(remote: shownBook, editionID: editionID)
         }
         .sheet(isPresented: $choosingHardcover) {
             if let local {
@@ -329,7 +324,7 @@ struct FolioMobileBookDetail: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
-            let facts = [pages.map { "\($0.formatted()) pages" }, (local?.publishedYear ?? remote?.year).map { String($0) }]
+            let facts = [pages.map { "\($0.formatted()) pages" }, (local?.publishedYear ?? edits?.year ?? remote?.year).map { String($0) }]
                 .compactMap { $0 }
             if !facts.isEmpty {
                 Text(facts.joined(separator: " · "))
@@ -415,8 +410,7 @@ struct FolioMobileBookDetail: View {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 if let local {
-                    Button("Edit Book Details", systemImage: "square.and.pencil") { editingMetadata = true }
-                    Button("Fix Metadata…", systemImage: "wand.and.stars") { fixingMetadata = true }
+                    Button("Edit Details", systemImage: "square.and.pencil") { editingMetadata = true }
                     ShareLink(item: library.fileURL(local)) {
                         Label("Export File", systemImage: "square.and.arrow.up")
                     }
@@ -803,7 +797,7 @@ struct FolioMobileBookDetail: View {
         if hasDetails {
         VStack(alignment: .leading, spacing: 11) {
             Text("Details").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
-            if let publisher = nonEmpty(edition?.publisher) ?? nonEmpty(local?.publisher) {
+            if let publisher = nonEmpty(edits?.publisher) ?? nonEmpty(edition?.publisher) ?? nonEmpty(local?.publisher) {
                 LabeledContent("Publisher", value: publisher)
             }
             if let published = publishedText {

@@ -440,6 +440,7 @@ final class LibraryStore {
         var year: Int?
         var pages: Int?
         var coverURL: URL?
+        var genres: [String]? = nil
     }
 
     /// Saves edited metadata to the library and, for EPUBs when asked, into the file
@@ -478,11 +479,21 @@ final class LibraryStore {
             b.publishedYear = choice.year
             if let pages = choice.pages, pages > 0 { b.hardcoverPages = pages }
             if let newCover { b.coverFileName = newCover }
+            b.genres = choice.genres?.isEmpty == false ? choice.genres : nil
         }
     }
 
     /// Downloads a cover and normalizes it to PNG, or throws without touching anything.
     nonisolated static func downloadCoverPNG(_ coverURL: URL) async throws -> Data {
+        // A cover the reader picked from Files was copied into the app first.
+        if coverURL.isFileURL {
+            guard let bytes = try? Data(contentsOf: coverURL), bytes.count <= 30_000_000,
+                  let image = FolioImageLoader.decode(bytes),
+                  let png = CoverMaker.pngData(image, maxHeight: 1600) else {
+                throw NSError(domain: "Folio", code: 43, userInfo: [NSLocalizedDescriptionKey: "That image couldn't be read."])
+            }
+            return png
+        }
         guard coverURL.scheme?.lowercased() == "https" else {
             throw NSError(domain: "Folio", code: 42, userInfo: [NSLocalizedDescriptionKey: "The cover address is not secure."])
         }

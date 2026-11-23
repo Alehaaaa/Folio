@@ -7,6 +7,18 @@ import Security
 enum JSON: Decodable, Hashable {
     case null, bool(Bool), number(Double), string(String), array([JSON]), object([String: JSON])
 
+    /// Plain Foundation values, for JSONSerialization.
+    var anyValue: Any {
+        switch self {
+        case .null: return NSNull()
+        case .bool(let b): return b
+        case .number(let n): return n
+        case .string(let s): return s
+        case .array(let a): return a.map(\.anyValue)
+        case .object(let o): return o.mapValues(\.anyValue)
+        }
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.singleValueContainer()
         if c.decodeNil() { self = .null }

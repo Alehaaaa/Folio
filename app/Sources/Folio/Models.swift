@@ -129,6 +129,8 @@ struct LocalBook: Codable, Identifiable, Hashable {
     /// The Hardcover edition in the file's language (e.g. the Spanish edition),
     /// while hardcoverBookID stays the work for ratings, reviews and series.
     var hardcoverEditionID: Int?
+    /// Genres chosen in Edit Details.
+    var genres: [String]?
     var syncedProgressPages: Int?
     var series: String?
     var seriesIndex: Double?

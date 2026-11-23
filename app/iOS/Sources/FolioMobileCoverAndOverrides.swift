@@ -116,8 +116,16 @@ struct FolioBookOverride: Codable, Hashable {
     var authors: String?
     var summary: String?
     var coverURL: URL?
+    var publisher: String?
+    var year: Int?
+    var pages: Int?
+    var language: String?
+    var isbn: String?
+    var series: String?
+    var seriesIndex: Double?
+    var genres: [String]?
 
-    var isEmpty: Bool { title == nil && authors == nil && summary == nil && coverURL == nil }
+    var isEmpty: Bool { self == FolioBookOverride() }
 }
 
 @Observable
@@ -152,156 +160,9 @@ final class FolioBookOverrides {
         if let authors = o.authors { out.authors = authors }
         if let summary = o.summary { out.description = summary }
         if let cover = o.coverURL { out.imageURL = cover }
+        if let year = o.year { out.year = year }
+        if let pages = o.pages { out.pages = pages }
         return out
     }
 }
 
-/// Edit the title, author, description and cover of a book that isn't in the
-/// library, with suggestions from the metadata sources in the reader's language.
-struct FolioMobileRemoteBookEditor: View {
-    let book: HCBook
-    var editionID: Int?
-
-    @Environment(HardcoverClient.self) private var hardcover
-    @Environment(\.dismiss) private var dismiss
-    @State private var overrides = FolioBookOverrides.shared
-    @State private var candidates: [FolioMetadataCandidate] = []
-    @State private var loading = true
-    @State private var title = ""
-    @State private var authors = ""
-    @State private var summary = ""
-    @State private var cover: URL?
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Cover") {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(coverOptions, id: \.self) { url in
-                                Button { cover = url } label: {
-                                    FolioMobileRemoteCover(url: url, title: title)
-                                        .frame(width: 78, height: 114)
-                                        .overlay {
-                                            RoundedRectangle(cornerRadius: 7)
-                                                .strokeBorder(cover == url ? FolioTheme.olive : .clear, lineWidth: 3)
-                                        }
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel(cover == url ? "Chosen cover" : "Use this cover")
-                            }
-                            if loading { ProgressView().frame(width: 78, height: 114) }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-                .folioRow()
-                field("Title", text: $title, values: candidates.compactMap { c in c.title.map { (c.source, $0) } })
-                field("Author", text: $authors, values: candidates.compactMap { c in c.author.map { (c.source, $0) } })
-                Section("Description") {
-                    TextField("Description", text: $summary, axis: .vertical).lineLimit(3...10)
-                    ForEach(suggestions(candidates.compactMap { c in c.summary.map { (c.source, $0.plainText) } }, current: summary).prefix(3),
-                            id: \.1) { source, value in
-                        Button { summary = value } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(source).font(.caption.weight(.semibold)).foregroundStyle(FolioTheme.olive)
-                                Text(value).font(.footnote).foregroundStyle(.primary).lineLimit(4)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .folioRow()
-                if overrides.override(for: book.id) != nil {
-                    Section {
-                        Button("Restore Hardcover's Details", role: .destructive) {
-                            overrides.set(nil, for: book.id)
-                            dismiss()
-                        }
-                    } footer: {
-                        Text("Your changes stay on this device and don't change Hardcover.")
-                    }
-                    .folioRow()
-                }
-            }
-            .folioScreen()
-            .navigationTitle("Edit Details")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(title.isEmpty) }
-            }
-            .task { await start() }
-        }
-    }
-
-    private var coverOptions: [URL] {
-        var seen = Set<URL>()
-        let current = overrides.apply(book).imageURL
-        return ([current, book.imageURL].compactMap { $0 } + candidates.compactMap(\.coverURL))
-            .filter { seen.insert($0).inserted }
-    }
-
-    private func field(_ name: String, text: Binding<String>, values: [(String, String)]) -> some View {
-        Section(name) {
-            TextField(name, text: text)
-            let distinct = suggestions(values, current: text.wrappedValue)
-            if !distinct.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(distinct, id: \.1) { source, value in
-                            Button { text.wrappedValue = value } label: {
-                                HStack(spacing: 5) {
-                                    Text(value).lineLimit(1)
-                                    Text(source).foregroundStyle(.secondary)
-                                }
-                                .font(.footnote)
-                                .padding(.horizontal, 10).padding(.vertical, 6)
-                                .background(FolioTheme.sage, in: Capsule())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-        }
-        .folioRow()
-    }
-
-    private func suggestions(_ values: [(String, String)], current: String) -> [(String, String)] {
-        var seen: Set<String> = [current.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)]
-        return values.filter { _, value in
-            let key = value.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-            return !key.isEmpty && seen.insert(key).inserted
-        }
-    }
-
-    @MainActor
-    private func start() async {
-        let shown = overrides.apply(book)
-        title = shown.title
-        authors = shown.authors
-        summary = shown.description?.plainText ?? ""
-        cover = shown.imageURL
-        // Ask the same sources as Fix Metadata, as if this book were a file in the reader's language.
-        var probe = LocalBook(title: book.title, author: book.authors, format: .epub, fileName: "")
-        probe.hardcoverBookID = book.id > 0 ? book.id : nil
-        probe.hardcoverEditionID = editionID
-        probe.language = BookLanguage.reading
-        candidates = await FolioMetadataSources.all(for: probe, hardcover: hardcover)
-        loading = false
-    }
-
-    private func save() {
-        func changed(_ value: String, from original: String?) -> String? {
-            let t = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            return t.isEmpty || t == (original ?? "").trimmingCharacters(in: .whitespacesAndNewlines) ? nil : t
-        }
-        overrides.set(FolioBookOverride(
-            title: changed(title, from: book.title),
-            authors: changed(authors, from: book.authors),
-            summary: changed(summary, from: book.description?.plainText),
-            coverURL: cover == book.imageURL ? nil : cover), for: book.id)
-        dismiss()
-    }
-}
