@@ -720,6 +720,7 @@ private extension View {
 struct FolioMobileEditBook: View {
     let bookID: UUID
     @Environment(LibraryStore.self) private var store
+    @Environment(HardcoverClient.self) private var hardcover
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
     @State private var author = ""
@@ -732,10 +733,15 @@ struct FolioMobileEditBook: View {
     @State private var language = ""
     @State private var choosingCover = false
     @State private var coverError: String?
+    @State private var matchingHardcover = false
+    @State private var fetching = false
+    @State private var fetchNotice: String?
+    @State private var fetchFailed = false
 
     var body: some View {
         NavigationStack {
             Form {
+                hardcoverDetailsSection
                 Section("Book") {
                     TextField("Title", text: $title)
                     TextField("Author", text: $author)
@@ -777,6 +783,14 @@ struct FolioMobileEditBook: View {
                         .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
+            .sheet(isPresented: $matchingHardcover, onDismiss: {
+                // A new match brings its details straight in, without overwriting edits.
+                if let id = store.book(bookID)?.hardcoverBookID, hardcover.isConnected {
+                    Task { await fetchDetails(id, replace: false) }
+                }
+            }) {
+                FolioMobileHardcoverLinkSheet(bookID: bookID)
+            }
             .fileImporter(isPresented: $choosingCover, allowedContentTypes: [.image]) { result in
                 switch result {
                 case .success(let url): updateCover(from: url)
@@ -790,6 +804,125 @@ struct FolioMobileEditBook: View {
             message: { Text(coverError ?? "") }
         }
         .onAppear(perform: load)
+    }
+
+    /// Fills the form from the linked Hardcover record. Missing-only keeps
+    /// anything the person already typed; Replace overwrites every field Hardcover has.
+    @ViewBuilder
+    private var hardcoverDetailsSection: some View {
+        let linkedID = store.book(bookID)?.hardcoverBookID
+        Section {
+            if !hardcover.isConnected {
+                Text("Connect Hardcover in Settings to fetch missing details automatically.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            } else if let linkedID {
+                Button {
+                    Task { await fetchDetails(linkedID, replace: false) }
+                } label: {
+                    HStack {
+                        Label("Fill Missing Details", systemImage: "wand.and.stars")
+                        Spacer()
+                        if fetching { ProgressView() }
+                    }
+                }
+                .disabled(fetching)
+                .accessibilityIdentifier("folio.fillMissingDetails")
+                Button {
+                    Task { await fetchDetails(linkedID, replace: true) }
+                } label: {
+                    Label("Replace with Hardcover Details", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .disabled(fetching)
+                Button {
+                    matchingHardcover = true
+                } label: {
+                    Label("Change Hardcover Match", systemImage: "link")
+                }
+            } else {
+                Button {
+                    matchingHardcover = true
+                } label: {
+                    Label("Find on Hardcover", systemImage: "magnifyingglass")
+                }
+            }
+            if let fetchNotice {
+                Label(fetchNotice, systemImage: fetchFailed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                    .font(.footnote)
+                    .foregroundStyle(fetchFailed ? Color.red : Color.secondary)
+            }
+        } header: {
+            Text("Hardcover")
+        } footer: {
+            if hardcover.isConnected {
+                Text(linkedID == nil
+                     ? "Match this book with Hardcover, then fill in its description, year, series and cover."
+                     : "Review the filled fields, then tap Save. A missing cover is added right away.")
+            }
+        }
+    }
+
+    @MainActor
+    private func fetchDetails(_ hardcoverID: Int, replace: Bool) async {
+        guard !fetching else { return }
+        fetching = true
+        fetchFailed = false
+        fetchNotice = nil
+        defer { fetching = false }
+        do {
+            guard let remote = try await hardcover.book(id: hardcoverID) else {
+                fetchFailed = true
+                fetchNotice = "Hardcover didn't return this book."
+                return
+            }
+            let hcSeries = (try? await hardcover.series(forBook: hardcoverID))?.first
+            var filled: [String] = []
+            func pick(_ current: String, _ value: String?, _ name: String) -> String {
+                let cleaned = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let existing = current.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !cleaned.isEmpty, replace || existing.isEmpty, existing != cleaned else { return current }
+                filled.append(name)
+                return cleaned
+            }
+            title = pick(title, remote.title, "title")
+            author = pick(author, remote.authors, "author")
+            summary = pick(summary, remote.description?.plainText, "description")
+            year = pick(year, remote.year.map { String($0) }, "year")
+            series = pick(series, hcSeries?.name, "series")
+            seriesNumber = pick(seriesNumber, hcSeries?.position.map { String($0.formatted()) }, "book number")
+            if let pages = remote.pages {
+                store.update(bookID) { if replace || $0.hardcoverPages == nil { $0.hardcoverPages = pages } }
+            }
+            if let book = store.book(bookID), replace || store.coverURL(book) == nil,
+               let url = remote.imageURL, await downloadCover(url) {
+                filled.append("cover")
+            }
+            fetchNotice = filled.isEmpty
+                ? "Nothing missing. Hardcover has no extra details for this book."
+                : "Filled \(filled.joined(separator: ", ")). Tap Save to keep them."
+        } catch {
+            fetchFailed = true
+            fetchNotice = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func downloadCover(_ url: URL) async -> Bool {
+        guard url.scheme?.lowercased() == "https" else { return false }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 25
+        guard let (bytes, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              !bytes.isEmpty, bytes.count <= 15_000_000,
+              let image = UIImage(data: bytes),
+              let png = CoverMaker.pngData(image) else { return false }
+        let filename = "\(bookID.uuidString)-hc-\(UUID().uuidString).png"
+        do {
+            try png.write(to: store.coversDir.appendingPathComponent(filename), options: .atomic)
+            store.update(bookID) { $0.coverFileName = filename }
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func load() {
