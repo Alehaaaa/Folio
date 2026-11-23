@@ -496,9 +496,15 @@ final class HardcoverClient {
         req.httpBody = try JSONSerialization.data(withJSONObject: ["query": q, "variables": variables])
         var attempt = 0
         while true {
+            let queued = Date()
             await HCRateGate.shared.wait()
+            let sent = Date()
             let (data, resp) = try await URLSession.shared.data(for: req)
             let http = resp as? HTTPURLResponse
+            #if os(iOS)
+            Self.logTiming(q, status: http?.statusCode, waited: sent.timeIntervalSince(queued),
+                           took: Date().timeIntervalSince(sent), bytes: data.count)
+            #endif
             let head = String(decoding: data.prefix(300), as: UTF8.self)
             if http?.statusCode == 429 || head.localizedCaseInsensitiveContains("too many requests") {
                 // Wait as long as Hardcover asks, then try again, a couple of times at most.
@@ -524,6 +530,19 @@ final class HardcoverClient {
             return json["data"]
         }
     }
+
+    #if os(iOS)
+    /// Logs requests that were slow, waited on the rate limit or failed, by operation name.
+    private static func logTiming(_ query: String, status: Int?, waited: TimeInterval, took: TimeInterval, bytes: Int) {
+        let ok = (200..<300).contains(status ?? 0)
+        guard !ok || took > 1.5 || waited > 1 else { return }
+        let words = query.split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "_" }).prefix(2)
+        let name = words.joined(separator: " ")
+        func seconds(_ t: TimeInterval) -> String { t.formatted(.number.precision(.fractionLength(1))) + " s" }
+        FolioLog.log("\(name): HTTP \(status.map(String.init) ?? "?") in \(seconds(took)) after \(seconds(waited)) "
+                     + "waiting for the rate limit, \(bytes / 1024) KB", "hardcover")
+    }
+    #endif
 
     static let bookFields = "id title slug pages release_year rating ratings_count description cached_contributors image { url }"
     static let userBookFields = "id status_id rating date_added edition_id edition { title pages image { url } } book { \(bookFields) } user_book_reads(order_by: {id: desc}, limit: 1) { id progress_pages started_at finished_at }"

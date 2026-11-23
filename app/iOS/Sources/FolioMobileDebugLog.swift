@@ -62,10 +62,31 @@ enum FolioLog {
         for sig in fatalSignals {
             previousHandlers[sig] = signal(sig, folioSignalHandler)
         }
+        watchMainThread()
         NotificationCenter.default.addObserver(
             forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: nil
         ) { _ in
             FolioLog.log("Memory warning, using \(FolioLog.footprintMB()) MB", "memory")
+        }
+    }
+
+    /// Pings the main thread every second from a background thread and logs any time
+    /// it takes longer than half a second to answer, so hangs show up in the log.
+    private static func watchMainThread() {
+        Thread.detachNewThread {
+            Thread.current.name = "folio.hang-watch"
+            while true {
+                let answered = DispatchSemaphore(value: 0)
+                let sent = Date()
+                DispatchQueue.main.async { answered.signal() }
+                if answered.wait(timeout: .now() + 0.5) == .timedOut {
+                    answered.wait()
+                    let seconds = Date().timeIntervalSince(sent)
+                    log("Main thread blocked for \(seconds.formatted(.number.precision(.fractionLength(1)))) s, "
+                        + "memory \(footprintMB()) MB", "hang")
+                }
+                Thread.sleep(forTimeInterval: 1)
+            }
         }
     }
 

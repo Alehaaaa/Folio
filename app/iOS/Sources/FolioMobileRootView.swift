@@ -36,7 +36,9 @@ struct FolioMobileRootView: View {
                         .folioDetailDestinations()
                 }
             }
-            if sizeClass == .compact {
+            // Before the size class is known it is nil: lay out the iPhone tabs, not
+            // six tabs that UIKit folds into its own More list and then rebuilds.
+            if sizeClass != .regular {
                 Tab("More", systemImage: "ellipsis.circle", value: .settings) {
                     NavigationStack(path: $navigation.morePath) {
                         List {
@@ -84,14 +86,14 @@ struct FolioMobileRootView: View {
                 }
             }
         }
-        .onAppear { navigation.compactTabs = sizeClass == .compact }
+        .onAppear { navigation.compactTabs = sizeClass != .regular }
         .onChange(of: navigation.selectedTab) { _, tab in
             FolioLog.log("Tab \(tab), memory \(FolioLog.footprintMB()) MB", "nav")
         }
         .onChange(of: sizeClass) { _, value in
-            navigation.compactTabs = value == .compact
+            navigation.compactTabs = value != .regular
             // iPad Split View can drop the Downloads and Sources tabs: show them under More.
-            if value == .compact {
+            if value != .regular {
                 switch navigation.selectedTab {
                 case .downloads: navigation.openDownloads()
                 case .sources:

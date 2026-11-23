@@ -18,11 +18,11 @@ final class FolioImageCache: @unchecked Sendable {
         directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("folio-images", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        memory.countLimit = 300
+        memory.countLimit = 200
         // Decoded covers are about 1 MB each; keep the cache well under iOS's memory limit.
-        memory.totalCostLimit = 80 * 1_048_576
-        localMemory.countLimit = 200
-        localMemory.totalCostLimit = 60 * 1_048_576
+        memory.totalCostLimit = 48 * 1_048_576
+        localMemory.countLimit = 120
+        localMemory.totalCostLimit = 32 * 1_048_576
         let config = URLSessionConfiguration.default
         config.requestCachePolicy = .returnCacheDataElseLoad
         session = URLSession(configuration: config)
@@ -91,13 +91,20 @@ final class FolioImageCache: @unchecked Sendable {
         }
     }
 
+    /// Images that couldn't be read (SVG avatars, broken links), not asked for again this session.
+    private var failed = Set<URL>()
+
     private func download(_ url: URL) async -> UIImage? {
+        // ImageIO can't draw SVG (Hardcover's default avatars): show the placeholder instead.
+        if url.pathExtension.lowercased() == "svg" { return nil }
+        if inflightLock.withLock({ failed.contains(url) }) { return nil }
         guard let (data, _) = try? await session.data(from: url) else { return nil }
         // Covers never draw larger than about 300 points, so keep at most 600 pixels.
         // ImageIO decodes straight to that size: decoding a full 3000-pixel cover
         // first takes tens of MB each, and a screen of them can exceed the memory limit.
         guard let image = Self.thumbnail(data, maxPixels: 600) else {
             FolioLog.log("Unreadable image (\(data.count) bytes) at \(url.lastPathComponent)", "images")
+            _ = inflightLock.withLock { failed.insert(url) }
             return nil
         }
         memory.setObject(image, forKey: url as NSURL, cost: Self.cost(of: image))

@@ -35,10 +35,18 @@ final class LibraryStore {
         fillInSeries()
     }
 
+    /// Saves run in order on a background queue: encoding the whole library on the
+    /// main thread every few seconds of reading made the app stutter.
+    private static let saveQueue = DispatchQueue(label: "folio.library.save", qos: .utility)
+
     func save() {
-        let enc = JSONEncoder()
-        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let raw = try? enc.encode(data) { try? raw.write(to: dataURL, options: .atomic) }
+        let snapshot = data
+        let url = dataURL
+        Self.saveQueue.async {
+            let enc = JSONEncoder()
+            enc.outputFormatting = [.sortedKeys]
+            if let raw = try? enc.encode(snapshot) { try? raw.write(to: url, options: .atomic) }
+        }
         scheduleWidgetPublish()
     }
 
