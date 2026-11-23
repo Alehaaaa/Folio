@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.2",
+          "buildVersion": "3",
+          "date": "2026-11-23",
+          "localizedDescription": "Redesigned reader: precise pages, tap-to-hide controls, swipe page turns, highlights in the selection menu, new themes sheet",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.2-3.ipa",
+          "size": 3492230,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.1",
           "buildVersion": "2",
           "date": "2026-11-20",
