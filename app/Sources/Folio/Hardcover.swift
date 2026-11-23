@@ -870,10 +870,10 @@ final class HardcoverClient {
     /// The most-read edition of a book in a language ("es"), preferring one whose
     /// title matches the file's.
     func edition(bookID: Int, language code: String, title: String? = nil) async throws -> HCEdition? {
-        guard let name = BookLanguage.englishName(code) else { return nil }
+        guard let filter = BookLanguage.hardcoverFilter(code) else { return nil }
         let d = try await query("""
-        query LanguageEditions($id: Int!, $lang: String!) { editions(where: {book_id: {_eq: $id}, language: {language: {_eq: $lang}}}, order_by: {users_count: desc}, limit: 20) { \(Self.editionFields) } }
-        """, ["id": bookID, "lang": name])
+        query LanguageEditions($id: Int!) { editions(where: {book_id: {_eq: $id}, \(filter)}, order_by: {users_count: desc}, limit: 20) { \(Self.editionFields) } }
+        """, ["id": bookID])
         let editions = d["editions"].array.map(Self.edition(from:))
         if let title, let titled = editions.first(where: { BookAutoMatch.sameTitle(title, $0.title ?? "") }) { return titled }
         return editions.first
@@ -920,11 +920,15 @@ final class HardcoverClient {
     /// The book, your shelf entry, community numbers, main edition and series
     /// in a single request (Hardcover rate-limits per request). Falls back to
     /// separate requests if the combined one is refused.
-    func bookPage(id: Int, editionID: Int? = nil) async throws -> HCBookPage {
+    func bookPage(id: Int, editionID: Int? = nil, language: String? = nil) async throws -> HCBookPage {
         let uid = user?.id ?? -1
-        // A library file in another language shows its own edition's details.
-        let editions = editionID.map { "editions(where: {id: {_eq: \($0)}}, limit: 1)" }
-            ?? "editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 1)"
+        // A library file in another language shows its own edition's details; other books
+        // show the reader's language edition when Hardcover has one, else the most-read.
+        let mostRead = "editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 1)"
+        var editions = editionID.map { "editions(where: {id: {_eq: \($0)}}, limit: 1)" } ?? mostRead
+        if editionID == nil, let language, language != "en", let filter = BookLanguage.hardcoverFilter(language) {
+            editions = "editions(where: {book_id: {_eq: $id}, \(filter)}, order_by: {users_count: desc}, limit: 1) { \(Self.editionFields) } fallbackEdition: \(mostRead)"
+        }
         do {
             let d = try await query("""
             query BookPage($id: Int!, $uid: Int!) {
@@ -941,7 +945,7 @@ final class HardcoverClient {
                 stats: HCBookStats(rating: b["rating"].double, ratingsCount: b["ratings_count"].int,
                                    reviewsCount: b["reviews_count"].int, readersCount: b["users_count"].int,
                                    readCount: b["users_read_count"].int, releaseDate: b["release_date"].string),
-                edition: d["editions"].array.first.map(Self.edition(from:)),
+                edition: (d["editions"].array.first ?? d["fallbackEdition"].array.first).map(Self.edition(from:)),
                 series: Self.dedupeSeries(d["book_series"].array)
             )
         } catch let error as HCError where error.message.contains("not found in type") || error.message.contains("field") {

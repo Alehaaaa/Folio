@@ -6,6 +6,7 @@ struct FolioMobileSettingsView: View {
     @Environment(ReaderPrefsStore.self) private var preferences
     let showImporter: () -> Void
     @State private var token = ""
+    @AppStorage(BookLanguage.readingLanguageKey) private var bookLanguage = ""
 
     var body: some View {
         Form {
@@ -52,6 +53,18 @@ struct FolioMobileSettingsView: View {
                         Text(error).font(.footnote).foregroundStyle(FolioTheme.danger)
                     }
                 }
+            }
+            .folioRow()
+
+            Section {
+                Picker("Book Language", selection: $bookLanguage) {
+                    Text("Automatic (\(BookLanguage.displayName(BookLanguage.preferred)))").tag("")
+                    ForEach(BookLanguage.common, id: \.self) { code in
+                        Text(BookLanguage.displayName(code)).tag(code)
+                    }
+                }
+            } footer: {
+                Text("Book pages show the edition in this language when Hardcover has one: its title, cover and pages. Imported books always use their own language.")
             }
             .folioRow()
 

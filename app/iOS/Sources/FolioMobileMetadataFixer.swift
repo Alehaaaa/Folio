@@ -22,10 +22,10 @@ struct FolioMetadataCandidate: Identifiable, Hashable {
 extension HardcoverClient {
     /// Editions of a book, in a language when given, most-read first.
     func editions(bookID: Int, language code: String?, limit: Int = 12) async throws -> [HCEdition] {
-        if let code, let name = BookLanguage.englishName(code) {
+        if let code, let filter = BookLanguage.hardcoverFilter(code) {
             let d = try await query("""
-            query EditionsLang($id: Int!, $lang: String!, $n: Int!) { editions(where: {book_id: {_eq: $id}, language: {language: {_eq: $lang}}}, order_by: {users_count: desc}, limit: $n) { \(Self.editionFields) } }
-            """, ["id": bookID, "lang": name, "n": limit])
+            query EditionsLang($id: Int!, $n: Int!) { editions(where: {book_id: {_eq: $id}, \(filter)}, order_by: {users_count: desc}, limit: $n) { \(Self.editionFields) } }
+            """, ["id": bookID, "n": limit])
             let found = d["editions"].array.map(Self.edition(from:))
             if !found.isEmpty { return found }
         }
@@ -40,11 +40,23 @@ extension HardcoverClient {
 enum FolioMetadataSources {
     /// Every source at once: Hardcover (the work and its editions in the book's
     /// language), Google Books and Open Library.
-    static func all(for book: LocalBook, hardcover: HardcoverClient) async -> [FolioMetadataCandidate] {
+    static func all(for input: LocalBook, hardcover: HardcoverClient) async -> [FolioMetadataCandidate] {
+        // Know the file's language first, so every source answers with that edition.
+        let detected = LibraryStore.shared.ensureLanguage(input.id) ?? input.language
+        let book: LocalBook = {
+            var b = input
+            b.language = detected
+            return b
+        }()
         async let google = googleBooks(title: book.title, author: book.author, language: book.language)
-        async let openLibrary = openLibrary(title: book.title, author: book.author)
+        async let openLibrary = openLibrary(title: book.title, author: book.author, language: book.language)
         let fromHardcover = await self.hardcover(book, client: hardcover)
-        return fromHardcover + (await google) + (await openLibrary)
+        let all = fromHardcover + (await google) + (await openLibrary)
+        // Candidates in the book's language come first, so their covers lead the picker.
+        guard let language = book.language else { return all }
+        let inLanguage = all.filter { $0.language == language }
+        let others = all.filter { $0.language != language }
+        return inLanguage + others
     }
 
     static func hardcover(_ book: LocalBook, client: HardcoverClient) async -> [FolioMetadataCandidate] {
@@ -60,10 +72,20 @@ enum FolioMetadataSources {
         guard let workID, let work = try? await client.book(id: workID) else { return [] }
         let series = (try? await client.series(forBook: workID))?.first
         var out: [FolioMetadataCandidate] = []
-        let editions = (try? await client.editions(bookID: workID, language: book.language)) ?? []
+        var editions = (try? await client.editions(bookID: workID, language: book.language)) ?? []
+        // The edition this file is linked to (or marked as reading on Hardcover) leads.
+        if let linked = book.hardcoverEditionID {
+            if let index = editions.firstIndex(where: { $0.id == linked }) {
+                editions.insert(editions.remove(at: index), at: 0)
+            } else if let edition = try? await client.edition(id: linked) {
+                editions.insert(edition, at: 0)
+            }
+        }
         for edition in editions {
+            let languageName = BookLanguage.code(edition.language).map(BookLanguage.displayName)
+            let label = [edition.format?.capitalized, languageName].compactMap { $0 }.joined(separator: ", ")
             out.append(FolioMetadataCandidate(
-                source: "Hardcover · \(edition.format?.capitalized ?? "Edition")",
+                source: "Hardcover · \(label.isEmpty ? "Edition" : label)",
                 title: edition.title, author: work.authors, summary: nil, publisher: edition.publisher,
                 language: BookLanguage.code(edition.language), isbn: edition.isbn13 ?? edition.isbn10,
                 series: nil, seriesIndex: nil,
@@ -111,26 +133,47 @@ enum FolioMetadataSources {
         }
     }
 
-    static func openLibrary(title: String, author: String) async -> [FolioMetadataCandidate] {
+    static func openLibrary(title: String, author: String, language: String?) async -> [FolioMetadataCandidate] {
         var components = URLComponents(string: "https://openlibrary.org/search.json")!
-        components.queryItems = [
+        var items = [
             URLQueryItem(name: "title", value: FolioHardcoverMatch.plainTitle(title)),
             URLQueryItem(name: "author", value: FolioAuthorNames.split(author).first ?? author),
             URLQueryItem(name: "limit", value: "6"),
-            URLQueryItem(name: "fields", value: "title,author_name,first_publish_year,publisher,isbn,cover_i,language,number_of_pages_median")
+            URLQueryItem(name: "fields", value: "title,author_name,first_publish_year,publisher,isbn,cover_i,language,number_of_pages_median,editions,editions.title,editions.cover_i,editions.language,editions.publisher,editions.isbn")
         ]
+        // With a language, Open Library also returns the best edition in it, with its own cover.
+        if let language { items.append(URLQueryItem(name: "lang", value: language)) }
+        components.queryItems = items
         guard let url = components.url, let json = await fetchJSON(url),
               let docs = json["docs"] as? [[String: Any]] else { return [] }
-        return docs.compactMap { doc in
-            guard let name = doc["title"] as? String else { return nil }
-            let cover = (doc["cover_i"] as? Int).flatMap { URL(string: "https://covers.openlibrary.org/b/id/\($0)-L.jpg") }
-            return FolioMetadataCandidate(
-                source: "Open Library", title: name, author: (doc["author_name"] as? [String])?.joined(separator: ", "),
-                summary: nil, publisher: (doc["publisher"] as? [String])?.first,
-                language: (doc["language"] as? [String])?.first.flatMap { BookLanguage.code($0) },
-                isbn: (doc["isbn"] as? [String])?.first { $0.count == 13 }, series: nil, seriesIndex: nil,
-                year: doc["first_publish_year"] as? Int, pages: doc["number_of_pages_median"] as? Int, coverURL: cover)
+        func coverURL(_ id: Any?) -> URL? {
+            (id as? Int).flatMap { $0 > 0 ? URL(string: "https://covers.openlibrary.org/b/id/\($0)-L.jpg") : nil }
         }
+        var out: [FolioMetadataCandidate] = []
+        for doc in docs {
+            let authors = (doc["author_name"] as? [String])?.joined(separator: ", ")
+            if let language,
+               let edition = ((doc["editions"] as? [String: Any])?["docs"] as? [[String: Any]])?.first,
+               let editionLanguage = (edition["language"] as? [String])?.compactMap({ BookLanguage.code($0) }).first,
+               editionLanguage == language {
+                out.append(FolioMetadataCandidate(
+                    source: "Open Library · \(BookLanguage.displayName(language))", title: edition["title"] as? String,
+                    author: authors, summary: nil, publisher: (edition["publisher"] as? [String])?.first,
+                    language: language, isbn: (edition["isbn"] as? [String])?.first { $0.count == 13 },
+                    series: nil, seriesIndex: nil, year: nil, pages: nil, coverURL: coverURL(edition["cover_i"])))
+            }
+            guard let name = doc["title"] as? String else { continue }
+            let languages = (doc["language"] as? [String])?.compactMap { BookLanguage.code($0) } ?? []
+            out.append(FolioMetadataCandidate(
+                source: "Open Library", title: name, author: authors,
+                summary: nil, publisher: (doc["publisher"] as? [String])?.first,
+                // A work in many languages has no single language of its own.
+                language: languages.count == 1 ? languages[0] : nil,
+                isbn: (doc["isbn"] as? [String])?.first { $0.count == 13 }, series: nil, seriesIndex: nil,
+                year: doc["first_publish_year"] as? Int, pages: doc["number_of_pages_median"] as? Int,
+                coverURL: coverURL(doc["cover_i"])))
+        }
+        return out
     }
 
     private static func fetchJSON(_ url: URL) async -> [String: Any]? {

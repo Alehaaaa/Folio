@@ -605,6 +605,12 @@ struct FolioMobileReaderView: View {
                 return
             }
             pdfPage = max(0, min(document.pageCount - 1, book.position.pdfPage))
+            // Progress set elsewhere (the book page, Hardcover, an earlier copy) wins over a stale page.
+            let count = max(1, document.pageCount)
+            if book.status != .finished, book.progress > 0.001,
+               abs(Double(pdfPage + 1) / Double(count) - book.progress) > max(0.02, 1.5 / Double(count)) {
+                pdfPage = max(0, min(count - 1, Int((book.progress * Double(count)).rounded(.down))))
+            }
             pdf = document
             return
         }
@@ -614,8 +620,15 @@ struct FolioMobileReaderView: View {
                 error = "There are no readable chapters in this file."
                 return
             }
-            let reader = FolioMobileReaderEngine(content: parsed, chapter: book.position.chapter,
-                                                 fraction: book.position.fraction)
+            var start = (chapter: book.position.chapter, fraction: book.position.fraction)
+            // Open on the page of the saved progress when the stored position disagrees with it,
+            // as after dragging progress on the book page or linking a book read elsewhere.
+            if book.status != .finished, book.progress > 0.001 {
+                let probe = FolioMobileReaderEngine(content: parsed, chapter: 0, fraction: 0)
+                let atPosition = probe.overall(chapter: start.chapter, fraction: start.fraction)
+                if abs(atPosition - book.progress) > 0.02 { start = probe.location(at: book.progress) }
+            }
+            let reader = FolioMobileReaderEngine(content: parsed, chapter: start.chapter, fraction: start.fraction)
             reader.paginated = preferences.prefs.navigation == .pages && !parsed.isComic
             let id = bookID
             let annotationStore = annotations

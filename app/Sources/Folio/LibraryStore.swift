@@ -173,6 +173,17 @@ final class LibraryStore {
         b.summary = meta.summary
         b.publisher = meta.publisher
         b.publishedYear = meta.publishedYear
+        // A new file for a book already in the library keeps where the reader is.
+        if let earlier = localCopy(author: b.author, title: b.title), earlier.progress > 0.001 || earlier.status != .none {
+            b.progress = earlier.progress
+            b.status = earlier.status
+            b.lastOpenedAt = earlier.lastOpenedAt
+            if earlier.format == format { b.position = earlier.position }
+            b.hardcoverBookID = earlier.hardcoverBookID
+            b.hardcoverEditionID = earlier.hardcoverEditionID
+            b.hardcoverPages = earlier.hardcoverPages
+            b.hardcoverSlug = earlier.hardcoverSlug
+        }
         data.books.append(b)
         save()
         if format == .epub { enqueueAutoLink(id) }
@@ -214,7 +225,8 @@ final class LibraryStore {
                 // A file in another language takes that language's edition: its pages,
                 // publisher and cover, while the work keeps ratings and series.
                 var edition: HCEdition?
-                if let match { edition = await preferredEdition(bookID: match.id, for: id, client: hc) }
+                var shelf: HCUserBook?
+                if let match { (edition, shelf) = await linkDetails(bookID: match.id, for: id, client: hc) }
                 guard hc.user?.id == accountID,
                       let latest = book(id), latest.hardcoverBookID == nil,
                       latest.hardcoverAutoLinkChecked != true else { continue }
@@ -227,6 +239,7 @@ final class LibraryStore {
                         stored.hardcoverEditionID = edition?.id
                     }
                 }
+                if let shelf { adoptHardcoverProgress(id, from: shelf) }
             } catch {
                 // A connection or service failure is not a negative match. Retry on reconnect.
             }
@@ -278,12 +291,45 @@ final class LibraryStore {
     /// The edition a library file stands for: the one on the reader's Hardcover
     /// shelf if they picked one, else the most-read edition in the file's language.
     func preferredEdition(bookID: Int, for id: UUID, client hc: HardcoverClient) async -> HCEdition? {
-        if let shelved = try? await hc.userBook(bookID: bookID), let editionID = shelved.editionID,
-           let edition = try? await hc.edition(id: editionID) {
-            return edition
+        await linkDetails(bookID: bookID, for: id, client: hc).edition
+    }
+
+    /// The reader's Hardcover shelf entry for a work (with its progress) and the edition
+    /// the file stands for, looked up together when a file is linked.
+    func linkDetails(bookID: Int, for id: UUID, client hc: HardcoverClient) async -> (edition: HCEdition?, shelf: HCUserBook?) {
+        let shelved = try? await hc.userBook(bookID: bookID)
+        if let editionID = shelved?.editionID, let edition = try? await hc.edition(id: editionID) {
+            return (edition, shelved)
         }
-        guard let b = book(id), let language = b.language, language != "en" else { return nil }
-        return try? await hc.edition(bookID: bookID, language: language, title: b.title)
+        guard let language = ensureLanguage(id), language != "en", let b = book(id) else { return (nil, shelved) }
+        return (try? await hc.edition(bookID: bookID, language: language, title: b.title), shelved)
+    }
+
+    /// The file's language, detected and saved the first time it is needed.
+    @discardableResult
+    func ensureLanguage(_ id: UUID) -> String? {
+        guard let b = book(id) else { return nil }
+        if let language = BookLanguage.code(b.language) { return language }
+        guard b.format == .epub, let pkg = try? EPUBPackage.load(root: extractedURL(b)),
+              let language = BookLanguage.detect(declared: pkg.language, chapters: pkg.content.chapters) else { return nil }
+        update(id) { $0.language = language }
+        return language
+    }
+
+    /// A linked file with no progress of its own starts where the reader's Hardcover
+    /// shelf says they are, so it opens on that page.
+    func adoptHardcoverProgress(_ id: UUID, from shelf: HCUserBook) {
+        guard let b = book(id), b.progress < 0.001, b.status != .finished else { return }
+        if shelf.status == .read {
+            update(id) { $0.status = .finished }
+            return
+        }
+        guard let read = shelf.progressPages, read > 0,
+              let total = b.hardcoverPages ?? shelf.book.pages, total > 0 else { return }
+        update(id) {
+            $0.progress = min(0.995, Double(read) / Double(total))
+            if $0.status == .none || $0.status == .wantToRead { $0.status = .reading }
+        }
     }
 
     /// Link a library EPUB now (from its book page), including its language's edition.
@@ -294,7 +340,7 @@ final class LibraryStore {
         guard hc.isConnected, let b = book(id), b.format == .epub, b.hardcoverBookID == nil,
               b.hardcoverManuallyUnlinked != true,
               let match = try? await confidentHardcoverMatch(for: b, client: hc) else { return false }
-        let edition = await preferredEdition(bookID: match.id, for: id, client: hc)
+        let (edition, shelf) = await linkDetails(bookID: match.id, for: id, client: hc)
         guard book(id)?.hardcoverBookID == nil else { return false }
         update(id) { stored in
             stored.hardcoverAutoLinkChecked = true
@@ -303,6 +349,7 @@ final class LibraryStore {
             stored.hardcoverSlug = match.slug
             stored.hardcoverEditionID = edition?.id
         }
+        if let shelf { adoptHardcoverProgress(id, from: shelf) }
         return true
     }
 

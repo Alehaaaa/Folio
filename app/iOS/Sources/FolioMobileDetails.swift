@@ -90,7 +90,19 @@ struct FolioMobileBookDetail: View {
         return initialRemote?.id == linkedID ? initialRemote : nil
     }
 
-    private var title: String { local?.title ?? remote?.title ?? initialRemote?.title ?? "Book" }
+    /// The edition in the reader's language, for books outside the library.
+    private var languageEdition: HCEdition? {
+        guard local == nil, let edition, let code = BookLanguage.code(edition.language),
+              code != "en", code == BookLanguage.reading else { return nil }
+        return edition
+    }
+
+    /// The cover to show: the language edition's, else the work's.
+    private var remoteCover: URL? { languageEdition?.imageURL ?? (remote ?? initialRemote)?.imageURL }
+
+    private var title: String {
+        local?.title ?? languageEdition?.title.flatMap { $0.isEmpty ? nil : $0 } ?? remote?.title ?? initialRemote?.title ?? "Book"
+    }
     private var author: String { local?.author ?? remote?.authors ?? initialRemote?.authors ?? "" }
     private var pages: Int? { local?.hardcoverPages ?? remote?.pages ?? edition?.pages }
     private var overview: String? {
@@ -174,7 +186,7 @@ struct FolioMobileBookDetail: View {
                 author: author,
                 hardcoverBookID: linkedID,
                 hardcoverPages: pages,
-                cover: (remote ?? initialRemote)?.imageURL,
+                cover: remoteCover,
                 failedJobID: nil
             )
         }
@@ -230,7 +242,7 @@ struct FolioMobileBookDetail: View {
                 if let local, library.coverURL(local) != nil {
                     FolioMobileCover(book: local)
                 } else {
-                    FolioMobileRemoteCover(url: (remote ?? initialRemote)?.imageURL, title: title)
+                    FolioMobileRemoteCover(url: remoteCover, title: title)
                 }
             }
             .frame(width: sizeClass == .compact ? 110 : 142,
@@ -348,7 +360,7 @@ struct FolioMobileBookDetail: View {
                         author: author,
                         hardcoverBookID: linkedID,
                         hardcoverPages: pages,
-                        cover: (remote ?? initialRemote)?.imageURL
+                        cover: remoteCover
                     )
                 }
                 .accessibilityIdentifier("folio.findSource")
@@ -950,10 +962,12 @@ struct FolioMobileBookDetail: View {
             Date().timeIntervalSince($0.saved) < 10 * 60 && !$0.seriesBooks.isEmpty == !$0.page.series.isEmpty
                 && $0.similar != nil
         } ?? false
-        guard let page = try? await hardcover.bookPage(id: linkedID, editionID: local?.hardcoverEditionID),
+        let language: String? = local != nil ? local?.language : BookLanguage.reading
+        guard let page = try? await hardcover.bookPage(id: linkedID, editionID: editionID, language: language),
               !Task.isCancelled else { return }
         if let book = page.book { remoteDetails = book }
         myHardcoverBook = page.userBook
+        if let local, let shelf = page.userBook { library.adoptHardcoverProgress(local.id, from: shelf) }
         if let total = pages, total > 0 {
             remoteProgress = min(1, Double(myHardcoverBook?.progressPages ?? 0) / Double(total))
         }

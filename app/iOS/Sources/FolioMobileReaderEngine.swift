@@ -90,6 +90,14 @@ final class FolioMobileReaderEngine {
 
     var chapterTitle: String { title(ofChapter: chapter) }
 
+    /// The overall 0...1 position of a chapter and in-chapter fraction.
+    func overall(chapter index: Int, fraction: Double) -> Double {
+        guard !content.chapters.isEmpty else { return 0 }
+        let clamped = max(0, min(content.chapters.count - 1, index))
+        let before = content.chapterSizes.prefix(clamped).reduce(0, +)
+        return min(1, (before + size(of: clamped) * max(0, min(1, fraction))) / totalSize)
+    }
+
     /// The chapter and in-chapter fraction an overall 0...1 position lands on.
     func location(at overall: Double) -> (chapter: Int, fraction: Double) {
         let target = max(0, min(1, overall)) * totalSize

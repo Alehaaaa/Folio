@@ -138,9 +138,45 @@ enum BookAutoMatch {
 enum BookLanguage {
     static var preferred: String { code(Locale.preferredLanguages.first) ?? "en" }
 
+    static let readingLanguageKey = "folio.bookLanguage"
+
+    /// The language book pages are shown in: the reader's choice in Settings,
+    /// otherwise the device's language.
+    static var reading: String {
+        code(UserDefaults.standard.string(forKey: readingLanguageKey)) ?? preferred
+    }
+
+    /// Languages offered in Settings, by name in the reader's own language.
+    static let common = ["en", "es", "fr", "de", "it", "pt", "ca", "nl", "sv", "no", "da", "fi", "pl",
+                         "cs", "ru", "uk", "tr", "el", "ja", "zh", "ko", "ar", "he", "hi"]
+
+    /// "Spanish" for "es", in the reader's language.
+    static func displayName(_ code: String) -> String {
+        Locale.current.localizedString(forLanguageCode: code)?.capitalized(with: Locale.current) ?? code
+    }
+
+    /// Every language's English name ("spanish") and ISO 639-2 code ("spa") to its two-letter code.
+    private static let names: [String: String] = {
+        var out: [String: String] = [:]
+        let english = Locale(identifier: "en_US")
+        for identifier in Locale.LanguageCode.isoLanguageCodes.map(\.identifier) where identifier.count == 2 {
+            if let name = english.localizedString(forLanguageCode: identifier)?.lowercased() { out[name] = identifier }
+            if let alpha3 = Locale.LanguageCode(identifier).identifier(.alpha3) { out[alpha3] = identifier }
+            if let native = Locale(identifier: identifier).localizedString(forLanguageCode: identifier)?.lowercased() {
+                out[native] = out[native] ?? identifier
+            }
+        }
+        return out
+    }()
+
     static func code(_ value: String?) -> String? {
         guard let value else { return nil }
-        let text = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        var text = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        // Catalog names such as "Spanish; Castilian" name one language twice.
+        if let first = text.split(separator: ";").first, text.contains(";"),
+           let known = names[first.trimmingCharacters(in: .whitespaces)] {
+            text = known
+        }
         guard !text.isEmpty, !text.contains(","), !text.contains(";"),
               !text.contains("/"), !["und", "mul", "unknown", "none", "n/a", "-"].contains(text)
         else { return nil }
@@ -155,7 +191,7 @@ enum BookLanguage {
             "nld": "nl", "dut": "nl", "jpn": "ja", "zho": "zh",
             "chi": "zh", "rus": "ru"
         ]
-        if let known = aliases[text] { return known }
+        if let known = aliases[text] ?? names[text] { return known }
         let primary = text.replacingOccurrences(of: "_", with: "-").split(separator: "-").first.map(String.init) ?? ""
         guard primary.count == 2 || primary.count == 3,
               primary.unicodeScalars.allSatisfy({ (97...122).contains(Int($0.value)) })
@@ -187,6 +223,13 @@ enum BookLanguage {
     /// English name Hardcover uses for a language ("es" is "Spanish").
     static func englishName(_ code: String) -> String? {
         Locale(identifier: "en_US").localizedString(forLanguageCode: code)
+    }
+
+    /// A Hardcover `editions` filter for a language. Hardcover names languages in
+    /// English and sometimes adds a synonym ("Spanish; Castilian"), so match the start.
+    static func hardcoverFilter(_ code: String) -> String? {
+        guard let name = englishName(code), name.allSatisfy({ $0.isLetter || $0 == " " }) else { return nil }
+        return "language: {language: {_ilike: \"\(name)%\"}}"
     }
 
     /// nil: language unverified, eligible for download and OPF inspection.
