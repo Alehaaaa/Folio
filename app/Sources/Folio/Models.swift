@@ -126,6 +126,9 @@ struct LocalBook: Codable, Identifiable, Hashable {
     var hardcoverAutoLinkChecked: Bool?
     /// Set when the reader removed the Hardcover link, so pages never re-link it.
     var hardcoverManuallyUnlinked: Bool?
+    /// The Hardcover edition in the file's language (e.g. the Spanish edition),
+    /// while hardcoverBookID stays the work for ratings, reviews and series.
+    var hardcoverEditionID: Int?
     var syncedProgressPages: Int?
     var series: String?
     var seriesIndex: Double?

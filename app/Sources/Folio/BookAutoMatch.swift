@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 
 /// Conservative comparisons for linking an imported EPUB with a Hardcover catalogue book.
 /// Nothing based on a partial/fuzzy title or the order of search results is auto-linked.
@@ -160,6 +161,32 @@ enum BookLanguage {
               primary.unicodeScalars.allSatisfy({ (97...122).contains(Int($0.value)) })
         else { return nil }
         return aliases[primary] ?? primary
+    }
+
+    /// The language of an EPUB: its declared dc:language, otherwise what the
+    /// opening chapters are written in (only when the recognizer is confident).
+    static func detect(declared: String?, chapters: [URL]) -> String? {
+        if let code = code(declared) { return code }
+        var sample = ""
+        for url in chapters.prefix(12) {
+            guard let html = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let text = html
+                .replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+                .replacingOccurrences(of: "&[a-zA-Z#0-9]+;", with: " ", options: .regularExpression)
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            sample += text + " "
+            if sample.count > 6000 { break }
+        }
+        guard sample.count > 400 else { return nil }
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(String(sample.prefix(6000)))
+        guard let best = recognizer.languageHypotheses(withMaximum: 1).first, best.value > 0.8 else { return nil }
+        return code(best.key.rawValue)
+    }
+
+    /// English name Hardcover uses for a language ("es" is "Spanish").
+    static func englishName(_ code: String) -> String? {
+        Locale(identifier: "en_US").localizedString(forLanguageCode: code)
     }
 
     /// nil: language unverified, eligible for download and OPF inspection.

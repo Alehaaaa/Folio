@@ -166,6 +166,9 @@ struct EPUBPackage {
     var seriesIndex: Double? = nil
     var coverURL: URL?
     var content: WebContent
+    var summary: String? = nil
+    var publisher: String? = nil
+    var publishedYear: Int? = nil
 
     static func xml(_ url: URL) -> XMLDocument? {
         if let d = try? XMLDocument(contentsOf: url, options: []) { return d }
@@ -310,6 +313,17 @@ struct EPUBPackage {
         }
         if series?.isEmpty == true { series = nil }
 
+        func metadataText(_ name: String) -> String? {
+            let value = opf.first("//*[local-name()='metadata']/*[local-name()='\(name)']")?.stringValue?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return value?.isEmpty == false ? value : nil
+        }
+        let publicationDate = opf.all("//*[local-name()='metadata']/*[local-name()='date']").first { node in
+            let event = (node.attr("opf:event") ?? node.attr("event"))?.lowercased()
+            return event == nil || event == "publication"
+        }?.stringValue
+        let publishedYear = publicationDate.flatMap { Int($0.trimmingCharacters(in: .whitespaces).prefix(4)) }
+
         return EPUBPackage(
             title: title,
             author: authors.joined(separator: ", "),
@@ -318,7 +332,10 @@ struct EPUBPackage {
             series: series,
             seriesIndex: seriesIndex,
             coverURL: cover,
-            content: WebContent(root: root, chapters: spine, chapterSizes: sizes, toc: toc, isComic: false, rtl: rtl)
+            content: WebContent(root: root, chapters: spine, chapterSizes: sizes, toc: toc, isComic: false, rtl: rtl),
+            summary: metadataText("description"),
+            publisher: metadataText("publisher"),
+            publishedYear: publishedYear.flatMap { (1000...2100).contains($0) ? $0 : nil }
         )
     }
 }

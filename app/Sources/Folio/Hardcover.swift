@@ -212,6 +212,9 @@ struct HCBookStats: Hashable, Codable {
 }
 
 struct HCEdition: Hashable, Codable {
+    var id: Int?
+    var title: String?
+    var imageURL: URL?
     var publisher: String?
     var releaseDate: String?
     var pages: Int?
@@ -273,10 +276,19 @@ struct HCUserBook: Identifiable, Hashable, Codable {
     var startedAt: String?
     var finishedAt: String?
     var dateAdded: String?
+    /// The edition on the reader's shelf (e.g. a Spanish translation), if one was chosen.
+    var editionID: Int? = nil
 
     static func from(_ j: JSON) -> HCUserBook? {
-        guard let id = j["id"].int, let book = HCBook.from(book: j["book"]) else { return nil }
+        guard let id = j["id"].int, var book = HCBook.from(book: j["book"]) else { return nil }
         let read = j["user_book_reads"].array.first ?? .null
+        // Show the edition being read: its title, cover and length, under the work's id.
+        let edition = j["edition"]
+        if let title = edition["title"].string, !title.isEmpty { book.title = title }
+        if let url = (edition["image"]["url"].string ?? edition["cached_image"]["url"].string).flatMap(URL.init(string:)) {
+            book.imageURL = url
+        }
+        if let pages = edition["pages"].int, pages > 0 { book.pages = pages }
         return HCUserBook(
             id: id,
             status: j["status_id"].int.flatMap(HCStatus.init(rawValue:)),
@@ -286,7 +298,8 @@ struct HCUserBook: Identifiable, Hashable, Codable {
             progressPages: read["progress_pages"].int,
             startedAt: read["started_at"].string,
             finishedAt: read["finished_at"].string,
-            dateAdded: j["date_added"].string
+            dateAdded: j["date_added"].string,
+            editionID: j["edition_id"].int
         )
     }
 }
@@ -439,7 +452,7 @@ final class HardcoverClient {
     }
 
     static let bookFields = "id title slug pages release_year rating ratings_count description cached_contributors image { url }"
-    static let userBookFields = "id status_id rating date_added book { \(bookFields) } user_book_reads(order_by: {id: desc}, limit: 1) { id progress_pages started_at finished_at }"
+    static let userBookFields = "id status_id rating date_added edition_id edition { title pages image { url } } book { \(bookFields) } user_book_reads(order_by: {id: desc}, limit: 1) { id progress_pages started_at finished_at }"
 
     // MARK: Reads
 
@@ -547,12 +560,17 @@ final class HardcoverClient {
     }
 
     func search(_ text: String) async throws -> [HCBook] {
+        try await searchDocuments(text).compactMap { HCBook.from(searchDocument: $0) }
+    }
+
+    /// Raw search documents, which also carry every edition title (alternative_titles).
+    func searchDocuments(_ text: String) async throws -> [JSON] {
         let d = try await query("""
         query Search($q: String!) { search(query: $q, query_type: "Book", per_page: 30, page: 1) { results } }
         """, ["q": text])
         var results = d["search"]["results"]
         if case .string(let s) = results, let data = s.data(using: .utf8), let j = try? JSONDecoder().decode(JSON.self, from: data) { results = j }
-        return results["hits"].array.compactMap { HCBook.from(searchDocument: $0["document"]) }
+        return results["hits"].array.map { $0["document"] }
     }
 
     func bookID(isbn: String) async throws -> Int? {
@@ -721,26 +739,81 @@ final class HardcoverClient {
         return d["editions"].array.first.map(Self.edition(from:))
     }
 
-    static let editionFields = "release_date pages isbn_10 isbn_13 edition_format physical_format publisher { name } language { language }"
+    static let editionFields = "id title image { url } release_date pages isbn_10 isbn_13 edition_format physical_format publisher { name } language { language }"
 
     static func edition(from e: JSON) -> HCEdition {
         let format = [e["edition_format"].string, e["physical_format"].string]
             .compactMap { $0?.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
-        return HCEdition(publisher: e["publisher"]["name"].string, releaseDate: e["release_date"].string,
+        return HCEdition(id: e["id"].int, title: e["title"].string,
+                         imageURL: (e["image"]["url"].string ?? e["cached_image"]["url"].string).flatMap(URL.init(string:)),
+                         publisher: e["publisher"]["name"].string, releaseDate: e["release_date"].string,
                          pages: e["pages"].int, isbn13: e["isbn_13"].string, isbn10: e["isbn_10"].string,
                          format: format, language: e["language"]["language"].string)
+    }
+
+    /// The most-read edition of a book in a language ("es"), preferring one whose
+    /// title matches the file's.
+    func edition(bookID: Int, language code: String, title: String? = nil) async throws -> HCEdition? {
+        guard let name = BookLanguage.englishName(code) else { return nil }
+        let d = try await query("""
+        query LanguageEditions($id: Int!, $lang: String!) { editions(where: {book_id: {_eq: $id}, language: {language: {_eq: $lang}}}, order_by: {users_count: desc}, limit: 20) { \(Self.editionFields) } }
+        """, ["id": bookID, "lang": name])
+        let editions = d["editions"].array.map(Self.edition(from:))
+        if let title, let titled = editions.first(where: { BookAutoMatch.sameTitle(title, $0.title ?? "") }) { return titled }
+        return editions.first
+    }
+
+    func edition(id: Int) async throws -> HCEdition? {
+        let d = try await query("query EditionByID($id: Int!) { editions(where: {id: {_eq: $id}}, limit: 1) { \(Self.editionFields) } }", ["id": id])
+        return d["editions"].array.first.map(Self.edition(from:))
+    }
+
+    /// Finds the work behind a translated file ("Amanecer rojo" is "Red Rising"):
+    /// Hardcover's search knows every edition title, then the series place, then
+    /// an edition with exactly that title. The author must always match.
+    func translatedBook(title: String, author: String, series: String?, seriesIndex: Double?) async -> HCBook? {
+        func authorMatches(_ names: [String]) -> Bool {
+            names.contains { BookAutoMatch.sameAuthor(author, $0) } || BookAutoMatch.sameAuthor(author, names.joined(separator: ", "))
+        }
+        // 1. Search, accepting the work when the file's title is one of its edition titles.
+        if let docs = try? await searchDocuments("\(title) \(author)") {
+            for doc in docs {
+                let names = doc["author_names"].array.compactMap(\.string)
+                guard authorMatches(names) else { continue }
+                let titles = [doc["title"].string].compactMap { $0 } + doc["alternative_titles"].array.compactMap(\.string)
+                if titles.contains(where: { BookAutoMatch.sameTitle(title, $0) }) { return HCBook.from(searchDocument: doc) }
+            }
+        }
+        // 2. The same place in the same series by the same author.
+        if let series, let seriesIndex, let sid = try? await seriesID(named: series),
+           let entries = try? await seriesBooks(sid),
+           let entry = entries.first(where: { $0.position == seriesIndex && authorMatches([$0.book.authors]) }) {
+            return entry.book
+        }
+        // 3. An edition published under exactly this title.
+        if let d = try? await query("""
+        query EditionTitle($t: String!) { editions(where: {title: {_eq: $t}}, order_by: {users_count: desc}, limit: 10) { book { \(Self.bookFields) } } }
+        """, ["t": title]) {
+            for row in d["editions"].array {
+                if let book = HCBook.from(book: row["book"]), authorMatches(book.authors.components(separatedBy: ", ")) { return book }
+            }
+        }
+        return nil
     }
 
     /// The book, your shelf entry, community numbers, main edition and series
     /// in a single request (Hardcover rate-limits per request). Falls back to
     /// separate requests if the combined one is refused.
-    func bookPage(id: Int) async throws -> HCBookPage {
+    func bookPage(id: Int, editionID: Int? = nil) async throws -> HCBookPage {
         let uid = user?.id ?? -1
+        // A library file in another language shows its own edition's details.
+        let editions = editionID.map { "editions(where: {id: {_eq: \($0)}}, limit: 1)" }
+            ?? "editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 1)"
         do {
             let d = try await query("""
             query BookPage($id: Int!, $uid: Int!) {
               books(where: {id: {_eq: $id}}, limit: 1) { \(Self.bookFields) reviews_count users_count users_read_count release_date }
-              editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 1) { \(Self.editionFields) }
+              \(editions) { \(Self.editionFields) }
               book_series(where: {book_id: {_eq: $id}}) { position series { id name } }
               user_books(where: {user_id: {_eq: $uid}, book_id: {_eq: $id}}, limit: 1) { \(Self.userBookFields) }
             }
@@ -762,7 +835,7 @@ final class HardcoverClient {
             page.book = try await book(id: id)
             page.userBook = try? await userBook(bookID: id)
             page.stats = try? await stats(bookID: id, distribution: false)
-            page.edition = try? await edition(bookID: id)
+            if let editionID { page.edition = try? await edition(id: editionID) } else { page.edition = try? await edition(bookID: id) }
             page.series = ((try? await series(forBook: id)) ?? []).map { HCBookSeries(id: $0.id, name: $0.name, position: $0.position) }
             return page
         }
@@ -838,21 +911,34 @@ final class HardcoverClient {
     // MARK: Writes
 
     @discardableResult
-    func setStatus(bookID: Int, status: HCStatus) async -> HCUserBook? {
+    func setStatus(bookID: Int, status: HCStatus, editionID: Int? = nil) async -> HCUserBook? {
         do {
             if let existing = try await userBook(bookID: bookID) {
-                try await query("""
-                mutation Status($id: Int!, $status: Int!) { update_user_book(id: $id, object: {status_id: $status}) { id error } }
-                """, ["id": existing.id, "status": status.rawValue])
+                if let editionID, existing.editionID == nil {
+                    // Record which edition is being read (e.g. the Spanish one).
+                    try await query("""
+                    mutation StatusEdition($id: Int!, $status: Int!, $e: Int!) { update_user_book(id: $id, object: {status_id: $status, edition_id: $e}) { id error } }
+                    """, ["id": existing.id, "status": status.rawValue, "e": editionID])
+                } else {
+                    try await query("""
+                    mutation Status($id: Int!, $status: Int!) { update_user_book(id: $id, object: {status_id: $status}) { id error } }
+                    """, ["id": existing.id, "status": status.rawValue])
+                }
                 if status == .read, let rid = existing.readID {
                     _ = try? await query("""
                     mutation Done($id: Int!, $d: date) { update_user_book_read(id: $id, object: {finished_at: $d}) { id error } }
                     """, ["id": rid, "d": Date().isoDay])
                 }
             } else {
-                try await query("""
-                mutation Add($bid: Int!, $status: Int!) { insert_user_book(object: {book_id: $bid, status_id: $status}) { id error } }
-                """, ["bid": bookID, "status": status.rawValue])
+                if let editionID {
+                    try await query("""
+                    mutation AddEdition($bid: Int!, $status: Int!, $e: Int!) { insert_user_book(object: {book_id: $bid, status_id: $status, edition_id: $e}) { id error } }
+                    """, ["bid": bookID, "status": status.rawValue, "e": editionID])
+                } else {
+                    try await query("""
+                    mutation Add($bid: Int!, $status: Int!) { insert_user_book(object: {book_id: $bid, status_id: $status}) { id error } }
+                    """, ["bid": bookID, "status": status.rawValue])
+                }
             }
             revision += 1
             lastError = nil
@@ -881,11 +967,11 @@ final class HardcoverClient {
 
     /// Records how many pages are read (user_book_reads.progress_pages), starting a read if needed.
     @discardableResult
-    func setProgress(bookID: Int, pages: Int) async -> Bool {
+    func setProgress(bookID: Int, pages: Int, editionID: Int? = nil) async -> Bool {
         do {
             var ub = try await userBook(bookID: bookID)
             if ub == nil || ub?.status == .wantToRead || ub?.status == .paused {
-                ub = await setStatus(bookID: bookID, status: .reading)
+                ub = await setStatus(bookID: bookID, status: .reading, editionID: editionID)
             }
             guard let ub else { return false }
             if let rid = ub.readID, ub.finishedAt == nil {

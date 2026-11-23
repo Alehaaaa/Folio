@@ -169,6 +169,10 @@ final class LibraryStore {
         b.seriesIndex = meta.seriesIndex
         b.seriesChecked = true
         b.isbn = meta.isbn
+        b.language = meta.language
+        b.summary = meta.summary
+        b.publisher = meta.publisher
+        b.publishedYear = meta.publishedYear
         data.books.append(b)
         save()
         if format == .epub { enqueueAutoLink(id) }
@@ -207,6 +211,10 @@ final class LibraryStore {
                   b.hardcoverAutoLinkChecked != true else { continue }
             do {
                 let match = try await confidentHardcoverMatch(for: b, client: hc)
+                // A file in another language takes that language's edition: its pages,
+                // publisher and cover, while the work keeps ratings and series.
+                var edition: HCEdition?
+                if let match { edition = await preferredEdition(bookID: match.id, for: id, client: hc) }
                 guard hc.user?.id == accountID,
                       let latest = book(id), latest.hardcoverBookID == nil,
                       latest.hardcoverAutoLinkChecked != true else { continue }
@@ -214,8 +222,9 @@ final class LibraryStore {
                     stored.hardcoverAutoLinkChecked = true
                     if let match {
                         stored.hardcoverBookID = match.id
-                        stored.hardcoverPages = match.pages
+                        stored.hardcoverPages = edition?.pages ?? match.pages
                         stored.hardcoverSlug = match.slug
+                        stored.hardcoverEditionID = edition?.id
                     }
                 }
             } catch {
@@ -233,6 +242,12 @@ final class LibraryStore {
         let author = (pkg?.author.isEmpty == false ? pkg?.author : nil) ?? book.author
         let isbn = book.isbn ?? pkg?.isbn
         if book.isbn == nil, let isbn { update(book.id) { $0.isbn = isbn } }
+        // Older imports never recorded the language: read it now.
+        var language = book.language
+        if language == nil, let pkg {
+            language = BookLanguage.detect(declared: pkg.language, chapters: pkg.content.chapters)
+            if let language { update(book.id) { $0.language = language } }
+        }
 
         if let isbn {
             let ids = try await hc.bookIDs(isbn: isbn)
@@ -246,10 +261,49 @@ final class LibraryStore {
         guard !BookAutoMatch.words(title).isEmpty, BookAutoMatch.words(author).count >= 2 else { return nil }
         let candidates = try await hc.search(title)
         // Search returns a maximum of 30 hits; a full page cannot prove uniqueness.
-        guard candidates.count < 30 else { return nil }
-        let id = BookAutoMatch.uniqueExact(title: title, author: author,
-                                           in: candidates.map { .init(id: $0.id, title: $0.title, authors: $0.authors) })
-        return candidates.first { $0.id == id }
+        if candidates.count < 30,
+           let id = BookAutoMatch.uniqueExact(title: title, author: author,
+                                              in: candidates.map { .init(id: $0.id, title: $0.title, authors: $0.authors) }),
+           let found = candidates.first(where: { $0.id == id }) {
+            return found
+        }
+        // A translation is catalogued under the original title ("Amanecer rojo" is "Red Rising").
+        if let language, language != "en" {
+            return await hc.translatedBook(title: title, author: author,
+                                           series: book.series ?? pkg?.series, seriesIndex: book.seriesIndex ?? pkg?.seriesIndex)
+        }
+        return nil
+    }
+
+    /// The edition a library file stands for: the one on the reader's Hardcover
+    /// shelf if they picked one, else the most-read edition in the file's language.
+    func preferredEdition(bookID: Int, for id: UUID, client hc: HardcoverClient) async -> HCEdition? {
+        if let shelved = try? await hc.userBook(bookID: bookID), let editionID = shelved.editionID,
+           let edition = try? await hc.edition(id: editionID) {
+            return edition
+        }
+        guard let b = book(id), let language = b.language, language != "en" else { return nil }
+        return try? await hc.edition(bookID: bookID, language: language, title: b.title)
+    }
+
+    /// Link a library EPUB now (from its book page), including its language's edition.
+    /// Returns whether a link was made.
+    @discardableResult
+    func linkHardcoverNow(_ id: UUID) async -> Bool {
+        let hc = HardcoverClient.shared
+        guard hc.isConnected, let b = book(id), b.format == .epub, b.hardcoverBookID == nil,
+              b.hardcoverManuallyUnlinked != true,
+              let match = try? await confidentHardcoverMatch(for: b, client: hc) else { return false }
+        let edition = await preferredEdition(bookID: match.id, for: id, client: hc)
+        guard book(id)?.hardcoverBookID == nil else { return false }
+        update(id) { stored in
+            stored.hardcoverAutoLinkChecked = true
+            stored.hardcoverBookID = match.id
+            stored.hardcoverPages = edition?.pages ?? match.pages
+            stored.hardcoverSlug = match.slug
+            stored.hardcoverEditionID = edition?.id
+        }
+        return true
     }
 
     /// A book already in the library with this author and title, if any.
@@ -260,7 +314,7 @@ final class LibraryStore {
 
     /// Copies verified Hardcover details into the EPUB archive itself, including its embedded
     /// cover image. This is an explicit user action and always leaves a recoverable original.
-    func enrichEPUB(_ id: UUID, from selected: HCBook) async throws {
+    func enrichEPUB(_ id: UUID, from selected: HCBook, edition: HCEdition? = nil) async throws {
         guard let originalBook = book(id), originalBook.format == .epub else {
             throw NSError(domain: "Folio", code: 41, userInfo: [NSLocalizedDescriptionKey: "Only imported EPUB books can be updated this way."])
         }
@@ -273,6 +327,14 @@ final class LibraryStore {
         if details.imageURL == nil { details.imageURL = selected.imageURL }
         if details.pages == nil { details.pages = selected.pages }
         if details.slug == nil { details.slug = selected.slug }
+        // A translated file takes its own edition's title, cover and length, and keeps
+        // its own description rather than the original-language one.
+        if let edition {
+            if let title = edition.title, !title.isEmpty { details.title = title }
+            if let image = edition.imageURL { details.imageURL = image }
+            if let pages = edition.pages { details.pages = pages }
+            details.description = nil
+        }
 
         let coverPNG: Data?
         if let coverURL = details.imageURL {
@@ -367,7 +429,10 @@ final class LibraryStore {
         }
     }
 
-    struct Meta: Sendable { var title: String; var author: String; var cover: String?; var series: String? = nil; var seriesIndex: Double? = nil; var isbn: String? = nil }
+    struct Meta: Sendable {
+        var title: String; var author: String; var cover: String?; var series: String? = nil; var seriesIndex: Double? = nil; var isbn: String? = nil
+        var language: String? = nil; var summary: String? = nil; var publisher: String? = nil; var publishedYear: Int? = nil
+    }
 
     nonisolated static func prepare(format: BookFormat, file: URL, extracted: URL, covers: URL, id: UUID, fallbackTitle: String) throws -> Meta {
         let fm = FileManager.default
@@ -386,6 +451,10 @@ final class LibraryStore {
             meta.series = pkg.series
             meta.seriesIndex = pkg.seriesIndex
             meta.isbn = pkg.isbn
+            meta.language = BookLanguage.detect(declared: pkg.language, chapters: pkg.content.chapters)
+            meta.summary = pkg.summary
+            meta.publisher = pkg.publisher
+            meta.publishedYear = pkg.publishedYear
             if let c = pkg.coverURL, let img = FolioImageLoader.load(c) { saveCover(CoverMaker.pngData(img)) }
         case .pdf:
             guard let doc = PDFDocument(url: file) else { throw NSError(domain: "Folio", code: 3, userInfo: [NSLocalizedDescriptionKey: "This PDF can't be opened."]) }

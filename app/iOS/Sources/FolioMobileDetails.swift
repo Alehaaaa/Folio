@@ -93,7 +93,7 @@ struct FolioMobileBookDetail: View {
     private var author: String { local?.author ?? remote?.authors ?? initialRemote?.authors ?? "" }
     private var pages: Int? { local?.hardcoverPages ?? remote?.pages ?? edition?.pages }
     private var overview: String? {
-        let value = local?.summary ?? (remote ?? initialRemote)?.description?.plainText
+        let value = local?.summary?.plainText ?? (remote ?? initialRemote)?.description?.plainText
         return value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : value
     }
 
@@ -568,7 +568,7 @@ struct FolioMobileBookDetail: View {
         guard canSyncHardcover, let linkedID else { return }
         Task {
             busy = true
-            let updated = await hardcover.setStatus(bookID: linkedID, status: status)
+            let updated = await hardcover.setStatus(bookID: linkedID, status: status, editionID: editionID)
             busy = false
             if let updated {
                 myHardcoverBook = updated
@@ -594,7 +594,7 @@ struct FolioMobileBookDetail: View {
         saveSnapshot()
         Task {
             busy = true
-            let saved = await hardcover.setProgress(bookID: linkedID, pages: value)
+            let saved = await hardcover.setProgress(bookID: linkedID, pages: value, editionID: editionID)
             if saved, let fresh = try? await hardcover.userBook(bookID: linkedID) {
                 myHardcoverBook = fresh
                 if fresh.progressPages == value { FolioPendingProgress.clear(linkedID) }
@@ -757,7 +757,7 @@ struct FolioMobileBookDetail: View {
         if hasDetails {
         VStack(alignment: .leading, spacing: 11) {
             Text("Details").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
-            if let publisher = nonEmpty(local?.publisher) ?? nonEmpty(edition?.publisher) {
+            if let publisher = nonEmpty(edition?.publisher) ?? nonEmpty(local?.publisher) {
                 LabeledContent("Publisher", value: publisher)
             }
             if let published = publishedText {
@@ -845,6 +845,8 @@ struct FolioMobileBookDetail: View {
             return
         }
         guard linkedID == nil, hardcover.isConnected, local?.hardcoverManuallyUnlinked != true else { return }
+        // Library EPUBs use the full matcher: ISBN, language and translated titles.
+        if let local, local.format == .epub, await library.linkHardcoverNow(local.id) { return }
         guard let match = await FolioHardcoverMatch.find(title: title, author: author, hardcover: hardcover),
               linkedID == nil else { return }
         if let local {
@@ -856,6 +858,23 @@ struct FolioMobileBookDetail: View {
         } else {
             resolvedID = match.id
         }
+    }
+
+    /// The edition being read: the library file's language edition, or the one on your shelf.
+    private var editionID: Int? { local?.hardcoverEditionID ?? myHardcoverBook?.editionID }
+
+    /// Library files that predate language matching pick up their edition once.
+    @MainActor
+    private func backfillEdition(_ bookID: Int) async {
+        guard let local, local.hardcoverEditionID == nil,
+              (local.language.map { $0 != "en" } ?? false) || myHardcoverBook?.editionID != nil,
+              let found = await library.preferredEdition(bookID: bookID, for: local.id, client: hardcover),
+              let id = found.id else { return }
+        library.update(local.id) {
+            $0.hardcoverEditionID = id
+            if let pages = found.pages, pages > 0 { $0.hardcoverPages = pages }
+        }
+        edition = found
     }
 
     /// This book as Hardcover knows it, or as far as the page knows it.
@@ -924,7 +943,8 @@ struct FolioMobileBookDetail: View {
             Date().timeIntervalSince($0.saved) < 10 * 60 && !$0.seriesBooks.isEmpty == !$0.page.series.isEmpty
                 && $0.similar != nil
         } ?? false
-        guard let page = try? await hardcover.bookPage(id: linkedID), !Task.isCancelled else { return }
+        guard let page = try? await hardcover.bookPage(id: linkedID, editionID: local?.hardcoverEditionID),
+              !Task.isCancelled else { return }
         if let book = page.book { remoteDetails = book }
         myHardcoverBook = page.userBook
         if let total = pages, total > 0 {
@@ -932,12 +952,13 @@ struct FolioMobileBookDetail: View {
         }
         if let pending = FolioPendingProgress.value(for: linkedID), page.userBook?.progressPages != pending {
             applyPendingProgress(linkedID)
-            Task { _ = await hardcover.setProgress(bookID: linkedID, pages: pending) }
+            Task { _ = await hardcover.setProgress(bookID: linkedID, pages: pending, editionID: editionID) }
         } else {
             FolioPendingProgress.clear(linkedID)
         }
         edition = page.edition
         bookSeries = page.series
+        await backfillEdition(linkedID)
         var fresh = page.stats
         // Keep the bars on screen while the distribution refreshes.
         if let old = stats?.distribution, !old.isEmpty { fresh?.distribution = old }
@@ -1001,7 +1022,7 @@ struct FolioMobileBookDetail: View {
         busy = true
         defer { busy = false }
         do {
-            try await library.enrichEPUB(id, from: remote)
+            try await library.enrichEPUB(id, from: remote, edition: local?.hardcoverEditionID == nil ? nil : edition)
             noticeIsError = false
             notice = "EPUB metadata and cover updated. Original saved in EPUB Backups."
             await loadHardcoverData()
@@ -1092,7 +1113,7 @@ enum FolioHardcoverProgressSync {
         let pages = Int((min(1, book.progress) * Double(total)).rounded())
         guard pages > 0, pages != book.syncedProgressPages else { return }
         Task {
-            if await hardcover.setProgress(bookID: hcID, pages: pages) {
+            if await hardcover.setProgress(bookID: hcID, pages: pages, editionID: book.hardcoverEditionID) {
                 store.update(bookID) { $0.syncedProgressPages = pages }
             }
         }
