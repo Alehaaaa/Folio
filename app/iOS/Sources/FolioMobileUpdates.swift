@@ -76,8 +76,11 @@ final class FolioUpdateChecker {
             latest = release
             if updateAvailable, let release {
                 status = .idle
-                startDownload(release)
-                if manual || release.id != skippedID { offered = release }
+                // A skipped build isn't downloaded again unless asked for.
+                if manual || release.id != skippedID {
+                    startDownload(release)
+                    offered = release
+                }
             } else {
                 status = .upToDate
                 Self.removeDownloads()
