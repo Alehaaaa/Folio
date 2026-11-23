@@ -74,6 +74,15 @@ final class FolioMobileDiscoverFeed {
 
         var results: [String: [HCBook]] = [:]
         var firstError: String?
+        // Keep each book in one row only, in the order the rows appear, and
+        // show rows as soon as they arrive instead of after the slowest one.
+        func publish() {
+            var seen = Set<Int>()
+            rows = plan.compactMap { id, title, _ in
+                let books = (results[id] ?? []).filter { seen.insert($0.id).inserted }
+                return books.count >= 3 ? Row(id: id, title: title, books: Array(books.prefix(16))) : nil
+            }
+        }
         await withTaskGroup(of: (String, Result<[HCBook], Error>).self) { group in
             for (id, _, kind) in plan {
                 group.addTask { @MainActor in
@@ -93,20 +102,18 @@ final class FolioMobileDiscoverFeed {
                 }
             }
             for await (id, result) in group {
+                guard !Task.isCancelled else { continue }
                 switch result {
-                case .success(let books): results[id] = books
-                case .failure(let failure): if firstError == nil { firstError = failure.localizedDescription }
+                case .success(let books):
+                    results[id] = books
+                    publish()
+                case .failure(let failure):
+                    if firstError == nil { firstError = failure.localizedDescription }
                 }
             }
         }
         guard !Task.isCancelled else { return }
-
-        // Keep each book in one row only, in the order the rows appear.
-        var seen = Set<Int>()
-        rows = plan.compactMap { id, title, _ in
-            let books = (results[id] ?? []).filter { seen.insert($0.id).inserted }
-            return books.count >= 3 ? Row(id: id, title: title, books: Array(books.prefix(16))) : nil
-        }
+        publish()
         error = rows.isEmpty ? (firstError ?? "Hardcover didn't return any books. Try again later.") : nil
         loaded = true
     }
