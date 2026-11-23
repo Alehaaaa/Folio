@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.64",
+          "buildVersion": "65",
+          "date": "2026-11-23",
+          "localizedDescription": "Add app/build/build-macos.command: builds Folio.app locally and opens it",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.64-65.ipa",
+          "size": 5081055,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.63",
           "buildVersion": "64",
           "date": "2026-11-23",
