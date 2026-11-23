@@ -1525,12 +1525,3 @@ struct FolioMobileHardcoverLinkSheet: View {
         dismiss()
     }
 }
-
-/// Compatibility route for callers created before the unified detail screen.
-struct FolioMobileRemoteBookDetail: View {
-    let book: HCBook
-
-    var body: some View {
-        FolioMobileBookDetail(book: book)
-    }
-}

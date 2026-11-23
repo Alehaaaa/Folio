@@ -116,7 +116,6 @@ enum FolioTheme {
 }
 
 extension UIColor {
-    static let folioPaper = FolioTheme.dynamicUI(light: 0xF5F2E9, dark: 0x151A15)
     static let folioSurface = FolioTheme.dynamicUI(light: 0xFDFBF4, dark: 0x1E241E)
     static let folioInk = FolioTheme.dynamicUI(light: 0x29352B, dark: 0xE9E6D9)
     static let folioOlive = FolioTheme.dynamicUI(light: 0x566447, dark: 0xB4C39C)

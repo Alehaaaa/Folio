@@ -348,6 +348,8 @@ enum Keychain {
 struct HCError: LocalizedError {
     var message: String
     var rateLimited = false
+    /// A server hiccup (5xx or a non-JSON page), not a problem with the account.
+    var transient = false
     var errorDescription: String? { message }
 
     static func isRateLimit(_ error: Error) -> Bool { (error as? HCError)?.rateLimited == true }
@@ -455,6 +457,9 @@ final class HardcoverClient {
         } catch is URLError {
             // Offline or slow network: keep the last known account and its cached data.
             lastError = nil
+        } catch let e as HCError where e.rateLimited || e.transient {
+            // Hardcover is busy or down: stay signed in and check again next launch.
+            lastError = nil
         } catch {
             user = nil
             UserDefaults.standard.removeObject(forKey: Self.userDefaultsKey)
@@ -488,7 +493,12 @@ final class HardcoverClient {
                 attempt += 1
                 continue
             }
-            let json = try JSONDecoder().decode(JSON.self, from: data)
+            if let http, http.statusCode >= 500 {
+                throw HCError(message: "Hardcover is having trouble right now. Try again in a minute.", transient: true)
+            }
+            guard let json = try? JSONDecoder().decode(JSON.self, from: data) else {
+                throw HCError(message: "Hardcover sent an unexpected answer. Try again in a minute.", transient: true)
+            }
             if let msg = json["errors"].array.first?["message"].string { throw HCError(message: msg) }
             if let msg = json["error"].string ?? json["message"].string { throw HCError(message: msg) }
             if let http, http.statusCode >= 400 {

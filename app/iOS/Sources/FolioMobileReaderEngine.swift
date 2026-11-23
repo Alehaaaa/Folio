@@ -81,7 +81,6 @@ final class FolioMobileReaderEngine {
     var pagesLeftInChapter: Int { max(0, pages - page - 1) }
     var isFirstChapter: Bool { chapter == 0 }
     var isLastChapter: Bool { chapter >= content.chapters.count - 1 }
-    var atStart: Bool { chapter == 0 && (paginated ? page == 0 : chapterFraction < 0.001) }
     var atEnd: Bool { isLastChapter && (paginated ? page >= pages - 1 : chapterFraction > 0.995) }
 
     func title(ofChapter index: Int) -> String {
