@@ -326,6 +326,16 @@ final class FolioNookStore {
         save()
     }
 
+    func move(_ key: String, before target: String) {
+        guard key != target else { return }
+        var list = order
+        list.removeAll { $0 == key }
+        guard let t = list.firstIndex(of: target) else { return }
+        list.insert(key, at: t)
+        order = list
+        save()
+    }
+
     func moveToStart(_ key: String) {
         order.removeAll { $0 == key }
         order.insert(key, at: 0)
