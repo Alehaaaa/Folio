@@ -112,7 +112,8 @@ enum FolioNookShelf {
         return (read, total)
     }
 
-    /// Unread library books plus the Currently Reading shelves, one item per book.
+    /// Books being read: library books opened or marked as reading, and the
+    /// Currently Reading shelves, one item per book.
     static func items(library: LibraryStore, reading: [HCUserBook]) -> [FolioNookItem] {
         let read = FolioReadBooks.shared
         var items: [FolioNookItem] = []
@@ -193,7 +194,8 @@ enum FolioNookShelf {
             byKey[match] = items.count
             items.append(item)
         }
-        return items
+        // Library books join only once they're being read, here or on a shelf.
+        return items.filter(\.reading)
     }
 }
 
@@ -672,6 +674,27 @@ enum FolioSpineBinding {
     case jacket
 }
 
+/// The last width each spine had, kept between launches.
+enum FolioSpineWidths {
+    private static let key = "folio.nook.spineWidths"
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var cache: [String: Double] =
+        (UserDefaults.standard.dictionary(forKey: key) as? [String: Double]) ?? [:]
+
+    static func known(_ id: String) -> CGFloat? {
+        lock.withLock { cache[id].map { CGFloat($0) } }
+    }
+
+    static func remember(_ id: String, _ width: CGFloat) {
+        let snapshot: [String: Double]? = lock.withLock {
+            guard cache[id] != Double(width) else { return nil }
+            cache[id] = Double(width)
+            return cache
+        }
+        if let snapshot { UserDefaults.standard.set(snapshot, forKey: key) }
+    }
+}
+
 enum FolioSpineMetrics {
     static func hash(_ text: String) -> UInt64 {
         var hash: UInt64 = 1469598103934665603
@@ -685,13 +708,18 @@ enum FolioSpineMetrics {
         let jitter = CGFloat(hash(item.id + "w") % 5) - 2
         guard let pages = item.pages, pages > 0 else {
             if item.format == .comic { return 12 + jitter }
+            // Page counts arrive a moment after Home opens. Until then a book
+            // keeps the width it had last time, so the shelves don't reflow.
+            if let known = FolioSpineWidths.known(item.id) { return known }
             // Unknown length: anything from a slim novella to a doorstop.
             return 14 + CGFloat(hash(item.id) % 54)
         }
         // Straight proportion to the page count, so a 600 page book is
         // about two and a half times as thick as a 250 page one,
         // and a novella is a sliver beside a doorstop.
-        return min(98, max(10, 4 + CGFloat(pages) * 0.1 + jitter))
+        let width = min(98, max(10, 4 + CGFloat(pages) * 0.1 + jitter))
+        FolioSpineWidths.remember(item.id, width)
+        return width
     }
 
     /// Height as a share of the shelf: most books vary a little, big books and

@@ -309,8 +309,8 @@ struct FolioMobileHomeView: View {
         return "\(hardcover.user?.id ?? -1)-\(hardcover.revision)-\(library)-\(tracked)"
     }
 
-    /// Unread library books and the Currently Reading shelves, each in the
-    /// place it has kept on the shelf. Finished books stay in the Library.
+    /// The books being read (opened or marked reading in the library, or on a
+    /// Currently Reading shelf), each in the place it has kept on the shelf.
     private var nookItems: [FolioNookItem] {
         FolioNookShelf.items(library: store, reading: shelves.reading)
     }

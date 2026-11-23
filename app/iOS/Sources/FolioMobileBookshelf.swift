@@ -75,14 +75,8 @@ struct FolioMobileBookshelf: View {
                                 x: (slides[item.id] ?? 0) + (landed?.offset.width ?? 0),
                                 y: landed?.offset.height ?? 0,
                                 angle: lean.angle + (landed?.extraAngle ?? 0),
-                                anchor: lean.anchor,
-                                traced: item.id == dragging || item.id == landing?.id
+                                anchor: lean.anchor
                             ))
-                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
-                                if item.id == dragging || item.id == landing?.id {
-                                    folioDragLog.debug("layout \(item.title, privacy: .public) frame=\(frame.debugDescription, privacy: .public)")
-                                }
-                            }
                             .matchedGeometryEffect(id: item.id, in: shelfSpace)
                             .padding(.leading, lean.before)
                             .padding(.trailing, lean.after)
@@ -888,7 +882,6 @@ struct FolioNookDragEnd: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 27.0, macOS 26.0, *) {
             content.onDragSessionUpdated { session in
-                folioDragLog.debug("session phase=\(String(describing: session.phase), privacy: .public)")
                 if case .ended = session.phase { ended() }
             }
         } else {
@@ -897,15 +890,13 @@ struct FolioNookDragEnd: ViewModifier {
     }
 }
 
-/// A spine's offset and tilt as one animatable effect, so every frame of a
-/// slide or landing can be traced.
+/// A spine's offset and tilt as one animatable effect.
 struct FolioSpinePose: GeometryEffect {
     let id: String
     var x: CGFloat
     var y: CGFloat
     var angle: Double
     let anchor: UnitPoint
-    let traced: Bool
 
     var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, Double> {
         get { AnimatablePair(AnimatablePair(x, y), angle) }
@@ -913,9 +904,6 @@ struct FolioSpinePose: GeometryEffect {
     }
 
     func effectValue(size: CGSize) -> ProjectionTransform {
-        if traced {
-            folioDragLog.debug("pose \(id, privacy: .public) x=\(x) y=\(y) angle=\(angle)")
-        }
         let ax = size.width * anchor.x, ay = size.height * anchor.y
         let radians = angle * .pi / 180
         let t = CGAffineTransform(translationX: x, y: y)
