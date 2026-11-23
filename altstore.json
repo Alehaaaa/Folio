@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.20",
+          "buildVersion": "21",
+          "date": "2026-11-23",
+          "localizedDescription": "Hide read books from what's-next rows; More by author and More like this on book pages (1.0.20)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.20-21.ipa",
+          "size": 4099052,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.19",
           "buildVersion": "20",
           "date": "2026-11-23",
