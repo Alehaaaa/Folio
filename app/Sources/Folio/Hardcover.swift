@@ -692,43 +692,17 @@ final class HardcoverClient {
         return d["authors"].array.first.flatMap(HCAuthor.from)
     }
 
-    /// The author, their books and their series in a single request (nested fields are free
-    /// on Hardcover's rate limit). Falls back to separate queries if the schema refuses it.
+    /// The author, their books and their series. These are the same separate queries the
+    /// page has always used (a single nested query proved unreliable on Hardcover); the page
+    /// caches the result, so each author costs these requests at most twice a day.
     func authorPage(id: Int?, name: String) async throws -> HCAuthorPage? {
-        let inner = """
-        \(Self.authorFields) contributions(where: {contributable_type: {_eq: "Book"}}, order_by: {book: {users_count: desc}}, limit: 120) { contribution book { users_count compilation \(Self.bookFields) book_series { position series { id name books_count primary_books_count } } } }
-        """
-        do {
-            var row: JSON?
-            if let id {
-                let d = try await query("query AuthorPage($id: Int!) { authors(where: {id: {_eq: $id}}, limit: 1) { \(inner) } }", ["id": id])
-                row = d["authors"].array.first
-            }
-            if row == nil {
-                let d = try await query("""
-                query AuthorPageByName($n: String!) { authors(where: {name: {_eq: $n}}, order_by: {users_count: desc}, limit: 1) { \(inner) } }
-                """, ["n": name])
-                row = d["authors"].array.first
-            }
-            guard let row, let author = HCAuthor.from(row) else { return nil }
-            let contributions = row["contributions"].array
-            let books = Self.authorBookList(contributions)
-            let kept = Set(books.prefix(80).map(\.id))
-            var seriesRows: [(bookID: Int?, series: JSON)] = []
-            for c in contributions {
-                guard let bookID = c["book"]["id"].int, kept.contains(bookID) else { continue }
-                for bs in c["book"]["book_series"].array { seriesRows.append((bookID: bookID, series: bs["series"])) }
-            }
-            return HCAuthorPage(author: author, books: books, series: Self.seriesRefs(seriesRows))
-        } catch let error where !HCError.isRateLimit(error) && !(error is CancellationError) {
-            var found: HCAuthor?
-            if let id { found = try await author(id: id) }
-            if found == nil { found = try await author(named: name) }
-            guard let found else { return nil }
-            let books = try await authorBooks(id: found.id)
-            let series = (try? await self.series(forBooks: books.prefix(80).map(\.id))) ?? []
-            return HCAuthorPage(author: found, books: books, series: series)
-        }
+        var found: HCAuthor?
+        if let id { found = try await author(id: id) }
+        if found == nil { found = try await author(named: name) }
+        guard let found else { return nil }
+        let books = try await authorBooks(id: found.id)
+        let series = (try? await self.series(forBooks: books.prefix(80).map(\.id))) ?? []
+        return HCAuthorPage(author: found, books: books, series: series)
     }
 
     /// Several authors by name in one request, the best-known match for each name.

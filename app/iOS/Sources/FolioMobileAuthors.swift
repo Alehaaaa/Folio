@@ -195,9 +195,14 @@ enum FolioAuthorCache {
         snapshot = s
     }
 
-    static func page(_ name: String) -> Page? { snapshot.pages?[FolioAuthorNames.key(name)] }
+    /// A saved author page, only when it has books (an empty one is never worth showing).
+    static func page(_ name: String) -> Page? {
+        guard let page = snapshot.pages?[FolioAuthorNames.key(name)], !page.page.books.isEmpty else { return nil }
+        return page
+    }
 
     static func save(page: HCAuthorPage, for name: String) {
+        guard !page.books.isEmpty else { return }
         var s = snapshot
         var pages = s.pages ?? [:]
         let entry = Page(page: page, saved: Date())
@@ -543,6 +548,7 @@ struct FolioMobileAuthorView: View {
         } catch is CancellationError {
             return
         } catch {
+            FolioLog.log("Author page for \(route.name) failed: \(error.localizedDescription)", "hardcover")
             // Keep showing the saved page when a refresh fails.
             if books.isEmpty { failure = error.localizedDescription }
         }
