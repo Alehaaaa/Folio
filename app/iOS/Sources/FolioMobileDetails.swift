@@ -903,7 +903,7 @@ struct FolioMobileBookDetail: View {
 
     /// Up to fifteen books for each row; read books are left out when shown.
     @MainActor
-    private func loadRecommendations(_ bookID: Int) async {
+    private func loadRecommendations(_ bookID: Int, genres known: [String]? = nil) async {
         let skip = Set([bookID] + seriesEntries.map(\.book.id))
         var authorID = remoteDetails?.authorRefs.first?.id
         if authorID == nil, let name = authorRoutes.first?.name {
@@ -912,7 +912,9 @@ struct FolioMobileBookDetail: View {
         if let authorID, let books = try? await hardcover.authorBooks(id: authorID) {
             moreByAuthor = Array(books.filter { !skip.contains($0.id) }.prefix(20))
         }
-        if let genres = try? await hardcover.genres(bookID: bookID), !genres.isEmpty,
+        let genres: [String]?
+        if let known { genres = known } else { genres = try? await hardcover.genres(bookID: bookID) }
+        if let genres, !genres.isEmpty,
            let books = try? await hardcover.similarBooks(bookID: bookID, genres: genres) {
             let authorIDs = Set(moreByAuthor.map(\.id))
             let byline = Set(FolioAuthorNames.split(author).map(FolioAuthorNames.key))
@@ -1001,7 +1003,7 @@ struct FolioMobileBookDetail: View {
         let bars = await distribution
         if !bars.isEmpty { stats?.distribution = bars }
         if let list = await reviews { topReviews = list }
-        await loadRecommendations(linkedID)
+        await loadRecommendations(linkedID, genres: page.genres)
         guard !Task.isCancelled else { return }
         saveSnapshot()
     }

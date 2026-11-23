@@ -256,6 +256,8 @@ struct FolioMobileDiscoverTopicPage: View {
     @Environment(HardcoverClient.self) private var hardcover
     @State private var filters = FolioDiscoverFilters()
     @State private var books: [HCBook] = []
+    /// Books Hardcover has returned so far, repeats included, for the next page's offset.
+    @State private var fetched = 0
     @State private var loading = false
     @State private var reachedEnd = false
     @State private var error: String?
@@ -376,6 +378,7 @@ struct FolioMobileDiscoverTopicPage: View {
             let page = try await hardcover.discoverBooks(topic, filters: filtersNow, limit: pageSize, offset: 0)
             guard filtersNow == filters else { return }
             books = FolioMobileDiscoverySections.unique(page)
+            fetched = page.count
             reachedEnd = page.count < pageSize
         } catch {
             guard filtersNow == filters else { return }
@@ -389,9 +392,10 @@ struct FolioMobileDiscoverTopicPage: View {
         loading = true
         defer { loading = false }
         do {
-            let page = try await hardcover.discoverBooks(topic, filters: filtersNow, limit: pageSize, offset: books.count)
+            let page = try await hardcover.discoverBooks(topic, filters: filtersNow, limit: pageSize, offset: fetched)
             guard filtersNow == filters else { return }
             books = FolioMobileDiscoverySections.unique(books + page)
+            fetched += page.count
             reachedEnd = page.count < pageSize
         } catch {
             reachedEnd = true

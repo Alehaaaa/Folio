@@ -195,6 +195,8 @@ struct FolioMobileReaderView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { savePosition() }
+            // Leaving the app may end it: send the page to Hardcover now, not only on close.
+            if phase == .background { FolioHardcoverProgressSync.push(bookID, store: store) }
             lastTick = Date()
         }
         .onChange(of: engine?.chapter) { _, _ in savePosition() }

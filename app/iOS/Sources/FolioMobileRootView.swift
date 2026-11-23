@@ -354,7 +354,7 @@ struct FolioMobileHomeView: View {
         .task(id: discoveryKey) {
             await discovery.load(from: hardcover, books: store.books, tracked: store.data.tracked)
         }
-        .task(id: "\(hardcover.user?.id ?? -1)-\(hardcover.revision)") {
+        .task(id: "\(hardcover.user?.id ?? -1)-\(hardcover.revision)-\(hardcover.progressRevision)") {
             await shelves.load(from: hardcover)
             await FolioReadBooks.shared.refresh(from: hardcover)
         }

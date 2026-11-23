@@ -256,6 +256,8 @@ struct HCBookPage: Codable {
     var stats: HCBookStats?
     var edition: HCEdition?
     var series: [HCBookSeries] = []
+    /// Genres, most-tagged first (nil when the page didn't ask for them).
+    var genres: [String]?
 }
 
 struct HCSeriesRef: Identifiable, Hashable, Codable {
@@ -386,6 +388,9 @@ final class HardcoverClient {
     var lastError: String?
     /// Bumped whenever something changes on Hardcover, so shelves reload.
     var revision = 0
+    /// Bumped when only reading progress changes, so the reading shelf refreshes
+    /// without reloading recommendations and every other shelf.
+    var progressRevision = 0
 
     private var token: String?
     private let endpoint = URL(string: "https://api.hardcover.app/v1/graphql")!
@@ -942,7 +947,7 @@ final class HardcoverClient {
         do {
             let d = try await query("""
             query BookPage($id: Int!, $uid: Int!) {
-              books(where: {id: {_eq: $id}}, limit: 1) { \(Self.bookFields) reviews_count users_count users_read_count release_date }
+              books(where: {id: {_eq: $id}}, limit: 1) { \(Self.bookFields) reviews_count users_count users_read_count release_date cached_tags }
               \(editions) { \(Self.editionFields) }
               book_series(where: {book_id: {_eq: $id}}) { position series { id name } }
               user_books(where: {user_id: {_eq: $uid}, book_id: {_eq: $id}}, limit: 1) { \(Self.userBookFields) }
@@ -956,7 +961,8 @@ final class HardcoverClient {
                                    reviewsCount: b["reviews_count"].int, readersCount: b["users_count"].int,
                                    readCount: b["users_read_count"].int, releaseDate: b["release_date"].string),
                 edition: (d["editions"].array.first ?? d["fallbackEdition"].array.first).map(Self.edition(from:)),
-                series: Self.dedupeSeries(d["book_series"].array)
+                series: Self.dedupeSeries(d["book_series"].array),
+                genres: Self.genreNames(b["cached_tags"])
             )
         } catch let error as HCError where error.message.contains("not found in type") || error.message.contains("field") {
             // A field this request relies on is missing from the schema: fetch piece by piece.
@@ -974,7 +980,10 @@ final class HardcoverClient {
     /// The book's genres, most-tagged first.
     func genres(bookID: Int) async throws -> [String] {
         let d = try await query("query Tags($id: Int!) { books(where: {id: {_eq: $id}}, limit: 1) { cached_tags } }", ["id": bookID])
-        let tags = d["books"].array.first?["cached_tags"] ?? .null
+        return Self.genreNames(d["books"].array.first?["cached_tags"] ?? .null)
+    }
+
+    static func genreNames(_ tags: JSON) -> [String] {
         var out: [String] = []
         for t in tags["Genre"].array {
             if let name = t["tag"].string, !out.contains(name) { out.append(name) }
@@ -1113,7 +1122,7 @@ final class HardcoverClient {
                 mutation StartRead($ub: Int!, $p: Int, $d: date) { insert_user_book_read(user_book_id: $ub, user_book_read: {progress_pages: $p, started_at: $d}) { id error } }
                 """, ["ub": ub.id, "p": pages, "d": Date().isoDay])
             }
-            revision += 1
+            progressRevision += 1
             lastError = nil
             return true
         } catch {

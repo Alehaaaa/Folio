@@ -39,6 +39,29 @@ final class LibraryStore {
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         if let raw = try? enc.encode(data) { try? raw.write(to: dataURL, options: .atomic) }
+        scheduleWidgetPublish()
+    }
+
+    /// Widgets are rebuilt at most every couple of seconds: the reader saves on
+    /// page turns and every few seconds of reading, and rebuilding every list
+    /// each time made page turns stutter.
+    @ObservationIgnored private var widgetPublish: Task<Void, Never>?
+
+    private func scheduleWidgetPublish() {
+        guard widgetPublish == nil else { return }
+        widgetPublish = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.widgetPublish = nil
+            FolioWidgetBridge.publish(self)
+        }
+    }
+
+    /// Publishes a pending widget update now, as the app leaves the screen.
+    func flushWidgets() {
+        guard let pending = widgetPublish else { return }
+        pending.cancel()
+        widgetPublish = nil
         FolioWidgetBridge.publish(self)
     }
 
