@@ -118,6 +118,7 @@ struct FolioMobileSettingsView: View {
                     "Version",
                     value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
                 )
+                FolioUpdateRow()
             }
             .folioRow()
         }

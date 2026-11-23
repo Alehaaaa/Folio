@@ -25,6 +25,7 @@ struct FolioIOSApp: App {
                 .environment(extensions)
                 .environment(navigation)
                 .onOpenURL(perform: handleIncomingURL)
+                .folioUpdatePrompt()
                 .task {
                     // Restore persisted jobs on every launch, even when Downloads
                     // has never been opened in the current session.
