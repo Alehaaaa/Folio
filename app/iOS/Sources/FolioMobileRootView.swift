@@ -524,6 +524,8 @@ final class FolioMobileHomeShelves {
             wantToRead = w
             error = nil
             FolioMobileHomeCache.saveShelves(userID: userID, reading: r, wantToRead: w)
+            FolioSync.adopt(r + w)
+            FolioSync.pushPending(hardcover: hardcover)
             FolioImageCache.shared.prefetch((r.prefix(15) + w.prefix(15)).compactMap(\.book.imageURL))
         } catch is CancellationError {
             return

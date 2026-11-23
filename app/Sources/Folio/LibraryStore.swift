@@ -349,18 +349,41 @@ final class LibraryStore {
 
     /// A linked file with no progress of its own starts where the reader's Hardcover
     /// shelf says they are, so it opens on that page.
+    /// Brings Hardcover's progress for a linked book into the library, so pages read on
+    /// another device count here too. The furthest page wins, but only when Hardcover
+    /// changed since Folio last sent it: a page Folio sent itself never pulls the
+    /// reader back after they turned back on purpose.
     func adoptHardcoverProgress(_ id: UUID, from shelf: HCUserBook) {
-        guard let b = book(id), b.progress < 0.001, b.status != .finished else { return }
+        guard let b = book(id), b.status != .finished else { return }
         if shelf.status == .read {
-            update(id) { $0.status = .finished }
+            // Finished elsewhere after this copy was last opened (or never opened here).
+            let finished = shelf.finishedAt.flatMap(Self.hardcoverDay)
+            let opened = b.lastOpenedAt ?? .distantPast
+            guard b.progress < 0.001 || (finished.map { $0 >= Calendar.current.startOfDay(for: opened) } ?? false)
+            else { return }
+            update(id) {
+                $0.status = .finished
+                $0.finishedAt = $0.finishedAt ?? finished ?? Date()
+            }
             return
         }
         guard let read = shelf.progressPages, read > 0,
               let total = b.hardcoverPages ?? shelf.book.pages, total > 0 else { return }
+        let localPages = Int((min(1, b.progress) * Double(total)).rounded())
+        let changedElsewhere = read != b.syncedProgressPages
+        guard b.progress < 0.001 || (changedElsewhere && read > localPages + 1) else { return }
         update(id) {
             $0.progress = min(0.995, Double(read) / Double(total))
+            $0.syncedProgressPages = read
             if $0.status == .none || $0.status == .wantToRead { $0.status = .reading }
         }
+    }
+
+    private static func hardcoverDay(_ value: String) -> Date? {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f.date(from: String(value.prefix(10)))
     }
 
     /// Link a library EPUB now (from its book page), including its language's edition.

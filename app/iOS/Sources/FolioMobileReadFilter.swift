@@ -39,6 +39,7 @@ final class FolioReadBooks {
             loadedFor = nil
             return
         }
+        FolioSync.adopt(read)
         hardcoverIDs = Set(read.map(\.book.id))
         hardcoverKeys = Set(read.map { BookMatch.key(author: $0.book.authors, title: $0.book.title) })
         save(userID: user.id)
