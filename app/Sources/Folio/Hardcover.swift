@@ -652,8 +652,102 @@ final class HardcoverClient {
         return out.map { (position: $0.0, book: $0.1) }
     }
 
+    /// Book search that also finds translations: "El nombre del viento" finds
+    /// "The Name of the Wind". Hardcover's index carries every edition title
+    /// (alternative_titles), so those are weighted like the main title, and
+    /// editions published under exactly the typed title are asked for in the
+    /// same request. A book found through an edition shows that edition's title.
     func search(_ text: String) async throws -> [HCBook] {
-        try await searchDocuments(text).compactMap { HCBook.from(searchDocument: $0) }
+        let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !typed.isEmpty else { return [] }
+        var docs: [JSON]
+        var editionRows: [JSON] = []
+        do {
+            let d = try await query("""
+            query SearchAll($q: String!, $titles: [String!]) {
+              search(query: $q, query_type: "Book", per_page: 30, page: 1, fields: "title,alternative_titles,series_names,author_names,isbns", weights: "5,5,2,1,1") { results }
+              editions(where: {title: {_in: $titles}, book: {users_count: {_gt: 0}}}, order_by: {users_count: desc}, limit: 15) { title image { url } book { \(Self.bookFields) } }
+            }
+            """, ["q": typed, "titles": Self.titleSpellings(typed)])
+            docs = Self.hits(d["search"]["results"])
+            editionRows = d["editions"].array
+        } catch let error as HCError where error.rateLimited || error.transient {
+            throw error
+        } catch {
+            // Older or stricter schemas: the plain search alone.
+            docs = try await searchDocuments(typed)
+        }
+        return Self.rank(query: typed, docs: docs, editions: editionRows)
+    }
+
+    /// The typed title as an edition would likely be catalogued: as typed,
+    /// sentence case ("El nombre del viento") and title case.
+    static func titleSpellings(_ text: String) -> [String] {
+        let typed = text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let sentence = typed.prefix(1).uppercased() + String(typed.dropFirst())
+        let lowerSentence = typed.prefix(1).uppercased() + String(typed.dropFirst()).lowercased()
+        let titled = typed.lowercased().capitalized
+        var out: [String] = []
+        for t in [typed, sentence, lowerSentence, titled] where !out.contains(t) { out.append(t) }
+        return out
+    }
+
+    private static func hits(_ raw: JSON) -> [JSON] {
+        var results = raw
+        if case .string(let s) = results, let data = s.data(using: .utf8), let j = try? JSONDecoder().decode(JSON.self, from: data) { results = j }
+        return results["hits"].array.map { $0["document"] }
+    }
+
+    /// Puts exact title matches first, in any language, and names each book by
+    /// the title the reader typed when that is one of its edition titles.
+    static func rank(query: String, docs: [JSON], editions: [JSON]) -> [HCBook] {
+        let typed = BookAutoMatch.words(query)
+        // 0: same title, 1: every typed title word is in the title, 2: anything else.
+        func match(_ title: String, authors: String) -> Int {
+            let words = BookAutoMatch.words(title)
+            guard !words.isEmpty else { return 2 }
+            let authorWords = Set(BookAutoMatch.words(authors))
+            // "nombre del viento rothfuss": the author's name is not part of the title.
+            var wanted = typed.filter { !authorWords.contains($0) || words.contains($0) }
+            if wanted.isEmpty { wanted = typed }
+            if words == wanted { return 0 }
+            let all = Set(words)
+            let last = wanted.last ?? ""
+            let covered = wanted.dropLast().allSatisfy(all.contains) && (all.contains(last) || words.contains { $0.hasPrefix(last) })
+            return covered ? 1 : 2
+        }
+        var ranked: [(score: Int, book: HCBook)] = []
+        var index: [Int: Int] = [:]
+        func add(_ book: HCBook, score: Int) {
+            if let i = index[book.id] {
+                if score < ranked[i].score { ranked[i] = (score, book) }
+                return
+            }
+            index[book.id] = ranked.count
+            ranked.append((score, book))
+        }
+        for doc in docs {
+            guard var book = HCBook.from(searchDocument: doc) else { continue }
+            var score = match(book.title, authors: book.authors)
+            if score > 0 {
+                for alt in doc["alternative_titles"].array.compactMap(\.string) {
+                    let s = match(alt, authors: book.authors)
+                    if s < score { score = s; book.title = alt }
+                    if s == 0 { break }
+                }
+            }
+            add(book, score: score)
+        }
+        for row in editions {
+            guard var book = HCBook.from(book: row["book"]), let title = row["title"].string else { continue }
+            if !BookAutoMatch.sameTitle(book.title, title) {
+                book.title = title
+                if let cover = row["image"]["url"].string.flatMap(URL.init(string:)) { book.imageURL = cover }
+            }
+            add(book, score: 0)
+        }
+        // Stable: Hardcover's own order breaks ties.
+        return ranked.enumerated().sorted { ($0.element.score, $0.offset) < ($1.element.score, $1.offset) }.map(\.element.book)
     }
 
     /// Raw search documents, which also carry every edition title (alternative_titles).
@@ -661,9 +755,7 @@ final class HardcoverClient {
         let d = try await query("""
         query Search($q: String!) { search(query: $q, query_type: "Book", per_page: 30, page: 1) { results } }
         """, ["q": text])
-        var results = d["search"]["results"]
-        if case .string(let s) = results, let data = s.data(using: .utf8), let j = try? JSONDecoder().decode(JSON.self, from: data) { results = j }
-        return results["hits"].array.map { $0["document"] }
+        return Self.hits(d["search"]["results"])
     }
 
     func bookID(isbn: String) async throws -> Int? {
