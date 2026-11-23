@@ -492,6 +492,7 @@ final class FolioMobileHomeShelves {
             wantToRead = w
             error = nil
             FolioMobileHomeCache.saveShelves(userID: userID, reading: r, wantToRead: w)
+            FolioImageCache.shared.prefetch((r.prefix(15) + w.prefix(15)).compactMap(\.book.imageURL))
         } catch is CancellationError {
             return
         } catch let urlError as URLError where urlError.code == .cancelled {

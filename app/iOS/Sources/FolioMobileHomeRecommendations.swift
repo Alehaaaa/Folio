@@ -128,6 +128,7 @@ final class FolioMobileHomeRecommendations {
             if chosen.count >= 12 { break }
         }
         byYourAuthors = Array(chosen.prefix(12))
+        FolioImageCache.shared.prefetch(byYourAuthors.compactMap(\.imageURL))
         authorNames = contributingAuthors
         if problems.isEmpty || !byYourAuthors.isEmpty {
             FolioMobileHomeCache.saveForYou(userID: userID, books: byYourAuthors)

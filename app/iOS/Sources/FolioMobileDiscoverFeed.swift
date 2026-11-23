@@ -223,7 +223,16 @@ final class FolioMobileDiscoverFeed {
         if let cache = Self.readCache() {
             books = cache.books.mapValues { FolioMobileDiscoverySections.unique($0.map(\.value)) }
             lastRefresh = cache.savedAt
+            prefetchCovers()
         }
+    }
+
+    /// The first covers of every row, so rows show their covers as they scroll in.
+    private func prefetchCovers() {
+        let urls = FolioDiscoverCatalog.rowTopics.flatMap { topic in
+            (books[topic.id] ?? []).prefix(8).compactMap(\.imageURL)
+        }
+        FolioImageCache.shared.prefetch(urls)
     }
 
     /// Rows to draw: loaded rows with enough books, plus rows still loading.
@@ -276,6 +285,7 @@ final class FolioMobileDiscoverFeed {
         }
         FolioLog.log("Rows done, cancelled: \(Task.isCancelled), memory \(FolioLog.footprintMB()) MB", "discover")
         guard !Task.isCancelled else { return }
+        prefetchCovers()
         if fresh.values.contains(where: { $0.count >= 3 }) {
             lastRefresh = Date()
             Self.writeCache(books: books, savedAt: lastRefresh!)

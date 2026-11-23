@@ -53,8 +53,45 @@ final class FolioImageCache: @unchecked Sendable {
         return image
     }
 
+    private let inflightLock = NSLock()
+    private var inflight: [URL: Task<UIImage?, Never>] = [:]
+
+    /// Memory, disk, then the network. Tiles asking for the same cover at once share one download.
     func load(_ url: URL) async -> UIImage? {
         if let image = cached(url) { return image }
+        let task: Task<UIImage?, Never> = inflightLock.withLock {
+            if let running = inflight[url] { return running }
+            let started = Task.detached(priority: .userInitiated) { await self.download(url) }
+            inflight[url] = started
+            return started
+        }
+        let image = await task.value
+        inflightLock.withLock { inflight[url] = nil }
+        return image
+    }
+
+    /// Downloads covers before their rows scroll into view, a few at a time, so
+    /// they are already on disk when shown. Covers saved before are skipped.
+    func prefetch(_ urls: [URL]) {
+        var seen = Set<URL>()
+        let wanted = urls.filter { url in
+            seen.insert(url).inserted && memory.object(forKey: url as NSURL) == nil
+                && !FileManager.default.fileExists(atPath: file(for: url).path)
+        }
+        guard !wanted.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            var index = 0
+            while index < wanted.count {
+                let batch = wanted[index..<min(index + 6, wanted.count)].map { url in
+                    Task.detached(priority: .utility) { _ = await self.load(url) }
+                }
+                for request in batch { await request.value }
+                index += batch.count
+            }
+        }
+    }
+
+    private func download(_ url: URL) async -> UIImage? {
         guard let (data, _) = try? await session.data(from: url) else { return nil }
         // Covers never draw larger than about 300 points, so keep at most 600 pixels.
         // ImageIO decodes straight to that size: decoding a full 3000-pixel cover
