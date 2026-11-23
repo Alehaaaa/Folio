@@ -10,6 +10,7 @@ struct FolioMobileBookshelf: View {
     @State private var nook = FolioNookStore.shared
     @State private var width: CGFloat = 340
     @State private var target: String?
+    @Namespace private var shelfSpace
     @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 186
 
     private let frameInset: CGFloat = 11
@@ -31,12 +32,13 @@ struct FolioMobileBookshelf: View {
                 let leanRoom = leans.values.reduce(CGFloat(0)) { $0 + $1.before + $1.after }
                 HStack(alignment: .bottom, spacing: spacing) {
                     ForEach(row) { item in
-                        let lean = leans[item.id] ?? FolioSpineLean()
+                        let lean = leans[item.id] ?? FolioSpineLean(angle: Self.wobble(item), anchor: .bottom)
                         spine(item)
-                            .rotationEffect(.degrees(lean.angle), anchor: lean.angle < 0 ? .bottomLeading : .bottomTrailing)
+                            .rotationEffect(.degrees(lean.angle), anchor: lean.anchor)
+                            .matchedGeometryEffect(id: item.id, in: shelfSpace)
                             .padding(.leading, lean.before)
                             .padding(.trailing, lean.after)
-                            .zIndex(lean.angle == 0 ? 0 : 1)
+                            .zIndex(abs(lean.angle) > 3 ? 1 : 0)
                     }
                     if last && innerWidth - used - leanRoom >= 30,
                        leans[row.last?.id ?? ""] == nil {
@@ -127,8 +129,8 @@ struct FolioMobileBookshelf: View {
             guard needed <= free else { return false }
             free -= needed
             result[row[i].id] = j < i
-                ? FolioSpineLean(angle: -degrees, before: needed)
-                : FolioSpineLean(angle: degrees, after: needed)
+                ? FolioSpineLean(angle: -degrees, before: needed, anchor: .bottomLeading)
+                : FolioSpineLean(angle: degrees, after: needed, anchor: .bottomTrailing)
             return true
         }
 
@@ -139,8 +141,8 @@ struct FolioMobileBookshelf: View {
         }
         // A shorter book between taller ones, now and then.
         for i in 1..<lastIndex where result[row[i].id] == nil && result[row[i - 1].id] == nil {
-            let shorter = heights[i] < heights[i - 1] * 0.9
-            if shorter && FolioSpineMetrics.hash(row[i].id + "lean") % 3 == 0 {
+            let shorter = heights[i] < heights[i - 1] * 0.95
+            if shorter && FolioSpineMetrics.hash(row[i].id + "lean") % 2 == 0 {
                 _ = tilt(i, toward: i - 1, base: 3)
             }
         }
@@ -152,13 +154,25 @@ struct FolioMobileBookshelf: View {
         return result
     }
 
+    private var leanReserve: CGFloat { min(34, innerWidth * 0.09) }
+
+    /// A slight, permanent tilt that belongs to the book itself, so it
+    /// survives any reorder: most books stand a touch off true.
+    static func wobble(_ item: FolioNookItem) -> Double {
+        let h = FolioSpineMetrics.hash(item.id + "wobble")
+        guard h % 5 != 0 else { return 0 }
+        let size = 0.5 + Double(h >> 8 % 16) / 10
+        return h & 2 == 0 ? size : -size
+    }
+
     private func pack(_ list: [FolioNookItem], _ widths: [String: CGFloat]) -> [[FolioNookItem]] {
         var rows: [[FolioNookItem]] = []
         var current: [FolioNookItem] = []
         var used: CGFloat = 0
         for item in list {
             let w = (widths[item.id] ?? 40) + spacing
-            if used + w > innerWidth, !current.isEmpty {
+            // Each shelf keeps a little room spare so some books can lean.
+            if used + w > innerWidth - leanReserve, !current.isEmpty {
                 rows.append(current)
                 current = []
                 used = 0
@@ -518,4 +532,6 @@ struct FolioSpineLean {
     var angle: Double = 0
     var before: CGFloat = 0
     var after: CGFloat = 0
+    /// Leaning books pivot on the bottom corner they tip toward.
+    var anchor: UnitPoint = .bottom
 }
