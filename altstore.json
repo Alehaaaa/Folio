@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.27",
+          "buildVersion": "28",
+          "date": "2026-11-23",
+          "localizedDescription": "Add Calibre-style metadata fixer for books and library (1.0.27)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.27-28.ipa",
+          "size": 4408124,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.24",
           "buildVersion": "25",
           "date": "2026-11-23",
