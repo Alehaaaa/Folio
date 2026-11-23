@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.19",
+          "buildVersion": "20",
+          "date": "2026-11-23",
+          "localizedDescription": "Fix Discover crash: load rows with plain tasks instead of a task group (1.0.19)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.19-20.ipa",
+          "size": 4069999,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.18",
           "buildVersion": "19",
           "date": "2026-11-23",
