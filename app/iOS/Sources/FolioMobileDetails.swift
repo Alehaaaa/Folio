@@ -368,7 +368,7 @@ struct FolioMobileBookDetail: View {
             if !hardcover.isConnected {
                 Text("Connect your Hardcover account to rate this book and track its status.")
                     .font(.subheadline).foregroundStyle(.secondary)
-                Button("Go to Account Settings") { navigation.selectedTab = .settings }
+                Button("Go to Account Settings") { navigation.openSettings() }
                     .folioGlassPill()
             } else {
                 hardcoverStatuses(bookID: bookID)
@@ -593,7 +593,7 @@ struct FolioMobileBookDetail: View {
                 Text("Connect Hardcover in Settings to link metadata and synchronize your reading.")
                     .font(.subheadline).foregroundStyle(.secondary)
                 FolioGlassButton(title: "Account Settings", systemImage: "person.crop.circle") {
-                    navigation.selectedTab = .settings
+                    navigation.openSettings()
                 }
             }
             Divider()
@@ -617,7 +617,7 @@ struct FolioMobileBookDetail: View {
             }
             if !hardcover.isConnected {
                 FolioGlassButton(title: "Account Settings", systemImage: "gearshape") {
-                    navigation.selectedTab = .settings
+                    navigation.openSettings()
                 }
             }
             let goodreads = GoodreadsClient.shared
@@ -1092,156 +1092,85 @@ struct FolioMobileDiscoverView: View {
     @Environment(HardcoverClient.self) private var hardcover
     @Environment(FolioMobileNavigation.self) private var navigation
 
-    private enum BrowseFilter: String, CaseIterable, Identifiable {
-        case all = "All Books"
-        case highlyRated = "4★ & Up"
-        case recent = "Recent"
-        var id: String { rawValue }
-    }
-
     @State private var query = ""
-    @State private var popular: [HCBook] = []
+    @State private var feed = FolioMobileDiscoverFeed()
     @State private var searchHits: [HCBook] = []
-    @State private var didLoadPopular = false
     @State private var completedSearch: String?
-    @State private var selectedFilter: BrowseFilter = .all
     @State private var loading = false
     @State private var error: String?
     @State private var activeRequest = UUID()
+    @ScaledMetric(relativeTo: .body) private var tileWidth: CGFloat = 118
 
     private var searchText: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
     private var isSearching: Bool { !searchText.isEmpty }
     private var taskKey: String { "\(hardcover.isConnected)|\(searchText)" }
 
-    private var visibleBrowseSections: [FolioMobileDiscoverySection] {
-        switch selectedFilter {
-        case .all:
-            return FolioMobileDiscoverySections.build(from: popular)
-        case .highlyRated:
-            let books = FolioMobileDiscoverySections.highlyRated(popular)
-            guard !books.isEmpty else { return [] }
-            return [FolioMobileDiscoverySection(
-                id: "rated", title: "Highly Rated",
-                subtitle: "Rated 4.0+ by at least five Hardcover readers, from this selection.",
-                books: books
-            )]
-        case .recent:
-            let books = FolioMobileDiscoverySections.recent(popular)
-            guard !books.isEmpty else { return [] }
-            return [FolioMobileDiscoverySection(
-                id: "recent", title: "Recently Published",
-                subtitle: "Reported publication years within the past three calendar years.",
-                books: books
-            )]
-        }
-    }
-
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Explore books")
-                        .font(.system(.largeTitle, design: .rounded, weight: .bold))
-                        .foregroundStyle(.primary)
-                    Text("Discover titles from Hardcover, then open any cover to see the book details.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-            if !hardcover.isConnected {
-                ContentUnavailableView {
-                    Label("Connect Hardcover", systemImage: "person.crop.circle.badge.plus")
-                } description: {
-                    Text("Connect your Hardcover account in Settings to explore and search books.")
-                } actions: {
-                    Button("Open Settings") { navigation.selectedTab = .settings }
-                        .folioGlassPill(prominent: true)
-                }
-            } else if isSearching {
-                if loading || completedSearch != searchText {
-                    ProgressView("Searching Hardcover…")
-                        .frame(maxWidth: .infinity, minHeight: 120)
-                } else if let error {
-                    failureView(error)
-                } else if searchHits.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
-                } else {
-                    FolioMobileRemoteBookGridSection(
-                        title: "Search Results",
-                        subtitle: "\(searchHits.count) \(searchHits.count == 1 ? "book" : "books") found for “\(searchText)”",
-                        books: FolioMobileDiscoverySections.unique(searchHits)
-                    )
-                }
-            } else {
-                if !popular.isEmpty {
-                    Text("Browse a selection of trending and popular Hardcover titles. Ratings and publication years are sourced from their book records.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(BrowseFilter.allCases) { filter in
-                                Button {
-                                    withAnimation(.easeInOut(duration: 0.2)) { selectedFilter = filter }
-                                } label: {
-                                    Text(filter.rawValue)
-                                        .font(.subheadline.weight(.medium))
-                                        .padding(.horizontal, 5)
-                                }
-                                .folioGlassPill(prominent: selectedFilter == filter)
-                                .accessibilityAddTraits(selectedFilter == filter ? [.isSelected] : [])
-                            }
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .contentMargins(.trailing, 4)
-
-                    if visibleBrowseSections.isEmpty {
-                        ContentUnavailableView(
-                            selectedFilter == .highlyRated ? "No Rated Titles" : "No Recent Publications",
-                            systemImage: "books.vertical",
-                            description: Text("None of the loaded books match this filter. Choose All Books to see the full selection.")
-                        )
-                    } else {
-                        ForEach(visibleBrowseSections) { section in
-                            FolioMobileRemoteBookGridSection(
-                                title: section.title,
-                                subtitle: section.subtitle,
-                                books: section.books
-                            )
-                        }
-                    }
-                }
-
-                if let error {
-                    failureView(error)
-                } else if loading && popular.isEmpty {
-                    ProgressView("Loading books from Hardcover…")
-                        .frame(maxWidth: .infinity, minHeight: 120)
-                } else if didLoadPopular && popular.isEmpty {
+            LazyVStack(alignment: .leading, spacing: 34) {
+                if !hardcover.isConnected {
                     ContentUnavailableView {
-                        Label("No Books Available", systemImage: "books.vertical")
+                        Label("Connect Hardcover", systemImage: "person.crop.circle.badge.plus")
                     } description: {
-                        Text("Hardcover returned no books for this selection.")
+                        Text("Connect your Hardcover account in Settings to explore and search books.")
                     } actions: {
-                        Button("Try Again") { Task { await loadPopular(force: true) } }
+                        Button("Open Settings") { navigation.openSettings() }
                             .folioGlassPill(prominent: true)
                     }
+                } else if isSearching {
+                    if loading || completedSearch != searchText {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, minHeight: 120)
+                    } else if let error {
+                        failureView(error)
+                    } else if searchHits.isEmpty {
+                        ContentUnavailableView.search(text: searchText)
+                    } else {
+                        FolioMobileRemoteBookGridSection(
+                            title: "Results",
+                            books: FolioMobileDiscoverySections.unique(searchHits)
+                        )
+                    }
+                } else if feed.rows.isEmpty {
+                    if let message = feed.error {
+                        failureView(message)
+                    } else {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, minHeight: 160)
+                    }
+                } else {
+                    ForEach(feed.rows) { row in
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text(row.title)
+                                .font(.folioDisplay(.title2))
+                                .foregroundStyle(FolioTheme.ink)
+                                .accessibilityAddTraits(.isHeader)
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                LazyHStack(alignment: .top, spacing: 14) {
+                                    ForEach(row.books) { book in
+                                        FolioMobileRemoteBookTile(book: book, width: min(tileWidth, 180))
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                            .contentMargins(.horizontal, 20)
+                            .padding(.horizontal, -20)
+                        }
+                    }
                 }
             }
-            }
             .padding(.horizontal, 20)
-            .padding(.top, 16)
+            .padding(.top, 8)
             .padding(.bottom, 30)
             .frame(maxWidth: 1120)
             .frame(maxWidth: .infinity)
         }
         .navigationTitle("Discover")
         .folioScreen()
-        .searchable(text: $query, prompt: "Search Hardcover books")
+        .searchable(text: $query, prompt: "Titles, authors or series")
         .refreshable {
             if isSearching { await search(searchText) }
-            else { await loadPopular(force: true) }
+            else { await feed.load(from: hardcover, force: true) }
         }
         .task(id: taskKey) {
             // Invalidate requests as soon as the search changes, not only after debounce.
@@ -1250,8 +1179,8 @@ struct FolioMobileDiscoverView: View {
                 loading = false
                 error = nil
             } else if !isSearching {
-                if !didLoadPopular { await loadPopular(force: false) }
-                else { loading = false }
+                loading = false
+                await feed.load(from: hardcover)
             } else {
                 loading = true
                 do {
@@ -1275,7 +1204,7 @@ struct FolioMobileDiscoverView: View {
             Button("Retry") {
                 Task {
                     if isSearching { await search(searchText) }
-                    else { await loadPopular(force: true) }
+                    else { await feed.load(from: hardcover, force: true) }
                 }
             }
             .folioGlassPill(prominent: true)
@@ -1305,26 +1234,6 @@ struct FolioMobileDiscoverView: View {
         }
     }
 
-    @MainActor
-    private func loadPopular(force: Bool) async {
-        guard hardcover.isConnected else { return }
-        if didLoadPopular && !force { return }
-        let requestID = UUID()
-        activeRequest = requestID
-        loading = true
-        error = nil
-        defer { if activeRequest == requestID { loading = false } }
-        do {
-            let books = try await hardcover.trending()
-            guard !Task.isCancelled, activeRequest == requestID else { return }
-            popular = FolioMobileDiscoverySections.unique(books)
-            didLoadPopular = true
-            error = nil
-        } catch {
-            guard !Task.isCancelled, activeRequest == requestID else { return }
-            self.error = error.localizedDescription
-        }
-    }
 }
 
 /// Compatibility route for callers created before the unified detail screen.
