@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.53",
+          "buildVersion": "54",
+          "date": "2026-11-23",
+          "localizedDescription": "Nook leans keep contact: supports stand straight, no chains, gaps measured from the real tilt (1.0.53)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.53-54.ipa",
+          "size": 4766896,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.51",
           "buildVersion": "52",
           "date": "2026-11-23",
