@@ -315,6 +315,7 @@ struct FolioMobileHomeView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 34) {
                 heading
+                if !store.books.isEmpty { FolioMobileReadingGoalStrip() }
                 let items = nookItems
                 if store.books.isEmpty && items.isEmpty {
                     emptyLibrary
@@ -334,6 +335,7 @@ struct FolioMobileHomeView: View {
                         }
                     }
                 }
+                FolioMobileBecauseYouReadRow(tileWidth: min(tileWidth, 180))
                 FolioMobileAuthorRows()
                 FolioMobileSavedSeriesRow()
             }
@@ -351,6 +353,9 @@ struct FolioMobileHomeView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .navigationBar)
         .folioScreen()
+        .task(id: "\(hardcover.user?.id ?? -1)-\(FolioBecauseYouRead.seed(in: store)?.hardcoverBookID ?? 0)") {
+            await FolioBecauseYouRead.shared.load(library: store, hardcover: hardcover)
+        }
         .task(id: discoveryKey) {
             await discovery.load(from: hardcover, books: store.books, tracked: store.data.tracked)
         }
