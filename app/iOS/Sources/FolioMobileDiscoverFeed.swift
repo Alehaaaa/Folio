@@ -241,6 +241,7 @@ final class FolioMobileDiscoverFeed {
         loading = true
         defer { loading = false }
         error = nil
+        FolioLog.log("Loading \(FolioDiscoverCatalog.rowTopics.count) rows (cached: \(books.count)), memory \(FolioLog.footprintMB()) MB", "discover")
 
         var fresh: [String: [HCBook]] = [:]
         var firstError: String?
@@ -260,16 +261,19 @@ final class FolioMobileDiscoverFeed {
                 case .success(let found):
                     // Rows are lazy stacks keyed by book id, and a repeated id crashes them.
                     let list = FolioMobileDiscoverySections.unique(found)
+                    FolioLog.log("\(id): \(found.count) books (\(found.count - list.count) repeats), memory \(FolioLog.footprintMB()) MB", "discover")
                     fresh[id] = list
                     // Replace a row only when it has new books, so nothing flickers away.
                     if list.count >= 3 || books[id] == nil { books[id] = list }
                 case .failure(let failure):
                     if firstError == nil { firstError = failure.localizedDescription }
+                    FolioLog.log("\(id) failed: \(failure.localizedDescription)", "discover")
                     if books[id] == nil { books[id] = [] }
                 }
                 if let topic = queue.popFirst() { add(topic, to: &group) }
             }
         }
+        FolioLog.log("Rows done, cancelled: \(Task.isCancelled), memory \(FolioLog.footprintMB()) MB", "discover")
         guard !Task.isCancelled else { return }
         if fresh.values.contains(where: { $0.count >= 3 }) {
             lastRefresh = Date()

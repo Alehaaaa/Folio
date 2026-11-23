@@ -12,6 +12,7 @@ struct FolioIOSApp: App {
     @State private var navigation = FolioMobileNavigation()
 
     init() {
+        FolioLog.start()
         FolioTheme.applyAppearance()
     }
 
@@ -26,6 +27,7 @@ struct FolioIOSApp: App {
                 .environment(navigation)
                 .onOpenURL(perform: handleIncomingURL)
                 .folioUpdatePrompt()
+                .folioLogsLifecycle()
                 .task {
                     // Restore persisted jobs on every launch, even when Downloads
                     // has never been opened in the current session.

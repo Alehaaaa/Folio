@@ -85,6 +85,9 @@ struct FolioMobileRootView: View {
             }
         }
         .onAppear { navigation.compactTabs = sizeClass == .compact }
+        .onChange(of: navigation.selectedTab) { _, tab in
+            FolioLog.log("Tab \(tab), memory \(FolioLog.footprintMB()) MB", "nav")
+        }
         .onChange(of: sizeClass) { _, value in
             navigation.compactTabs = value == .compact
             // iPad Split View can drop the Downloads and Sources tabs: show them under More.

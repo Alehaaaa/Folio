@@ -1,3 +1,4 @@
+import ImageIO
 import SwiftUI
 import UIKit
 
@@ -16,7 +17,9 @@ final class FolioImageCache: @unchecked Sendable {
         directory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("folio-images", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        memory.countLimit = 400
+        memory.countLimit = 300
+        // Decoded covers are about 1 MB each; keep the cache well under iOS's memory limit.
+        memory.totalCostLimit = 80 * 1_048_576
         let config = URLSessionConfiguration.default
         config.requestCachePolicy = .returnCacheDataElseLoad
         session = URLSession(configuration: config)
@@ -32,23 +35,42 @@ final class FolioImageCache: @unchecked Sendable {
     func cached(_ url: URL) -> UIImage? {
         if let image = memory.object(forKey: url as NSURL) { return image }
         guard let image = UIImage(contentsOfFile: file(for: url).path) else { return nil }
-        memory.setObject(image, forKey: url as NSURL)
+        memory.setObject(image, forKey: url as NSURL, cost: Self.cost(of: image))
         return image
     }
 
     func load(_ url: URL) async -> UIImage? {
         if let image = cached(url) { return image }
-        guard let (data, _) = try? await session.data(from: url), let full = UIImage(data: data) else { return nil }
+        guard let (data, _) = try? await session.data(from: url) else { return nil }
         // Covers never draw larger than about 300 points, so keep at most 600 pixels.
-        let longest = max(full.size.width, full.size.height)
-        let target = min(1, 600 / max(1, longest))
-        let size = CGSize(width: full.size.width * target, height: full.size.height * target)
-        let image = await full.byPreparingThumbnail(ofSize: size) ?? full
-        memory.setObject(image, forKey: url as NSURL)
+        // ImageIO decodes straight to that size: decoding a full 3000-pixel cover
+        // first takes tens of MB each, and a screen of them can exceed the memory limit.
+        guard let image = Self.thumbnail(data, maxPixels: 600) else {
+            FolioLog.log("Unreadable image (\(data.count) bytes) at \(url.lastPathComponent)", "images")
+            return nil
+        }
+        memory.setObject(image, forKey: url as NSURL, cost: Self.cost(of: image))
         if let jpeg = image.jpegData(compressionQuality: 0.85) {
             try? jpeg.write(to: file(for: url), options: .atomic)
         }
         return image
+    }
+
+    private static func thumbnail(_ data: Data, maxPixels: Int) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary)
+        else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return UIImage(cgImage: cg)
+    }
+
+    private static func cost(of image: UIImage) -> Int {
+        Int(image.size.width * image.scale * image.size.height * image.scale * 4)
     }
 }
 

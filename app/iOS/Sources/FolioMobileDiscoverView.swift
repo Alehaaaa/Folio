@@ -163,14 +163,17 @@ struct FolioMobileDiscoverView: View {
         loading = true
         error = nil
         defer { if activeRequest == requestID { loading = false } }
+        FolioLog.log("Search \"\(text)\"", "search")
         do {
             let books = try await hardcover.search(text)
+            FolioLog.log("Search \"\(text)\": \(books.count) results, memory \(FolioLog.footprintMB()) MB", "search")
             guard !Task.isCancelled, activeRequest == requestID else { return }
             searchHits = FolioMobileDiscoverySections.unique(books)
             completedSearch = text
             error = nil
         } catch {
             guard !Task.isCancelled, activeRequest == requestID else { return }
+            FolioLog.log("Search \"\(text)\" failed: \(error.localizedDescription)", "search")
             searchHits = []
             completedSearch = text
             self.error = error.localizedDescription
