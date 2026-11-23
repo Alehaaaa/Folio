@@ -20,6 +20,11 @@ struct FolioMobileMoreSettings: View {
         .folioRow()
         Section("Personalise Folio") {
             NavigationLink {
+                FolioMobileNookSettings()
+            } label: {
+                Label("Home Nook", systemImage: "books.vertical")
+            }
+            NavigationLink {
                 FolioMobileReaderAdvancedSettings()
             } label: {
                 Label("Typography & Reading Layout", systemImage: "textformat.size")
@@ -504,5 +509,55 @@ struct FolioMobileExtensionSettings: View {
             extensions.update(ext.id) { $0.config[setting.key] = previous + [value] }
         }
         newHost[field] = ""
+    }
+}
+
+/// How many shelves the Home nook may grow to, and the books hidden from it.
+struct FolioMobileNookSettings: View {
+    @State private var nook = FolioNookStore.shared
+    @State private var resetting = false
+
+    var body: some View {
+        Form {
+            Section {
+                Stepper(nook.maxShelves == 1 ? "1 shelf" : "\(nook.maxShelves) shelves",
+                        value: $nook.maxShelves, in: FolioNookStore.shelfRange)
+            } header: {
+                Text("Shelves")
+            } footer: {
+                Text("New books go at the end of the nook. When a shelf is full, the next book opens a new one, up to this many.")
+            }
+            .folioRow()
+
+            Section("Hidden from Nook") {
+                if nook.hidden.isEmpty {
+                    Text("Books you hide from the nook appear here.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(nook.hidden.sorted { $0.value < $1.value }, id: \.key) { entry in
+                        HStack {
+                            Text(entry.value).lineLimit(2)
+                            Spacer(minLength: 8)
+                            Button("Show") { nook.unhide(entry.key) }
+                                .buttonStyle(.borderless)
+                                .foregroundStyle(FolioTheme.olive)
+                        }
+                    }
+                }
+            }
+            .folioRow()
+
+            Section {
+                Button("Reset Shelf Order", role: .destructive) { resetting = true }
+            } footer: {
+                Text("Puts books you're reading first and the rest newest first, as on a fresh shelf.")
+            }
+            .folioRow()
+        }
+        .navigationTitle("Home Nook")
+        .folioScreen()
+        .confirmationDialog("Reset the order of your nook?", isPresented: $resetting, titleVisibility: .visible) {
+            Button("Reset Order", role: .destructive) { nook.resetOrder() }
+        }
     }
 }

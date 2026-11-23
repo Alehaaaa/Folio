@@ -299,26 +299,32 @@ struct FolioMobileHomeView: View {
         return "\(hardcover.user?.id ?? -1)-\(hardcover.revision)-\(library)-\(tracked)"
     }
 
-    /// Open books first, so the book you're reading sits at the start of the shelf.
-    private var shelfBooks: [LocalBook] {
-        let read = FolioReadBooks.shared
-        let open = store.continueReading.filter { !read.isRead($0) }
-        let openIDs = Set(open.map(\.id))
-        // Finished books stay in the Library; the nook shelf is for what's next.
-        let rest = store.recentlyAdded.filter { !openIDs.contains($0.id) && !read.isRead($0) }
-        return Array((open + rest).prefix(24))
+    /// Unread library books and the Currently Reading shelves, each in the
+    /// place it has kept on the shelf. Finished books stay in the Library.
+    private var nookItems: [FolioNookItem] {
+        FolioNookShelf.items(library: store, reading: shelves.reading)
+    }
+
+    /// Changes when a book joins or leaves the nook, to give new books a place.
+    private func nookKey(_ items: [FolioNookItem]) -> String {
+        items.map { $0.id + ($0.coverKey ?? "") }.joined(separator: "|")
+            + "#\(FolioNookStore.shared.order.isEmpty)"
     }
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 34) {
                 heading
-                if store.books.isEmpty {
+                let items = nookItems
+                if store.books.isEmpty && items.isEmpty {
                     emptyLibrary
                 } else {
-                    FolioMobileBookshelf(books: shelfBooks)
+                    FolioMobileBookshelf(items: FolioNookStore.shared.arranged(items))
+                        .task(id: nookKey(items)) {
+                            FolioNookStore.shared.register(items)
+                            FolioSpinePalettes.shared.prepare(items)
+                        }
                 }
-                remoteShelfRow("Currently reading", entries: shelfEntries(.reading), status: .reading)
                 remoteShelfRow("Want to read", entries: shelfEntries(.wantToRead), status: .wantToRead)
                 let forYou = FolioReadBooks.shared.unread(discovery.byYourAuthors)
                 if !forYou.isEmpty {
