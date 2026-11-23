@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.62",
+          "buildVersion": "63",
+          "date": "2026-11-23",
+          "localizedDescription": "Every pushed page shares the title row with its back button, including Sources, Downloads, Highlights and author pages; Discover gets the tab header; marking a book read collapses its progress bar (1.0.62)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.62-63.ipa",
+          "size": 5064157,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.61",
           "buildVersion": "62",
           "date": "2026-11-23",
