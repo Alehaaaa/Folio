@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.36",
+          "buildVersion": "37",
+          "date": "2026-11-23",
+          "localizedDescription": "A skipped update isn't downloaded again in the background (1.0.36)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.36-37.ipa",
+          "size": 4468822,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.35",
           "buildVersion": "36",
           "date": "2026-11-23",
