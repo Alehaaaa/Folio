@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.23",
+          "buildVersion": "24",
+          "date": "2026-11-23",
+          "localizedDescription": "Home nook becomes a bookshelf: currently reading with progress, stable places, cover-colored spines, drag to reorder, more shelves (1.0.23)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.23-24.ipa",
+          "size": 4257950,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.22",
           "buildVersion": "23",
           "date": "2026-11-23",
