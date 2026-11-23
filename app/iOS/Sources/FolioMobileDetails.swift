@@ -56,7 +56,9 @@ struct FolioMobileBookDetail: View {
         guard let snapshot else { return }
         let page = snapshot.page
         if let book = page.book { _remoteDetails = State(initialValue: book) }
-        _myHardcoverBook = State(initialValue: page.userBook)
+        var userBook = page.userBook
+        if let id = page.book?.id, let pending = FolioPendingProgress.value(for: id) { userBook?.progressPages = pending }
+        _myHardcoverBook = State(initialValue: userBook)
         _stats = State(initialValue: page.stats)
         _edition = State(initialValue: page.edition)
         _bookSeries = State(initialValue: page.series)
@@ -65,7 +67,7 @@ struct FolioMobileBookDetail: View {
         _moreByAuthor = State(initialValue: snapshot.moreByAuthor ?? [])
         _similar = State(initialValue: snapshot.similar ?? [])
         if let total = page.book?.pages ?? page.edition?.pages, total > 0 {
-            _remoteProgress = State(initialValue: min(1, Double(page.userBook?.progressPages ?? 0) / Double(total)))
+            _remoteProgress = State(initialValue: min(1, Double(userBook?.progressPages ?? 0) / Double(total)))
         }
     }
 
@@ -500,7 +502,7 @@ struct FolioMobileBookDetail: View {
                 ),
                 in: 0...1,
                 onEditingChanged: { editing in
-                    if !editing { FolioHardcoverProgressSync.push(local.id, store: library, hardcover: hardcover) }
+                    if !editing { FolioHardcoverProgressSync.push(local.id, store: library, hardcover: hardcover, pages: pages) }
                 }
             )
             .tint(FolioTheme.olive)
@@ -514,10 +516,16 @@ struct FolioMobileBookDetail: View {
         }
     }
 
+    /// Pages when the length is known, as on Hardcover; otherwise a percentage.
+    private func localProgressText(_ local: LocalBook) -> String {
+        guard local.status != .finished, local.progress > 0.001, let total = pages, total > 0 else { return local.progressLabel }
+        return "p. \(Int((min(1, local.progress) * Double(total)).rounded())) of \(total)"
+    }
+
     @ViewBuilder
     private var progressLabel: some View {
         if let local {
-            Text(local.progressLabel)
+            Text(localProgressText(local))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
@@ -579,12 +587,37 @@ struct FolioMobileBookDetail: View {
 
     private func savePages(_ page: Int) {
         guard let linkedID, let total = pages else { return }
+        let value = min(total, max(0, page))
+        // Keep the page on screen and in the saved page at once; Hardcover follows.
+        FolioPendingProgress.set(value, for: linkedID)
+        myHardcoverBook?.progressPages = value
+        saveSnapshot()
         Task {
             busy = true
-            await hardcover.setProgress(bookID: linkedID, pages: min(total, max(0, page)))
-            myHardcoverBook = try? await hardcover.userBook(bookID: linkedID)
+            let saved = await hardcover.setProgress(bookID: linkedID, pages: value)
+            if saved, let fresh = try? await hardcover.userBook(bookID: linkedID) {
+                myHardcoverBook = fresh
+                if fresh.progressPages == value { FolioPendingProgress.clear(linkedID) }
+                applyPendingProgress(linkedID)
+                saveSnapshot()
+            } else if !saved {
+                showError(hardcover.lastError ?? "Hardcover did not save your page. It will try again next time.")
+            }
             busy = false
         }
+    }
+
+    /// A page saved moments ago wins over an older answer from Hardcover, and
+    /// is sent again if Hardcover still has the old one.
+    @MainActor
+    private func applyPendingProgress(_ bookID: Int) {
+        guard let pending = FolioPendingProgress.value(for: bookID) else { return }
+        if myHardcoverBook?.progressPages == pending {
+            FolioPendingProgress.clear(bookID)
+            return
+        }
+        myHardcoverBook?.progressPages = pending
+        if let total = pages, total > 0 { remoteProgress = min(1, Double(pending) / Double(total)) }
     }
 
     // MARK: About, ratings, series, details
@@ -884,7 +917,7 @@ struct FolioMobileBookDetail: View {
             if let snapshot = FolioBookPageCache.load(linkedID) { apply(snapshot) }
         }
         guard hardcover.isConnected else { return }
-        if let local { FolioHardcoverProgressSync.push(local.id, store: library, hardcover: hardcover) }
+        if let local { FolioHardcoverProgressSync.push(local.id, store: library, hardcover: hardcover, pages: pages) }
         // Hardcover limits requests per minute: reviews, bars and the series of a
         // page seen moments ago are fresh enough; only the book and your shelf reload.
         let recentlyLoaded = FolioBookPageCache.load(linkedID).map {
@@ -896,6 +929,12 @@ struct FolioMobileBookDetail: View {
         myHardcoverBook = page.userBook
         if let total = pages, total > 0 {
             remoteProgress = min(1, Double(myHardcoverBook?.progressPages ?? 0) / Double(total))
+        }
+        if let pending = FolioPendingProgress.value(for: linkedID), page.userBook?.progressPages != pending {
+            applyPendingProgress(linkedID)
+            Task { _ = await hardcover.setProgress(bookID: linkedID, pages: pending) }
+        } else {
+            FolioPendingProgress.clear(linkedID)
         }
         edition = page.edition
         bookSeries = page.series
@@ -1019,11 +1058,36 @@ extension TrackedBook {
 /// Sends a library book's reading progress to Hardcover as pages, so the app
 /// and Hardcover agree without a separate page field.
 @MainActor
+enum FolioPendingProgress {
+    private static let key = "folio.pendingHardcoverPages"
+
+    private static var all: [String: [Double]] {
+        get { UserDefaults.standard.dictionary(forKey: key) as? [String: [Double]] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: key) }
+    }
+
+    /// The page you last chose for a book, for up to a day.
+    static func value(for bookID: Int) -> Int? {
+        guard let entry = all[String(bookID)], entry.count == 2,
+              Date().timeIntervalSince1970 - entry[1] < 24 * 60 * 60 else { return nil }
+        return Int(entry[0])
+    }
+
+    static func set(_ pages: Int, for bookID: Int) {
+        all[String(bookID)] = [Double(pages), Date().timeIntervalSince1970]
+    }
+
+    static func clear(_ bookID: Int) {
+        guard all[String(bookID)] != nil else { return }
+        all[String(bookID)] = nil
+    }
+}
+
 enum FolioHardcoverProgressSync {
-    static func push(_ bookID: UUID, store: LibraryStore, hardcover: HardcoverClient = .shared) {
+    static func push(_ bookID: UUID, store: LibraryStore, hardcover: HardcoverClient = .shared, pages known: Int? = nil) {
         guard let book = store.book(bookID), let hcID = book.hardcoverBookID,
               hardcover.isConnected, book.status != .finished,
-              let total = book.hardcoverPages, total > 0 else { return }
+              let total = book.hardcoverPages ?? known, total > 0 else { return }
         let pages = Int((min(1, book.progress) * Double(total)).rounded())
         guard pages > 0, pages != book.syncedProgressPages else { return }
         Task {
