@@ -682,6 +682,9 @@ struct FolioMobileBookTile: View {
                 .aspectRatio(0.7, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .shadow(color: .black.opacity(0.14), radius: 6, x: 1, y: 4)
+                .overlay(alignment: .topTrailing) {
+                    if finished { FolioFinishedBadge().padding(6) }
+                }
             Text(book.title)
                 .font(.system(.subheadline, design: .serif))
                 .foregroundStyle(FolioTheme.ink)
@@ -690,13 +693,31 @@ struct FolioMobileBookTile: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-            if book.progress > 0 {
+            // A finished book shows its badge, not a full bar that reads like "still reading".
+            if !finished, book.progress > 0 {
                 ProgressView(value: min(1, book.progress))
                     .tint(FolioTheme.olive)
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .combine)
+        .accessibilityValue(finished ? "Finished" : "")
+    }
+
+    private var finished: Bool { FolioReadBooks.shared.isRead(book) }
+}
+
+/// A small olive seal with a check, for books already read.
+struct FolioFinishedBadge: View {
+    var body: some View {
+        Image(systemName: "checkmark")
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(FolioTheme.surface)
+            .frame(width: 22, height: 22)
+            .background(FolioTheme.olive, in: Circle())
+            .overlay { Circle().strokeBorder(FolioTheme.surface.opacity(0.9), lineWidth: 1.5) }
+            .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 1)
+            .accessibilityHidden(true)
     }
 }
 
