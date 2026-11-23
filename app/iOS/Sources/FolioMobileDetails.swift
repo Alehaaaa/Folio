@@ -108,7 +108,10 @@ struct FolioMobileBookDetail: View {
 
     /// The cover to show: the reader's choice, the language edition's, else the work's.
     private var remoteCover: URL? {
-        edits?.coverURL ?? languageEdition?.imageURL ?? (remote ?? initialRemote)?.imageURL
+        // The same order as Home's reading shelf: your edit, the edition on your shelf,
+        // the edition in your language, then the work's cover.
+        edits?.coverURL ?? (local == nil ? myHardcoverBook?.book.imageURL : nil)
+            ?? languageEdition?.imageURL ?? (remote ?? initialRemote)?.imageURL
     }
 
     private var title: String {

@@ -176,7 +176,7 @@ var source = {
     var self = this;
     var asins = [];
     var results = html.split('data-component-type="s-search-result"');
-    for (var i = 0; i < results.length - 1 && asins.length < 3; i++) {
+    for (var i = 0; i < results.length - 1 && asins.length < 2; i++) {
       var asin = (results[i].match(/data-asin="([A-Z0-9]{10})"[^>]*$/) || [])[1];
       var alt = (results[i + 1].match(/<img[^>]*class="s-image"[^>]*alt="([^"]*)"/) || [])[1];
       if (asin && asins.indexOf(asin) < 0 && (book.isbn || self.matches(wanted, self.text(alt)))) asins.push(asin);

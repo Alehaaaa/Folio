@@ -78,12 +78,38 @@ struct FolioMetadataQuery {
 
 @MainActor
 enum FolioMetadataSources {
-    /// Every enabled metadata extension at once, in the reader's order. A book in Spanish only
-    /// gets Spanish records; records in other languages only keep their series.
-    static func all(for query: FolioMetadataQuery) async -> [FolioMetadataCandidate] {
+    private struct Cached {
+        var results: [String: [FolioMetadataCandidate]]
+        var saved: Date
+    }
+
+    /// Answers from the last half hour, so reopening Edit Details shows them at once.
+    private static var cache: [String: Cached] = [:]
+
+    private static func key(_ payload: [String: Any]) -> String {
+        let data = (try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])) ?? Data()
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    /// Every enabled metadata extension at once, each in its own engine, in the reader's order.
+    /// `update` gets the list again each time a source answers, so the fastest show first.
+    /// A book in Spanish only gets Spanish records; others only keep their series.
+    @discardableResult
+    static func all(for query: FolioMetadataQuery, fresh: Bool = false,
+                    update: @escaping ([FolioMetadataCandidate]) -> Void = { _ in }) async -> [FolioMetadataCandidate] {
         let store = ExtensionStore.shared
         let sources = store.metadataSources.filter(\.saved.enabled)
         let payload = query.payload
+        let cacheKey = key(payload)
+        func ordered(_ results: [String: [FolioMetadataCandidate]]) -> [FolioMetadataCandidate] {
+            filtered(sources.flatMap { results[$0.id] ?? [] }, language: query.language)
+        }
+        if !fresh, let hit = cache[cacheKey], Date().timeIntervalSince(hit.saved) < 30 * 60,
+           sources.allSatisfy({ hit.results[$0.id] != nil }) {
+            let list = ordered(hit.results)
+            update(list)
+            return list
+        }
         var results: [String: [FolioMetadataCandidate]] = [:]
         await withTaskGroup(of: (String, [FolioMetadataCandidate]).self) { group in
             for source in sources {
@@ -97,10 +123,22 @@ enum FolioMetadataSources {
                     }
                 }
             }
-            for await (id, found) in group { results[id] = found }
+            for await (id, found) in group {
+                results[id] = found
+                let list = ordered(results)
+                // Start the covers downloading while the other sources are still answering.
+                for url in found.compactMap(\.coverURL).prefix(8) {
+                    Task.detached(priority: .utility) { _ = await FolioImageCache.shared.load(url) }
+                }
+                update(list)
+            }
         }
-        let all = sources.flatMap { results[$0.id] ?? [] }
-        guard let language = query.language else { return all }
+        cache[cacheKey] = Cached(results: results, saved: Date())
+        return ordered(results)
+    }
+
+    private static func filtered(_ all: [FolioMetadataCandidate], language: String?) -> [FolioMetadataCandidate] {
+        guard let language else { return all }
         return all.compactMap { candidate in
             // Catalogs default to English, so English books also keep unlabelled records.
             if candidate.language == language || (language == "en" && candidate.language == nil) { return candidate }
@@ -427,7 +465,9 @@ struct FolioMobileEditDetails: View {
                 title: book.title, author: book.authors, language: BookLanguage.code(language) ?? BookLanguage.reading,
                 hardcoverBookID: book.id > 0 ? book.id : nil, hardcoverEditionID: editionID)
         }
-        candidates = await FolioMetadataSources.all(for: query)
+        await FolioMetadataSources.all(for: query) { list in
+            withAnimation(.easeInOut(duration: 0.15)) { candidates = list }
+        }
     }
 
     private func clean(_ value: String) -> String? {

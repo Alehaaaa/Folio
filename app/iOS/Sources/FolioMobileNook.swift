@@ -157,7 +157,8 @@ enum FolioNookShelf {
                 title: entry.title, author: entry.author,
                 pages: book.pages ?? entry.goodreads?.pages,
                 source: .remote(book),
-                remoteCover: entry.cover ?? book.imageURL,
+                // The same cover as the book page: your edit, then the edition on your shelf.
+                remoteCover: hcID.flatMap { FolioBookOverrides.shared.override(for: $0)?.coverURL } ?? entry.cover ?? book.imageURL,
                 reading: true,
                 pagesRead: hcPages,
                 lastActivity: started,
