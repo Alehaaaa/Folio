@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.11",
+          "buildVersion": "12",
+          "date": "2026-11-23",
+          "localizedDescription": "Home rows load instantly from a saved snapshot and refresh in the background (1.0.11)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.11-12.ipa",
+          "size": 3628933,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.10",
           "buildVersion": "11",
           "date": "2026-11-23",
