@@ -2,16 +2,10 @@ import SwiftUI
 import UIKit
 import Observation
 
-/// Checks the AltStore source that CI publishes on every push to main and hands a
-/// newer IPA to whatever installed Folio.
-///
-/// LiveContainer installs from `livecontainer://install?url=<ipa>`, but only while
-/// its own UI is running:
-/// - Multitask mode (Folio runs in a LiveProcess, `LP_HOME_PATH` is set): the URL
-///   reaches the LiveContainer app, which downloads the IPA and offers to replace Folio.
-/// - Classic mode (Folio occupies the LiveContainer process): LiveContainer answers
-///   "Please restart LiveContainer to install apps", so Folio copies the IPA link and
-///   switches back to LiveContainer's app list instead.
+/// Checks the AltStore source that CI publishes on every push to main. When a newer
+/// build exists, its IPA downloads in the background; tapping Update opens the share
+/// sheet with that file so it can be sent to LiveContainer (or AltStore/SideStore),
+/// which offers to replace the installed Folio.
 @MainActor
 @Observable
 final class FolioUpdateChecker {
@@ -26,15 +20,7 @@ final class FolioUpdateChecker {
         let notes: String
         let downloadURL: URL
         var id: String { "\(version)-\(build)" }
-    }
-
-    enum Host {
-        /// LiveContainer running Folio in its own process (classic mode).
-        case liveContainerClassic
-        /// LiveContainer running Folio in a separate LiveProcess (multitask mode).
-        case liveContainerMultitask
-        /// Installed directly (AltStore, SideStore, Xcode).
-        case standalone
+        var fileName: String { "Folio-\(version)-\(build).ipa" }
     }
 
     enum Status: Equatable {
@@ -43,9 +29,16 @@ final class FolioUpdateChecker {
 
     private(set) var status: Status = .idle
     private(set) var latest: Release?
-    /// Set when a check finds a newer build; drives the launch alert.
+    /// The IPA of `latest`, once its background download finishes.
+    private(set) var downloadedFile: URL?
+    /// True while Update waits for the download before opening the share sheet.
+    private(set) var preparing = false
+    /// Set when a check finds a newer build; drives the update alert.
     var offered: Release?
     var notice: String?
+
+    @ObservationIgnored private var download: Task<URL, Error>?
+    @ObservationIgnored private var downloadID: String?
 
     private var lastCheck: Double {
         get { UserDefaults.standard.double(forKey: "folioIOS.updates.lastCheck") }
@@ -61,13 +54,6 @@ final class FolioUpdateChecker {
     }
     static var currentBuild: String {
         Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
-    }
-
-    static var host: Host {
-        let env = ProcessInfo.processInfo.environment
-        if env["LP_HOME_PATH"] != nil { return .liveContainerMultitask }
-        if env["LC_HOME_PATH"] != nil { return .liveContainerClassic }
-        return .standalone
     }
 
     var updateAvailable: Bool {
@@ -90,9 +76,11 @@ final class FolioUpdateChecker {
             latest = release
             if updateAvailable, let release {
                 status = .idle
+                startDownload(release)
                 if manual || release.id != skippedID { offered = release }
             } else {
                 status = .upToDate
+                Self.removeDownloads()
             }
         } catch {
             status = .failed("Couldn't reach the update source.")
@@ -104,34 +92,56 @@ final class FolioUpdateChecker {
         offered = nil
     }
 
+    /// Opens the share sheet with the downloaded IPA, waiting for the download if needed.
     func install(_ release: Release) {
         offered = nil
-        switch Self.host {
-        case .liveContainerMultitask:
-            open(Self.liveContainerInstallURL(release.downloadURL)) { [weak self] ok in
-                self?.show(ok
-                    ? "LiveContainer is installing Folio \(release.version). Choose to replace the current Folio, then reopen it."
-                    : "Couldn't open LiveContainer. The download link was copied.")
-                if !ok { UIPasteboard.general.url = release.downloadURL }
-            }
-        case .liveContainerClassic:
-            // LiveContainer refuses installs while a guest app owns its process, so
-            // relaunch into its app list with the IPA link ready to paste.
-            UIPasteboard.general.url = release.downloadURL
-            show("The download link is copied. In LiveContainer tap +, choose Install from URL, paste it, and replace Folio.")
-        case .standalone:
-            var components = URLComponents(string: "altstore://install")!
-            components.queryItems = [URLQueryItem(name: "url", value: release.downloadURL.absoluteString)]
-            open(components.url!) { [weak self] ok in
-                if !ok {
-                    UIPasteboard.general.url = release.downloadURL
-                    self?.show("The download link for Folio \(release.version) was copied.")
-                }
+        preparing = true
+        Task {
+            defer { preparing = false }
+            do {
+                let file = try await startDownload(release).value
+                // Let the update alert finish dismissing before presenting over it.
+                try? await Task.sleep(for: .milliseconds(450))
+                Self.presentShareSheet(for: file)
+            } catch {
+                show("Couldn't download Folio \(release.version). Check your connection and try again.")
             }
         }
     }
 
-    /// Waits for the update alert to finish dismissing before presenting the next one.
+    @discardableResult
+    private func startDownload(_ release: Release) -> Task<URL, Error> {
+        if let download, downloadID == release.id { return download }
+        let task = Task<URL, Error> {
+            let destination = Self.downloadsFolder.appendingPathComponent(release.fileName)
+            if FileManager.default.fileExists(atPath: destination.path) { return destination }
+            let (temporary, response) = try await URLSession.shared.download(from: release.downloadURL)
+            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                throw URLError(.badServerResponse)
+            }
+            Self.removeDownloads()
+            try FileManager.default.createDirectory(at: Self.downloadsFolder, withIntermediateDirectories: true)
+            try FileManager.default.moveItem(at: temporary, to: destination)
+            return destination
+        }
+        download = task
+        downloadID = release.id
+        downloadedFile = nil
+        Task {
+            do {
+                let file = try await task.value
+                if downloadID == release.id { downloadedFile = file }
+            } catch {
+                // Forget the failed attempt so the next Update tap retries.
+                if downloadID == release.id {
+                    download = nil
+                    downloadID = nil
+                }
+            }
+        }
+        return task
+    }
+
     private func show(_ message: String) {
         Task {
             try? await Task.sleep(for: .milliseconds(450))
@@ -139,22 +149,30 @@ final class FolioUpdateChecker {
         }
     }
 
-    /// Classic mode only: leaves Folio for LiveContainer's own app list.
-    func openLiveContainer() {
-        notice = nil
-        open(URL(string: "livecontainer://livecontainer-launch?bundle-name=ui")!) { _ in }
+    // MARK: Files
+
+    private static var downloadsFolder: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("FolioUpdates", isDirectory: true)
     }
 
-    private func open(_ url: URL, completion: @escaping (Bool) -> Void) {
-        UIApplication.shared.open(url, options: [:]) { ok in
-            Task { @MainActor in completion(ok) }
+    private static func removeDownloads() {
+        try? FileManager.default.removeItem(at: downloadsFolder)
+    }
+
+    private static func presentShareSheet(for file: URL) {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        guard let window = scene?.windows.first(where: \.isKeyWindow) ?? scene?.windows.first,
+              var top = window.rootViewController else { return }
+        while let presented = top.presentedViewController { top = presented }
+        let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = top.view
+            popover.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 0, height: 0)
+            popover.permittedArrowDirections = []
         }
-    }
-
-    static func liveContainerInstallURL(_ ipa: URL) -> URL {
-        var components = URLComponents(string: "livecontainer://install")!
-        components.queryItems = [URLQueryItem(name: "url", value: ipa.absoluteString)]
-        return components.url!
+        top.present(sheet, animated: true)
     }
 
     // MARK: Source
@@ -235,12 +253,7 @@ private struct FolioUpdatePrompt: ViewModifier {
                     set: { if !$0 { updates.notice = nil } }
                 )
             ) {
-                if FolioUpdateChecker.host == .liveContainerClassic {
-                    Button("Open LiveContainer") { updates.openLiveContainer() }
-                    Button("Cancel", role: .cancel) {}
-                } else {
-                    Button("OK", role: .cancel) {}
-                }
+                Button("OK", role: .cancel) {}
             } message: {
                 Text(updates.notice ?? "")
             }
@@ -265,17 +278,20 @@ struct FolioUpdateRow: View {
             }
         } label: {
             LabeledContent("Check for Updates") {
-                switch updates.status {
-                case .checking: ProgressView()
-                case .upToDate: Text("Up to date")
-                case .failed(let message): Text(message)
-                case .idle:
-                    if updates.updateAvailable, let latest = updates.latest {
-                        Text(latest.version)
+                if updates.status == .checking || updates.preparing {
+                    ProgressView()
+                } else {
+                    switch updates.status {
+                    case .upToDate: Text("Up to date")
+                    case .failed(let message): Text(message)
+                    default:
+                        if updates.updateAvailable, let latest = updates.latest {
+                            Text(latest.version)
+                        }
                     }
                 }
             }
         }
-        .disabled(updates.status == .checking)
+        .disabled(updates.status == .checking || updates.preparing)
     }
 }
