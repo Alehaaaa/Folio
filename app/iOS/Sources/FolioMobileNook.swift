@@ -474,7 +474,7 @@ final class FolioSpinePalettes {
 
     private static var stripDirectory: URL {
         let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("folio-spine-strips-v2", isDirectory: true)
+            .appendingPathComponent("folio-spine-strips-v3", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
@@ -547,7 +547,7 @@ final class FolioSpinePalettes {
         // Blur, keeping the edges from fading to transparent.
         var softened = cropped
         let input = CIImage(cgImage: cropped)
-        let radius = max(2.0, Double(cropped.height) * 0.013)
+        let radius = max(1.0, Double(cropped.height) * 0.006)
         if let blur = CIFilter(name: "CIGaussianBlur") {
             blur.setValue(input.clampedToExtent(), forKey: kCIInputImageKey)
             blur.setValue(radius, forKey: kCIInputRadiusKey)
@@ -573,17 +573,17 @@ final class FolioSpinePalettes {
             cg.setLineWidth(0.5)
             var y: CGFloat = 0
             while y < size.height {
-                cg.setStrokeColor(UIColor(white: 1, alpha: 0.07).cgColor)
+                cg.setStrokeColor(UIColor(white: 1, alpha: 0.11).cgColor)
                 cg.move(to: CGPoint(x: 0, y: y)); cg.addLine(to: CGPoint(x: size.width, y: y))
                 cg.strokePath()
-                cg.setStrokeColor(UIColor(white: 0, alpha: 0.06).cgColor)
+                cg.setStrokeColor(UIColor(white: 0, alpha: 0.10).cgColor)
                 cg.move(to: CGPoint(x: 0, y: y + 1)); cg.addLine(to: CGPoint(x: size.width, y: y + 1))
                 cg.strokePath()
                 y += 2
             }
             var x: CGFloat = 0
             while x < size.width {
-                cg.setStrokeColor(UIColor(white: 0, alpha: 0.05).cgColor)
+                cg.setStrokeColor(UIColor(white: 0, alpha: 0.08).cgColor)
                 cg.move(to: CGPoint(x: x, y: 0)); cg.addLine(to: CGPoint(x: x, y: size.height))
                 cg.strokePath()
                 x += 3
@@ -592,13 +592,13 @@ final class FolioSpinePalettes {
             // Paper grain: a sprinkle of light and dark specks, the same for every
             // cover so nothing needs a random generator.
             var seed: UInt64 = 0x9E3779B97F4A7C15
-            let specks = Int(size.width * size.height / 14)
+            let specks = Int(size.width * size.height / 8)
             for _ in 0..<specks {
                 seed = seed &* 6364136223846793005 &+ 1442695040888963407
                 let px = CGFloat(seed >> 40 & 0xFFFF) / 65535 * size.width
                 let py = CGFloat(seed >> 24 & 0xFFFF) / 65535 * size.height
                 let light = seed & 1 == 0
-                cg.setFillColor(UIColor(white: light ? 1 : 0, alpha: light ? 0.08 : 0.09).cgColor)
+                cg.setFillColor(UIColor(white: light ? 1 : 0, alpha: light ? 0.12 : 0.13).cgColor)
                 cg.fill(CGRect(x: px, y: py, width: 1, height: 1))
             }
         }
