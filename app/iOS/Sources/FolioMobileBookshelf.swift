@@ -1,5 +1,9 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import os
+
+/// Drag diagnostics: `log stream --level debug --predicate 'category == "nookdrag"'`.
+let folioDragLog = Logger(subsystem: "app.folio.reader", category: "nookdrag")
 
 /// A wooden bookcase, the centerpiece of Home. Books keep their places like
 /// in a real library: new books go at the end, a long press and drag moves
@@ -22,6 +26,13 @@ struct FolioMobileBookshelf: View {
     @State private var landing: FolioNookLanding?
     /// Where the pointer held the book, so the landing starts under it.
     @State private var grip = FolioNookGrip()
+    /// The lean the book had when it was lifted: the drag preview keeps it,
+    /// so picking a book up doesn't snap it straight.
+    @State private var liftAngle: Double = 0
+    /// The book whose drag the system is preparing. The system asks for a
+    /// drag's data at odd moments (on touch-down, even after a drop), so a
+    /// book only counts as lifted once that drag actually reaches the shelf.
+    @State private var pending = FolioNookPending()
     @Namespace private var shelfSpace
     @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 186
 
@@ -35,7 +46,10 @@ struct FolioMobileBookshelf: View {
     var body: some View {
         let widths = Dictionary(items.map { ($0.id, FolioSpineMetrics.width(for: $0)) },
                                 uniquingKeysWith: { a, _ in a })
-        let shelves = layout(widths: widths)
+        // The live order from the nook store, so a drop shows in the same
+        // frame as the move instead of a frame later, when Home re-renders.
+        let ordered = nook.arranged(items)
+        let shelves = layout(widths: widths, items: ordered)
         let flat = shelves.flatMap { $0 }
         let slides = self.slides(shelves, widths: widths)
         let rowLeans = shelves.enumerated().map { index, row in
@@ -51,10 +65,20 @@ struct FolioMobileBookshelf: View {
                     ForEach(row) { item in
                         let lean = leans[item.id] ?? FolioSpineLean()
                         let landed = landing?.id == item.id ? landing : nil
-                        spine(item)
-                            .offset(x: slides[item.id] ?? 0)
-                            .offset(landed?.offset ?? .zero)
-                            .rotationEffect(.degrees(lean.angle + (landed?.extraAngle ?? 0)), anchor: lean.anchor)
+                        spine(item, lean: lean.angle)
+                            .modifier(FolioSpinePose(
+                                id: item.id,
+                                x: (slides[item.id] ?? 0) + (landed?.offset.width ?? 0),
+                                y: landed?.offset.height ?? 0,
+                                angle: lean.angle + (landed?.extraAngle ?? 0),
+                                anchor: lean.anchor,
+                                traced: item.id == dragging || item.id == landing?.id
+                            ))
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                                if item.id == dragging || item.id == landing?.id {
+                                    folioDragLog.debug("layout \(item.title, privacy: .public) frame=\(frame.debugDescription, privacy: .public)")
+                                }
+                            }
                             .matchedGeometryEffect(id: item.id, in: shelfSpace)
                             .padding(.leading, lean.before)
                             .padding(.trailing, lean.after)
@@ -104,7 +128,7 @@ struct FolioMobileBookshelf: View {
         }
         .shadow(color: .black.opacity(0.10), radius: 16, y: 8)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-        .animation(.spring(response: 0.45, dampingFraction: 0.72), value: items.map(\.id))
+        .animation(.spring(response: 0.45, dampingFraction: 0.72), value: ordered.map(\.id))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Bookshelf")
     }
@@ -115,7 +139,7 @@ struct FolioMobileBookshelf: View {
     /// books than room, books being read keep their spot first, then the
     /// earliest places, so the shelf never shuffles.
     private func layout(widths: [String: CGFloat], items: [FolioNookItem]? = nil) -> [[FolioNookItem]] {
-        let items = items ?? self.items
+        let items = items ?? nook.arranged(self.items)
         let maxRows = max(1, nook.maxShelves)
         let all = pack(items, widths)
         if all.count <= maxRows { return all.isEmpty ? [[]] : all }
@@ -238,7 +262,7 @@ struct FolioMobileBookshelf: View {
         }
     }
 
-    private func spine(_ item: FolioNookItem) -> some View {
+    private func spine(_ item: FolioNookItem, lean: Double) -> some View {
         link(item)
             .buttonStyle(FolioSpineButtonStyle())
             .folioNookMenu(item)
@@ -249,12 +273,18 @@ struct FolioMobileBookshelf: View {
             #endif
             // Only the book in the hand is seen; the shelf closes up behind it.
             .opacity(dragging == item.id && FolioNookDragEnd.tracked ? 0 : 1)
+            .onChange(of: dragging == item.id) { _, hidden in
+                folioDragLog.debug("visible \(item.title, privacy: .public) hidden=\(hidden && FolioNookDragEnd.tracked)")
+            }
             .onDrag {
-                startDrag(item.id)
+                pending.prepare(item.id, lean: lean)
                 return NSItemProvider(object: item.id as NSString)
             } preview: {
+                // Lifted as it stood, lean and all, with room for the tilt and shadow.
                 FolioMobileSpine(item: item, shelfHeight: shelfHeight)
+                    .rotationEffect(.degrees(lean), anchor: .center)
                     .shadow(color: .black.opacity(0.28), radius: 14, y: 10)
+                    .padding(24)
             }
             .modifier(FolioNookDragEnd {
                 // A drop on the shelf may be reported after the drag ends, so
@@ -271,12 +301,15 @@ struct FolioMobileBookshelf: View {
     }
 
     private func startDrag(_ id: String) {
+        folioDragLog.debug("lift \(id, privacy: .public)")
+        liftAngle = pending.lean
         dropSpot = nil
         withAnimation(.easeOut(duration: 0.12)) { dragging = id }
     }
 
     private func setSpot(_ spot: FolioNookDropSpot) {
         guard spot != dropSpot else { return }
+        folioDragLog.debug("spot shelf=\(spot.shelf) position=\(spot.position)")
         withAnimation(Self.slide) { dropSpot = spot }
     }
 
@@ -317,6 +350,8 @@ struct FolioMobileBookshelf: View {
     /// that shelf's other books stand left of it.
     private func hover(_ location: CGPoint, shelves: [[FolioNookItem]], widths: [String: CGFloat],
                        leans: [[String: FolioSpineLean]]) {
+        // The drag is real once it moves over the shelf: now the book leaves its place.
+        if dragging == nil, let id = pending.take() { startDrag(id) }
         guard let key = dragging, !shelves.isEmpty else { return }
         let shelf = min(shelves.count - 1, max(0, Int((location.y - frameInset) / (shelfHeight + 24 + plankHeight))))
         let flat = shelves.flatMap { $0 }
@@ -365,9 +400,11 @@ struct FolioMobileBookshelf: View {
     }
 
     /// Letting go: the book moves once, into the gap. It appears right where
-    /// the preview was released, upright, and one spring carries it into its
+    /// the preview was released, at the tilt it was carried with, and one spring carries it into its
     /// place and its lean while the shelf settles around it.
     private func drop(at location: CGPoint) {
+        folioDragLog.debug("drop at=\(location.debugDescription, privacy: .public) dragging=\(dragging ?? "nil", privacy: .public) spot=\(String(describing: dropSpot), privacy: .public)")
+        pending.clear()
         guard let key = dragging else { return }
         let widths = Dictionary(items.map { ($0.id, FolioSpineMetrics.width(for: $0)) },
                                 uniquingKeysWith: { a, _ in a })
@@ -394,8 +431,10 @@ struct FolioMobileBookshelf: View {
         let held = grip.offset(for: key, width: widths[key] ?? 40,
                                height: shelfHeight * FolioSpineMetrics.heightFactor(for: items.first { $0.id == key } ?? items[0]))
         let released = CGPoint(x: location.x - held.width, y: location.y - held.height)
-        let startAngle = -lean(of: key, in: after, widths: widths)
+        // It lands tilted as it was carried, then eases into its new lean.
+        let startAngle = liftAngle - lean(of: key, in: after, widths: widths)
 
+        folioDragLog.debug("land home=\(home.debugDescription, privacy: .public) released=\(released.debugDescription, privacy: .public) startAngle=\(startAngle)")
         var placing = Transaction()
         placing.disablesAnimations = true
         withTransaction(placing) {
@@ -416,7 +455,9 @@ struct FolioMobileBookshelf: View {
     }
 
     private func endDrag() {
+        pending.clear()
         guard dragging != nil || dropSpot != nil else { return }
+        folioDragLog.debug("endDrag dragging=\(dragging ?? "nil", privacy: .public)")
         withAnimation(Self.slide) {
             dragging = nil
             dropSpot = nil
@@ -432,6 +473,7 @@ struct FolioMobileBookshelf: View {
     }
 
     private func shift(_ item: FolioNookItem, by step: Int) {
+        let items = nook.arranged(self.items)
         guard let i = items.firstIndex(where: { $0.id == item.id }),
               items.indices.contains(i + step) else { return }
         withAnimation(.snappy) { nook.move(item.id, onto: items[i + step].id, visible: items) }
@@ -765,6 +807,25 @@ struct FolioNookDropDelegate: DropDelegate {
     }
 }
 
+/// The drag the system is getting ready. A plain reference, so the system's
+/// repeated requests for drag data never redraw the shelf.
+final class FolioNookPending {
+    private var id: String?
+    private(set) var lean: Double = 0
+
+    func prepare(_ id: String, lean: Double) {
+        self.id = id
+        self.lean = lean
+    }
+
+    func take() -> String? {
+        defer { id = nil }
+        return id
+    }
+
+    func clear() { id = nil }
+}
+
 /// A book landing after a drop: how far it still is from its place, and how
 /// much of its lean it still has to take on.
 struct FolioNookLanding: Equatable {
@@ -815,10 +876,40 @@ struct FolioNookDragEnd: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 27.0, macOS 26.0, *) {
             content.onDragSessionUpdated { session in
+                folioDragLog.debug("session phase=\(String(describing: session.phase), privacy: .public)")
                 if case .ended = session.phase { ended() }
             }
         } else {
             content
         }
+    }
+}
+
+/// A spine's offset and tilt as one animatable effect, so every frame of a
+/// slide or landing can be traced.
+struct FolioSpinePose: GeometryEffect {
+    let id: String
+    var x: CGFloat
+    var y: CGFloat
+    var angle: Double
+    let anchor: UnitPoint
+    let traced: Bool
+
+    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, Double> {
+        get { AnimatablePair(AnimatablePair(x, y), angle) }
+        set { x = newValue.first.first; y = newValue.first.second; angle = newValue.second }
+    }
+
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        if traced {
+            folioDragLog.debug("pose \(id, privacy: .public) x=\(x) y=\(y) angle=\(angle)")
+        }
+        let ax = size.width * anchor.x, ay = size.height * anchor.y
+        let radians = angle * .pi / 180
+        let t = CGAffineTransform(translationX: x, y: y)
+            .translatedBy(x: ax, y: ay)
+            .rotated(by: radians)
+            .translatedBy(x: -ax, y: -ay)
+        return ProjectionTransform(t)
     }
 }

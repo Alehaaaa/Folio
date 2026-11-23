@@ -48,6 +48,11 @@ struct FolioIOSApp: App {
                     // Restore persisted jobs on every launch, even when Downloads
                     // has never been opened in the current session.
                     _ = DownloadQueue.shared
+                    // Testing aid: FOLIO_IMPORT_DIR imports a folder of books on launch.
+                    if let dir = ProcessInfo.processInfo.environment["FOLIO_IMPORT_DIR"],
+                       let names = try? FileManager.default.contentsOfDirectory(atPath: dir) {
+                        library.importFiles(names.map { URL(fileURLWithPath: dir).appendingPathComponent($0) })
+                    }
                     await hardcover.restore()
                     FolioShelfSync.shared.pushPending(library: library)
                     library.enqueueUnlinkedEPUBs()
