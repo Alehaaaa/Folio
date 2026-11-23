@@ -714,19 +714,23 @@ struct FolioMobileBookTile: View {
                     Image(systemName: "checkmark")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(FolioTheme.olive)
+                        .transition(.scale(scale: 0.3).combined(with: .opacity))
                         .accessibilityHidden(true)
                 }
             }
-            Group {
+            // Marking a book read collapses its bar toward the start and hides it; the
+            // empty row stays so the grid keeps its alignment.
+            ZStack(alignment: .leading) {
                 if !finished, book.progress > 0 {
                     ProgressView(value: min(1, book.progress))
                         .tint(FolioTheme.olive)
-                } else {
-                    Color.clear
+                        .transition(.scale(scale: 0.01, anchor: .leading).combined(with: .opacity))
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 4)
         }
+        .animation(.spring(duration: 0.45, bounce: 0.15), value: finished)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .combine)
         .accessibilityValue(finished ? "Finished" : "")

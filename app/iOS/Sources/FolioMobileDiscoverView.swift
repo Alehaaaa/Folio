@@ -22,6 +22,12 @@ struct FolioMobileDiscoverView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 34) {
+                VStack(alignment: .leading, spacing: 16) {
+                    FolioTabHeader(title: "Discover") { EmptyView() }
+                    if hardcover.isConnected {
+                        FolioSearchField(text: $query, prompt: "Titles, authors or series")
+                    }
+                }
                 if !hardcover.isConnected {
                     ContentUnavailableView {
                         Label("Connect Hardcover", systemImage: "person.crop.circle.badge.plus")
@@ -44,17 +50,18 @@ struct FolioMobileDiscoverView: View {
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.top, 8)
+            .padding(.top, 12)
             .padding(.bottom, 30)
             .frame(maxWidth: 1120)
             .frame(maxWidth: .infinity)
         }
+        .scrollDismissesKeyboard(.immediately)
         .navigationTitle("Discover")
+        .toolbar(.hidden, for: .navigationBar)
         .folioScreen()
         .navigationDestination(for: FolioDiscoverTopic.self) { topic in
             FolioMobileDiscoverTopicPage(topic: topic, initial: feed.books[topic.id] ?? [])
         }
-        .searchable(text: $query, prompt: "Titles, authors or series")
         .refreshable {
             if isSearching { await search(searchText) }
             else { await feed.load(from: hardcover, force: true) }

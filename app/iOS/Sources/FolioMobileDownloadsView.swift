@@ -86,14 +86,12 @@ struct FolioMobileDownloadsView: View {
         }
         .navigationTitle("Downloads")
         .folioScreen()
-        .toolbar {
+        .folioPageHeader("Downloads") {
             if !history.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Clear History", systemImage: "trash") {
-                        downloads.clearHistory()
-                    }
-                    .accessibilityIdentifier("folio.downloads.clearHistory")
+                FolioHeaderIcon(symbol: "trash", label: "Clear History") {
+                    downloads.clearHistory()
                 }
+                .accessibilityIdentifier("folio.downloads.clearHistory")
             }
         }
         .sheet(item: $manualJob) { job in

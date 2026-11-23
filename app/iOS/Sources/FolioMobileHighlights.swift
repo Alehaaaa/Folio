@@ -92,6 +92,10 @@ struct FolioMobileHighlightsView: View {
     var body: some View {
         let groups = groups
         List {
+            FolioSearchField(text: $search, prompt: "Search highlights")
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
             if groups.isEmpty {
                 ContentUnavailableView {
                     Label(search.isEmpty ? "No Highlights Yet" : "No Matches", systemImage: "highlighter")
@@ -126,10 +130,10 @@ struct FolioMobileHighlightsView: View {
                 }
             }
         }
-        .searchable(text: $search, prompt: "Search highlights")
+        .scrollDismissesKeyboard(.immediately)
         .navigationTitle("Highlights")
-        .navigationBarTitleDisplayMode(.inline)
         .folioScreen()
+        .folioPageHeader("Highlights")
     }
 
     private func row(_ item: ReadingAnnotation, book: LocalBook) -> some View {

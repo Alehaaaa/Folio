@@ -408,13 +408,12 @@ struct FolioMobileAuthorView: View {
             .frame(maxWidth: .infinity)
         }
         .navigationTitle(name)
-        .navigationBarTitleDisplayMode(.inline)
         .folioScreen()
-        .toolbar {
+        .folioPageHeader(name) {
             if let url = author?.webURL {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Link(destination: url) { Label("Open on Hardcover", systemImage: "arrow.up.right.square") }
-                }
+                Link(destination: url) { FolioHeaderIconLabel(symbol: "arrow.up.right.square") }
+                    .foregroundStyle(FolioTheme.ink)
+                    .accessibilityLabel("Open on Hardcover")
             }
         }
         .task(id: "\(route.name)-\(route.id ?? 0)-\(hardcover.isConnected)") { await load() }
@@ -696,18 +695,13 @@ struct FolioMobileSeriesView: View {
             }
         }
         .navigationTitle(route.name)
-        .navigationBarTitleDisplayMode(.inline)
         .folioScreen()
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                let isSaved = saved.isSaved(route.id)
-                Button {
-                    saved.toggle(savedItem)
-                } label: {
-                    Label(isSaved ? "Saved" : "Save Series", systemImage: isSaved ? "bookmark.fill" : "bookmark")
-                }
-                .accessibilityIdentifier("folio.saveSeries")
+        .folioPageHeader(route.name) {
+            let isSaved = saved.isSaved(route.id)
+            FolioHeaderIcon(symbol: isSaved ? "bookmark.fill" : "bookmark", label: isSaved ? "Saved" : "Save Series") {
+                saved.toggle(savedItem)
             }
+            .accessibilityIdentifier("folio.saveSeries")
         }
         .task(id: route.id) { await load() }
     }
@@ -957,8 +951,8 @@ struct FolioMobileRatingsView: View {
             .frame(maxWidth: .infinity)
         }
         .navigationTitle(route.title)
-        .navigationBarTitleDisplayMode(.inline)
         .folioScreen()
+        .folioPageHeader(route.title)
         .task(id: route.bookID) {
             loading = true
             stats = try? await hardcover.stats(bookID: route.bookID)

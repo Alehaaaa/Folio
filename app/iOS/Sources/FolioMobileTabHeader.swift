@@ -80,8 +80,9 @@ struct FolioSearchField: View {
 
 /// The header of a pushed page: the back chevron and the title on one row, at the same
 /// height and size as the tab titles, instead of a large title dropping below the back button.
-struct FolioPageHeaderBar: View {
+struct FolioPageHeaderBar<Trailing: View>: View {
     let title: String
+    @ViewBuilder var trailing: () -> Trailing
     @Environment(\.dismiss) private var dismiss
     @Environment(\.isPresented) private var isPresented
 
@@ -106,6 +107,7 @@ struct FolioPageHeaderBar: View {
                 .minimumScaleFactor(0.5)
                 .accessibilityAddTraits(.isHeader)
             Spacer(minLength: 0)
+            trailing()
         }
         .frame(minHeight: 56)
         .padding(.leading, isPresented ? 8 : 20)
@@ -117,10 +119,15 @@ struct FolioPageHeaderBar: View {
 }
 
 extension View {
-    /// Replaces the navigation bar with `FolioPageHeaderBar`. Only for pages without toolbar buttons.
+    /// Replaces the navigation bar with `FolioPageHeaderBar`.
     func folioPageHeader(_ title: String) -> some View {
+        folioPageHeader(title) { EmptyView() }
+    }
+
+    /// The same header with plain icon buttons after the title, in place of toolbar buttons.
+    func folioPageHeader<Trailing: View>(_ title: String, @ViewBuilder trailing: @escaping () -> Trailing) -> some View {
         toolbar(.hidden, for: .navigationBar)
-            .safeAreaInset(edge: .top, spacing: 0) { FolioPageHeaderBar(title: title) }
+            .safeAreaInset(edge: .top, spacing: 0) { FolioPageHeaderBar(title: title, trailing: trailing) }
     }
 }
 

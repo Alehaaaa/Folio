@@ -121,8 +121,7 @@ struct FolioMobileSourcesView: View {
         }
         .navigationTitle("Sources")
         .folioScreen()
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+        .folioPageHeader("Sources") {
                 Menu {
                     Button {
                         Task { await checkForNew() }
@@ -132,9 +131,10 @@ struct FolioMobileSourcesView: View {
                         FolioMobileExtensionSettings()
                     } label: { Label("Manage Sources", systemImage: "puzzlepiece.extension") }
                 } label: {
-                    Image(systemName: "ellipsis")
+                    FolioHeaderIconLabel(symbol: "ellipsis")
                 }
-            }
+                .foregroundStyle(FolioTheme.ink)
+                .accessibilityLabel("More")
         }
         .task { selectDefaultSource() }
         .onChange(of: extensions.enabled.map(\.id)) { _, _ in selectDefaultSource() }
