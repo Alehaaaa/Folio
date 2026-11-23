@@ -85,7 +85,7 @@ struct FolioMobileBookDetail: View {
                     informationSection
                     if let overview, !overview.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("About This Book").font(.headline)
+                            Text("About This Book").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
                             Text(overview).font(.body).textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
@@ -106,7 +106,7 @@ struct FolioMobileBookDetail: View {
                     if let notice {
                         Label(notice, systemImage: noticeIsError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                             .font(.footnote)
-                            .foregroundStyle(noticeIsError ? Color.red : Color.green)
+                            .foregroundStyle(noticeIsError ? FolioTheme.danger : FolioTheme.success)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
@@ -116,6 +116,7 @@ struct FolioMobileBookDetail: View {
             }
         }
         .navigationTitle("Book Details")
+        .folioScreen()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { detailToolbar }
         .sheet(isPresented: $editingMetadata) {
@@ -192,13 +193,13 @@ struct FolioMobileBookDetail: View {
             }
             .frame(width: sizeClass == .compact ? 110 : 142,
                    height: sizeClass == .compact ? 158 : 202)
-            .clipShape(RoundedRectangle(cornerRadius: 11))
-            .shadow(color: .black.opacity(0.2), radius: 14, y: 7)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .shadow(color: .black.opacity(0.2), radius: 14, x: 3, y: 7)
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 9) {
                 Text(title)
-                    .font(.system(size: sizeClass == .compact ? 23 : 30, weight: .bold, design: .serif))
-                    .foregroundStyle(.primary)
+                    .font(.system(size: sizeClass == .compact ? 26 : 34, weight: .regular, design: .serif))
+                    .foregroundStyle(FolioTheme.ink)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(author.isEmpty ? "Unknown Author" : author)
                     .font(.subheadline)
@@ -306,7 +307,7 @@ struct FolioMobileBookDetail: View {
 
     private var readingSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Your Reading").font(.headline)
+            Text("Your Reading").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
             if let local {
                 localReading(local)
             } else if let linkedID {
@@ -421,7 +422,7 @@ struct FolioMobileBookDetail: View {
                             } label: {
                                 Image(systemName: number <= Int((myHardcoverBook.rating ?? 0).rounded()) ? "star.fill" : "star")
                                     .font(.title2)
-                                    .foregroundStyle(.orange)
+                                    .foregroundStyle(FolioTheme.caution)
                             }
                             .buttonStyle(.plain)
                             .accessibilityLabel("Rate \(number) stars")
@@ -471,7 +472,7 @@ struct FolioMobileBookDetail: View {
     private var informationSection: some View {
         VStack(alignment: .leading, spacing: 11) {
             HStack {
-                Text("Details").font(.headline)
+                Text("Details").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
                 Spacer()
                 if local != nil {
                     Button("Edit", systemImage: "pencil") { editingMetadata = true }
@@ -506,7 +507,7 @@ struct FolioMobileBookDetail: View {
     private func collectionsSection(_ local: LocalBook) -> some View {
         VStack(alignment: .leading, spacing: 11) {
             HStack {
-                Text("Collections").font(.headline)
+                Text("Collections").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
                 Spacer()
                 Text("\(local.collections.count) selected")
                     .font(.caption).foregroundStyle(.secondary)
@@ -536,11 +537,11 @@ struct FolioMobileBookDetail: View {
     private func hardcoverSection(_ local: LocalBook) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Hardcover Association").font(.headline)
+                Text("Hardcover Association").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
                 Spacer()
                 if let id = local.hardcoverBookID {
                     Label("Linked #\(id)", systemImage: "link")
-                        .font(.caption).foregroundStyle(.green)
+                        .font(.caption).foregroundStyle(FolioTheme.success)
                 }
             }
             if let id = local.hardcoverBookID {
@@ -607,7 +608,7 @@ struct FolioMobileBookDetail: View {
 
     private var accountConnections: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Connections").font(.headline)
+            Text("Connections").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
             HStack(spacing: 9) {
                 Image(systemName: hardcover.isConnected ? "checkmark.circle.fill" : "person.crop.circle.badge.plus")
                     .foregroundStyle(hardcover.isConnected ? .green : .secondary)
@@ -707,7 +708,7 @@ private struct FolioMobileDetailPanel: ViewModifier {
         content
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: 18))
+            .folioCard(cornerRadius: 18)
     }
 }
 
@@ -747,16 +748,19 @@ struct FolioMobileEditBook: View {
                     TextField("Author", text: $author)
                     TextField("Description", text: $summary, axis: .vertical).lineLimit(3...8)
                 }
+                .folioRow()
                 Section("Series") {
                     TextField("Series name", text: $series)
                     TextField("Book number", text: $seriesNumber).keyboardType(.decimalPad)
                 }
+                .folioRow()
                 Section("Publication") {
                     TextField("ISBN", text: $isbn)
                     TextField("Year", text: $year).keyboardType(.numberPad)
                     TextField("Publisher", text: $publisher)
                     TextField("Language", text: $language)
                 }
+                .folioRow()
                 Section("Library Cover") {
                     if let book = store.book(bookID) {
                         HStack(spacing: 16) {
@@ -773,8 +777,10 @@ struct FolioMobileEditBook: View {
                         }
                     }
                 }
+                .folioRow()
             }
             .navigationTitle("Edit Book")
+            .folioScreen()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
@@ -848,7 +854,7 @@ struct FolioMobileEditBook: View {
             if let fetchNotice {
                 Label(fetchNotice, systemImage: fetchFailed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                     .font(.footnote)
-                    .foregroundStyle(fetchFailed ? Color.red : Color.secondary)
+                    .foregroundStyle(fetchFailed ? FolioTheme.danger : Color.secondary)
             }
         } header: {
             Text("Hardcover")
@@ -859,6 +865,7 @@ struct FolioMobileEditBook: View {
                      : "Review the filled fields, then tap Save. A missing cover is added right away.")
             }
         }
+        .folioRow()
     }
 
     @MainActor
@@ -1007,9 +1014,10 @@ struct FolioMobileHardcoverLinkSheet: View {
                     .folioGlassPill(prominent: true)
                     .disabled(searching || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
+                .folioRow()
                 if let error {
                     Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.footnote).foregroundStyle(.red)
+                        .font(.footnote).foregroundStyle(FolioTheme.danger)
                 }
                 if !matches.isEmpty {
                     Section("Select a Matching Book") {
@@ -1035,9 +1043,11 @@ struct FolioMobileHardcoverLinkSheet: View {
                             .buttonStyle(.plain)
                         }
                     }
+                    .folioRow()
                 }
             }
             .navigationTitle("Match on Hardcover")
+            .folioScreen()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
@@ -1227,6 +1237,7 @@ struct FolioMobileDiscoverView: View {
             .frame(maxWidth: .infinity)
         }
         .navigationTitle("Discover")
+        .folioScreen()
         .searchable(text: $query, prompt: "Search Hardcover books")
         .refreshable {
             if isSearching { await search(searchText) }

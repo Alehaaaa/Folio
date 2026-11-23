@@ -50,6 +50,7 @@ struct FolioMobileSourcesView: View {
                     }
                 }
             }
+            .folioRow()
 
             if !results.isEmpty {
                 Section("Found \(results.count) Books") {
@@ -104,6 +105,7 @@ struct FolioMobileSourcesView: View {
                         .padding(.vertical, 3)
                     }
                 }
+                .folioRow()
                 Section {
                     Button {
                         Task { await loadMore() }
@@ -114,9 +116,11 @@ struct FolioMobileSourcesView: View {
                     .folioGlassPill()
                     .disabled(searching || selectedSource.isEmpty)
                 }
+                .folioRow()
             }
         }
         .navigationTitle("Sources")
+        .folioScreen()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -245,7 +249,7 @@ struct FolioMobileSourceBookDetail: View {
                             .font(.system(size: 70)).foregroundStyle(.secondary)
                     }
                     .frame(width: 170, height: 240)
-                    Text(result.title).font(.title2.bold()).multilineTextAlignment(.center)
+                    Text(result.title).font(.folioDisplay(.title)).multilineTextAlignment(.center)
                     Text(result.author).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     if let year = result.year { Text(String(year)).foregroundStyle(.secondary) }
                     if let count = result.downloadCount {
@@ -256,7 +260,7 @@ struct FolioMobileSourceBookDetail: View {
                     }
                     if library.localCopy(author: result.author, title: result.title) != nil {
                         Label("Already in your Library", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
+                            .foregroundStyle(FolioTheme.success)
                     }
                     if let preferred = result.preferred {
                         Button {
@@ -292,6 +296,7 @@ struct FolioMobileSourceBookDetail: View {
                 .padding(22)
             }
             .navigationTitle("Book Details")
+            .folioScreen()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {

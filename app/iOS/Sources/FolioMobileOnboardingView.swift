@@ -16,7 +16,7 @@ struct FolioMobileOnboardingView: View {
                 HStack(spacing: 7) {
                     ForEach(0..<4, id: \.self) { index in
                         Capsule()
-                            .fill(index <= page ? Color.accentColor : Color.secondary.opacity(0.2))
+                            .fill(index <= page ? FolioTheme.ink : FolioTheme.line)
                             .frame(maxWidth: .infinity)
                             .frame(height: 5)
                     }
@@ -57,7 +57,7 @@ struct FolioMobileOnboardingView: View {
                             )
                         }
                         .padding(18)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+                        .folioCard(cornerRadius: 18)
                     }
                     .tag(1)
 
@@ -84,11 +84,11 @@ struct FolioMobileOnboardingView: View {
                                 set: { reminders.setReminderTime($0) }
                             ), displayedComponents: .hourAndMinute)
                             if let error = reminders.errorMessage {
-                                Text(error).font(.footnote).foregroundStyle(.red)
+                                Text(error).font(.footnote).foregroundStyle(FolioTheme.danger)
                             }
                         }
                         .padding(18)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
+                        .folioCard(cornerRadius: 18)
                     }
                     .tag(2)
 
@@ -126,8 +126,8 @@ struct FolioMobileOnboardingView: View {
                 .padding(.horizontal, 26)
                 .padding(.bottom, 26)
             }
-            .background(Color(uiColor: .systemBackground).ignoresSafeArea())
             .navigationTitle("Welcome to Folio")
+            .folioScreen()
             .navigationBarTitleDisplayMode(.inline)
         }
         .interactiveDismissDisabled()
@@ -142,17 +142,20 @@ struct FolioMobileOnboardingView: View {
         ScrollView {
             VStack(spacing: 22) {
                 Image(systemName: symbol)
-                    .font(.system(size: 72, weight: .light))
-                    .foregroundStyle(.tint)
+                    .font(.system(size: 64, weight: .light))
+                    .foregroundStyle(FolioTheme.olive)
                     .frame(width: 152, height: 152)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 38))
+                    .folioCard(cornerRadius: 38, fill: FolioTheme.sage)
                     .padding(.top, 55)
+                Text("Your reading room")
+                    .folioEyebrow()
                 Text(headline)
-                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                    .font(.folioDisplay(.largeTitle))
+                    .foregroundStyle(FolioTheme.ink)
                     .multilineTextAlignment(.center)
                 Text(description)
                     .font(.body)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(FolioTheme.muted)
                     .multilineTextAlignment(.center)
                 extra()
                     .frame(maxWidth: 400)

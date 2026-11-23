@@ -20,11 +20,12 @@ struct FolioMobileSettingsView: View {
                 }
                 .folioGlassPill()
             }
+            .folioRow()
 
             Section("Hardcover Account") {
                 if let user = hardcover.user {
                     Label(user.name ?? user.username, systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(FolioTheme.success)
                     Button("Disconnect", role: .destructive) {
                         hardcover.disconnect()
                     }
@@ -48,10 +49,11 @@ struct FolioMobileSettingsView: View {
                     .folioGlassPill(prominent: true)
                     .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hardcover.connecting)
                     if let error = hardcover.lastError {
-                        Text(error).font(.footnote).foregroundStyle(.red)
+                        Text(error).font(.footnote).foregroundStyle(FolioTheme.danger)
                     }
                 }
             }
+            .folioRow()
 
             Section("Reading Goals") {
                 Stepper(
@@ -71,6 +73,7 @@ struct FolioMobileSettingsView: View {
                     in: 1...365
                 )
             }
+            .folioRow()
 
             FolioMobileReadabilitySettings()
 
@@ -105,6 +108,7 @@ struct FolioMobileSettingsView: View {
                     set: { preferences.prefs.boldText = $0 }
                 ))
             }
+            .folioRow()
 
             FolioMobileMoreSettings()
 
@@ -115,7 +119,9 @@ struct FolioMobileSettingsView: View {
                     value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
                 )
             }
+            .folioRow()
         }
         .navigationTitle("Settings")
+        .folioScreen()
     }
 }

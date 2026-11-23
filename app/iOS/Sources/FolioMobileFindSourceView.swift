@@ -120,7 +120,7 @@ struct FolioMobileFindSourceView: View {
                         .disabled(searching || workingCopyID != nil || queryTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                     .padding(15)
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 20))
+                    .folioCard(cornerRadius: 20)
 
                     if searching {
                         HStack(spacing: 10) {
@@ -157,7 +157,7 @@ struct FolioMobileFindSourceView: View {
                     } else if !copies.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("Available Copies (\(copies.count))")
-                                .font(.title3.bold())
+                                .font(.folioDisplay(.title2))
                             Text("Exact title and author matches appear first. Review the edition before downloading.")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
@@ -171,7 +171,7 @@ struct FolioMobileFindSourceView: View {
                         VStack(alignment: .leading, spacing: 9) {
                             Label("Download failed", systemImage: "exclamationmark.triangle.fill")
                                 .font(.headline)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(FolioTheme.danger)
                             Text(errorMessage)
                                 .font(.subheadline)
                                 .foregroundStyle(.primary)
@@ -185,7 +185,7 @@ struct FolioMobileFindSourceView: View {
                         }
                         .padding(14)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.red.opacity(0.075), in: RoundedRectangle(cornerRadius: 15))
+                        .background(FolioTheme.danger.opacity(0.08), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                     }
                     if !problems.isEmpty && !searching {
                         if copies.isEmpty {
@@ -235,6 +235,7 @@ struct FolioMobileFindSourceView: View {
                 .frame(maxWidth: .infinity)
             }
             .navigationTitle("Choose Source")
+            .folioScreen()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -313,7 +314,7 @@ struct FolioMobileFindSourceView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(13)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 18))
+        .folioCard(cornerRadius: 18)
         .accessibilityIdentifier("folio.findSource.copy.\(copy.id)")
     }
 

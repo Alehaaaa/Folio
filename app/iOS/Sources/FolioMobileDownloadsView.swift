@@ -85,6 +85,7 @@ struct FolioMobileDownloadsView: View {
             .frame(maxWidth: .infinity)
         }
         .navigationTitle("Downloads")
+        .folioScreen()
         .toolbar {
             if !history.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -128,6 +129,7 @@ struct FolioMobileDownloadsView: View {
                     }
                 }
                 .navigationTitle("Download Details")
+                .folioScreen()
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -142,8 +144,9 @@ struct FolioMobileDownloadsView: View {
     private func downloadSection(_ title: String, symbol: String, jobs: [DownloadJob]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Label(title, systemImage: symbol)
-                    .font(.headline)
+                Text(title)
+                    .font(.folioDisplay(.title2))
+                    .foregroundStyle(FolioTheme.ink)
                 Spacer()
                 Text("\(jobs.count)")
                     .font(.subheadline.monospacedDigit())
@@ -163,8 +166,9 @@ struct FolioMobileDownloadsView: View {
                 withAnimation(.easeInOut(duration: 0.2)) { historyExpanded.toggle() }
             } label: {
                 HStack(spacing: 8) {
-                    Label("History", systemImage: "clock.arrow.circlepath")
-                        .font(.headline)
+                    Text("History")
+                        .font(.folioDisplay(.title2))
+                        .foregroundStyle(FolioTheme.ink)
                     Text("\(history.count)")
                         .font(.subheadline.monospacedDigit())
                         .foregroundStyle(.secondary)
@@ -270,7 +274,7 @@ struct FolioMobileDownloadsView: View {
         }
         .frame(maxWidth: .infinity, minHeight: 264, alignment: .topLeading)
         .padding(12)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 18))
+        .folioCard(cornerRadius: 18)
         .accessibilityIdentifier("folio.downloads.job.\(job.id.uuidString)")
     }
 
@@ -299,7 +303,7 @@ struct FolioMobileDownloadsView: View {
                 FolioMobileRemoteCover(url: job.cover, title: job.title)
                     .frame(width: 76, height: 108)
                 VStack(alignment: .leading, spacing: 7) {
-                    Text(job.title).font(.title3.weight(.semibold))
+                    Text(job.title).font(.folioDisplay(.title2))
                     Text(job.author.isEmpty ? "Unknown Author" : job.author)
                         .font(.subheadline).foregroundStyle(.secondary)
                     Label(stageName(job.stage), systemImage: stageSymbol(job.stage))
@@ -323,7 +327,7 @@ struct FolioMobileDownloadsView: View {
             if let error = job.error, !error.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     Label("Download Failed", systemImage: "exclamationmark.triangle.fill")
-                        .font(.headline).foregroundStyle(.red)
+                        .font(.headline).foregroundStyle(FolioTheme.danger)
                     Text(error)
                         .font(.subheadline)
                         .fixedSize(horizontal: false, vertical: true)
@@ -346,7 +350,7 @@ struct FolioMobileDownloadsView: View {
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.red.opacity(0.065), in: RoundedRectangle(cornerRadius: 15))
+                .background(FolioTheme.danger.opacity(0.08), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
             }
 
             if !job.detailLog.isEmpty {
@@ -525,9 +529,9 @@ struct FolioMobileDownloadsView: View {
 
     private func stageColor(_ stage: DownloadJob.Stage) -> Color {
         switch stage {
-        case .queued, .searching, .choosing, .downloading, .importing: .blue
-        case .completed: .green
-        case .failed: .red
+        case .queued, .searching, .choosing, .downloading, .importing: FolioTheme.progress
+        case .completed: FolioTheme.success
+        case .failed: FolioTheme.danger
         case .cancelled: .secondary
         }
     }
@@ -556,15 +560,7 @@ struct FolioMobileRemoteCover: View {
             AsyncImage(url: url) { image in
                 image.resizable().scaledToFill()
             } placeholder: {
-                ZStack {
-                    Color.indigo.opacity(0.8)
-                    VStack(spacing: 6) {
-                        Image(systemName: "book.closed.fill")
-                        Text(title).font(.caption2.bold()).lineLimit(3).multilineTextAlignment(.center)
-                    }
-                    .foregroundStyle(.white)
-                    .padding(6)
-                }
+                FolioClothCover(title: title, compact: true)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .clipped()
