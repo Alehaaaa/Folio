@@ -121,6 +121,10 @@ struct HCBook: Identifiable, Hashable, Codable {
     var slug: String?
     /// Credited authors with their Hardcover ids, when the response carried them.
     var authorRefs: [HCAuthorRef] = []
+    /// The edition a search found this work by ("El nombre del viento" for
+    /// "The Name of the Wind"): its page shows that edition, the work's data stays shared.
+    var editionID: Int? = nil
+    var editionTitle: String? = nil
 
     var webURL: URL? { slug.flatMap { URL(string: "https://hardcover.app/books/\($0)") } }
 
@@ -666,7 +670,7 @@ final class HardcoverClient {
             let d = try await query("""
             query SearchAll($q: String!, $titles: [String!]) {
               search(query: $q, query_type: "Book", per_page: 30, page: 1, fields: "title,alternative_titles,series_names,author_names,isbns", weights: "5,5,2,1,1") { results }
-              editions(where: {title: {_in: $titles}, book: {users_count: {_gt: 0}}}, order_by: {users_count: desc}, limit: 15) { title image { url } book { \(Self.bookFields) } }
+              editions(where: {title: {_in: $titles}, book: {users_count: {_gt: 0}}}, order_by: {users_count: desc}, limit: 15) { id title image { url } book { users_count \(Self.bookFields) } }
             }
             """, ["q": typed, "titles": Self.titleSpellings(typed)])
             docs = Self.hits(d["search"]["results"])
@@ -716,38 +720,63 @@ final class HardcoverClient {
             let covered = wanted.dropLast().allSatisfy(all.contains) && (all.contains(last) || words.contains { $0.hasPrefix(last) })
             return covered ? 1 : 2
         }
-        var ranked: [(score: Int, book: HCBook)] = []
+        var ranked: [(score: Int, readers: Int, book: HCBook)] = []
         var index: [Int: Int] = [:]
-        func add(_ book: HCBook, score: Int) {
+        func add(_ book: HCBook, score: Int, readers: Int) {
             if let i = index[book.id] {
-                if score < ranked[i].score { ranked[i] = (score, book) }
+                if score < ranked[i].score { ranked[i] = (score, max(readers, ranked[i].readers), book) }
                 return
             }
             index[book.id] = ranked.count
-            ranked.append((score, book))
+            ranked.append((score, readers, book))
         }
+        func readers(_ j: JSON) -> Int { j["users_count"].int ?? j["ratings_count"].int ?? 0 }
         for doc in docs {
             guard var book = HCBook.from(searchDocument: doc) else { continue }
             var score = match(book.title, authors: book.authors)
             if score > 0 {
                 for alt in doc["alternative_titles"].array.compactMap(\.string) {
                     let s = match(alt, authors: book.authors)
-                    if s < score { score = s; book.title = alt }
+                    if s < score { score = s; book.title = alt; book.editionTitle = alt }
                     if s == 0 { break }
                 }
             }
-            add(book, score: score)
+            add(book, score: score, readers: readers(doc))
         }
         for row in editions {
             guard var book = HCBook.from(book: row["book"]), let title = row["title"].string else { continue }
             if !BookAutoMatch.sameTitle(book.title, title) {
                 book.title = title
+                book.editionTitle = title
+                book.editionID = row["id"].int
                 if let cover = row["image"]["url"].string.flatMap(URL.init(string:)) { book.imageURL = cover }
             }
-            add(book, score: 0)
+            add(book, score: 0, readers: readers(row["book"]))
         }
-        // Stable: Hardcover's own order breaks ties.
-        return ranked.enumerated().sorted { ($0.element.score, $0.offset) < ($1.element.score, $1.offset) }.map(\.element.book)
+        // Hardcover keeps some translations as books of their own, often unread and
+        // without the author ("Amanecer rojo" next to "Red Rising"). When the real work
+        // is found under the same title, the copy is left out: the work's page shows
+        // that edition anyway, with its ratings, series and shelves.
+        func sharesAuthor(_ a: HCBook, _ b: HCBook) -> Bool {
+            let names = b.authors.components(separatedBy: ", ")
+            return a.authors.components(separatedBy: ", ").contains { name in names.contains { BookAutoMatch.sameAuthor(name, $0) } }
+        }
+        let kept = ranked.filter { entry in
+            guard entry.score < 2 else { return true }
+            let key = BookAutoMatch.words(entry.book.title)
+            return !ranked.contains { other in
+                other.book.id != entry.book.id && other.score <= entry.score
+                    && BookAutoMatch.words(other.book.title) == key
+                    && other.readers >= max(10, entry.readers * 5)
+                    && (entry.book.authors.isEmpty || sharesAuthor(entry.book, other.book))
+            }
+        }
+        // Matches first; among them the most-read work. Otherwise Hardcover's own order.
+        return kept.enumerated().sorted { a, b in
+            if a.element.score != b.element.score { return a.element.score < b.element.score }
+            if a.element.score < 2, a.element.readers != b.element.readers { return a.element.readers > b.element.readers }
+            return a.offset < b.offset
+        }.map(\.element.book)
     }
 
     /// Raw search documents, which also carry every edition title (alternative_titles).
@@ -1039,7 +1068,7 @@ final class HardcoverClient {
     /// The book, your shelf entry, community numbers, main edition and series
     /// in a single request (Hardcover rate-limits per request). Falls back to
     /// separate requests if the combined one is refused.
-    func bookPage(id: Int, editionID: Int? = nil, language: String? = nil) async throws -> HCBookPage {
+    func bookPage(id: Int, editionID: Int? = nil, language: String? = nil, editionTitle: String? = nil) async throws -> HCBookPage {
         let uid = user?.id ?? -1
         // A library file in another language shows its own edition's details; other books
         // show the reader's language edition when Hardcover has one, else the most-read.
@@ -1048,15 +1077,23 @@ final class HardcoverClient {
         if editionID == nil, let language, language != "en", let filter = BookLanguage.hardcoverFilter(language) {
             editions = "editions(where: {book_id: {_eq: $id}, \(filter)}, order_by: {users_count: desc}, limit: 1) { \(Self.editionFields) } fallbackEdition: \(mostRead)"
         }
+        // Opened from a search for an edition title: that edition, else the usual one.
+        var variables: [String: Any] = ["id": id, "uid": uid]
+        var titleVariable = ""
+        if editionID == nil, let editionTitle, !editionTitle.isEmpty {
+            editions = "editions(where: {book_id: {_eq: $id}, title: {_eq: $etitle}}, order_by: {users_count: desc}, limit: 1) { \(Self.editionFields) } fallbackEdition: \(mostRead)"
+            variables["etitle"] = editionTitle
+            titleVariable = ", $etitle: String!"
+        }
         do {
             let d = try await query("""
-            query BookPage($id: Int!, $uid: Int!) {
+            query BookPage($id: Int!, $uid: Int!\(titleVariable)) {
               books(where: {id: {_eq: $id}}, limit: 1) { \(Self.bookFields) reviews_count users_count users_read_count release_date cached_tags }
               \(editions) { \(Self.editionFields) }
               book_series(where: {book_id: {_eq: $id}}) { position series { id name } }
               user_books(where: {user_id: {_eq: $uid}, book_id: {_eq: $id}}, limit: 1) { \(Self.userBookFields) }
             }
-            """, ["id": id, "uid": uid])
+            """, variables)
             let b = d["books"].array.first ?? .null
             return HCBookPage(
                 book: HCBook.from(book: b),

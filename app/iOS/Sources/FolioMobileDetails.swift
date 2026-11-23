@@ -97,6 +97,30 @@ struct FolioMobileBookDetail: View {
         return initialRemote?.id == linkedID ? initialRemote : nil
     }
 
+    /// The edition this page was opened for from search ("El nombre del viento"),
+    /// for books outside the library. Ratings, series and shelves stay the work's.
+    private var requestedEditionID: Int? { local == nil ? initialRemote?.editionID : nil }
+    private var requestedEditionTitle: String? {
+        local == nil ? initialRemote?.editionTitle.flatMap { $0.isEmpty ? nil : $0 } : nil
+    }
+
+    private var matchedEdition: HCEdition? {
+        guard local == nil, let edition else { return nil }
+        if let id = requestedEditionID, edition.id == id { return edition }
+        if let wanted = requestedEditionTitle, BookAutoMatch.sameTitle(wanted, edition.title ?? "") { return edition }
+        return nil
+    }
+
+    /// The edition the page shows: the one searched for, else the reader's language.
+    private var shownEdition: HCEdition? { matchedEdition ?? languageEdition }
+
+    /// The work's own title, when the page shows an edition under another one.
+    private var originalTitle: String? {
+        guard local == nil, edits?.title == nil, let work = remote?.title, !work.isEmpty,
+              !BookAutoMatch.sameTitle(work, title) else { return nil }
+        return work
+    }
+
     /// The edition in the reader's language, for books outside the library.
     private var languageEdition: HCEdition? {
         guard local == nil, let edition, let code = BookLanguage.code(edition.language),
@@ -115,15 +139,19 @@ struct FolioMobileBookDetail: View {
         // The same order as Home's reading shelf: your edit, the edition on your shelf,
         // the edition in your language, then the work's cover.
         edits?.coverURL ?? (local == nil ? myHardcoverBook?.book.imageURL : nil)
-            ?? languageEdition?.imageURL ?? (remote ?? initialRemote)?.imageURL
+            ?? shownEdition?.imageURL ?? (remote ?? initialRemote)?.imageURL
     }
 
     private var title: String {
-        local?.title ?? edits?.title ?? languageEdition?.title.flatMap { $0.isEmpty ? nil : $0 }
-            ?? remote?.title ?? initialRemote?.title ?? "Book"
+        local?.title ?? edits?.title ?? shownEdition?.title.flatMap { $0.isEmpty ? nil : $0 }
+            ?? requestedEditionTitle ?? remote?.title ?? initialRemote?.title ?? "Book"
     }
     private var author: String { local?.author ?? edits?.authors ?? remote?.authors ?? initialRemote?.authors ?? "" }
-    private var pages: Int? { local?.hardcoverPages ?? edits?.pages ?? remote?.pages ?? edition?.pages }
+    private var pages: Int? {
+        // Progress counts the pages of the edition Hardcover records it against.
+        let editionPages = editionID != nil && edition?.id == editionID ? edition?.pages : nil
+        return local?.hardcoverPages ?? edits?.pages ?? editionPages ?? remote?.pages ?? edition?.pages
+    }
     private var overview: String? {
         let value = local?.summary?.plainText ?? edits?.summary ?? (remote ?? initialRemote)?.description?.plainText
         return value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : value
@@ -798,6 +826,9 @@ struct FolioMobileBookDetail: View {
         if hasDetails {
         VStack(alignment: .leading, spacing: 11) {
             Text("Details").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
+            if let originalTitle {
+                LabeledContent("Original title", value: originalTitle)
+            }
             if let publisher = nonEmpty(edits?.publisher) ?? nonEmpty(edition?.publisher) ?? nonEmpty(local?.publisher) {
                 LabeledContent("Publisher", value: publisher)
             }
@@ -902,7 +933,9 @@ struct FolioMobileBookDetail: View {
     }
 
     /// The edition being read: the library file's language edition, or the one on your shelf.
-    private var editionID: Int? { local?.hardcoverEditionID ?? myHardcoverBook?.editionID }
+    private var editionID: Int? {
+        local?.hardcoverEditionID ?? myHardcoverBook?.editionID ?? requestedEditionID ?? matchedEdition?.id
+    }
 
     /// Library files that predate language matching pick up their edition once.
     @MainActor
@@ -996,7 +1029,8 @@ struct FolioMobileBookDetail: View {
                 && $0.similar != nil
         } ?? false
         let language: String? = local != nil ? local?.language : BookLanguage.reading
-        guard let page = try? await hardcover.bookPage(id: linkedID, editionID: editionID, language: language),
+        guard let page = try? await hardcover.bookPage(id: linkedID, editionID: editionID, language: language,
+                                                       editionTitle: editionID == nil ? requestedEditionTitle : nil),
               !Task.isCancelled else { return }
         if let book = page.book { remoteDetails = book }
         myHardcoverBook = page.userBook
