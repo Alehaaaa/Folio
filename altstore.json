@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.9",
+          "buildVersion": "10",
+          "date": "2026-11-23",
+          "localizedDescription": "Audit follow-ups: progressive Discover rows, drop unused code, Split View tab fallback (1.0.9)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.9-10.ipa",
+          "size": 3613399,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.8",
           "buildVersion": "9",
           "date": "2026-11-23",
