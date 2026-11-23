@@ -18,11 +18,15 @@ private struct FolioMobileBookContextMenu: ViewModifier {
                     menu(book)
                 }
             } preview: {
-                if let book = library.book(bookID) {
-                    FolioMobileCover(book: book)
-                        .frame(width: 220, height: 320)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
+                // The preview is hosted outside this view hierarchy, so it must not read
+                // @Environment objects (FolioMobileCover reads LibraryStore and crashed
+                // there). Build it only from values resolved here.
+                FolioMobileBookMenuPreview(
+                    image: library.book(bookID).flatMap { library.coverURL($0) }
+                        .flatMap { UIImage(contentsOfFile: $0.path) },
+                    title: library.book(bookID)?.title ?? "",
+                    author: library.book(bookID)?.author ?? ""
+                )
             }
             .sheet(isPresented: $editing) {
                 FolioMobileEditBook(bookID: bookID)
@@ -99,6 +103,43 @@ private struct FolioMobileBookContextMenu: ViewModifier {
         Button(role: .destructive) { removing = true } label: {
             Label("Remove from Library", systemImage: "trash")
         }
+    }
+}
+
+/// Environment-free preview for the book context menu.
+private struct FolioMobileBookMenuPreview: View {
+    let image: UIImage?
+    let title: String
+    let author: String
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ZStack {
+                    Color.indigo.opacity(0.78)
+                    VStack(spacing: 8) {
+                        Text(title)
+                            .font(.system(size: 18, weight: .bold, design: .serif))
+                            .multilineTextAlignment(.center)
+                            .lineLimit(4)
+                        if !author.isEmpty {
+                            Text(author)
+                                .font(.system(size: 13, design: .serif))
+                                .lineLimit(2)
+                                .opacity(0.8)
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .padding(18)
+                }
+            }
+        }
+        .frame(width: 220, height: 320)
+        .clipped()
     }
 }
 
