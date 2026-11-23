@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.5",
+          "buildVersion": "6",
+          "date": "2026-11-23",
+          "localizedDescription": "Reading-nook look for the app and a Home bookshelf (1.0.5)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.5-6.ipa",
+          "size": 3666830,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.4",
           "buildVersion": "5",
           "date": "2026-11-23",
