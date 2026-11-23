@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.55",
+          "buildVersion": "56",
+          "date": "2026-11-23",
+          "localizedDescription": "Read books in Library wear a check badge instead of a full progress bar (1.0.55)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.55-56.ipa",
+          "size": 4781810,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.53",
           "buildVersion": "54",
           "date": "2026-11-23",
