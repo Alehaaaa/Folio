@@ -1081,6 +1081,46 @@ final class HardcoverClient {
         }
     }
 
+    /// Puts a book on a shelf (and rates it) in one request, without reloading shelves:
+    /// used by bulk copies, which refresh once at the end.
+    func writeShelf(bookID: Int, existing userBookID: Int?, status: HCStatus, rating: Double?) async -> Bool {
+        var object = "status_id: $status"
+        var variables: [String: Any] = ["status": status.rawValue]
+        var types = "$status: Int!"
+        if let rating {
+            object += ", rating: $r"
+            variables["r"] = rating
+            types += ", $r: numeric"
+        }
+        do {
+            if let userBookID {
+                variables["id"] = userBookID
+                try await query("mutation Shelf($id: Int!, \(types)) { update_user_book(id: $id, object: {\(object)}) { id error } }", variables)
+            } else {
+                variables["bid"] = bookID
+                try await query("mutation Add($bid: Int!, \(types)) { insert_user_book(object: {book_id: $bid, \(object)}) { id error } }", variables)
+            }
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Books for many ISBNs in one request.
+    func bookIDs(isbns: [String]) async throws -> [String: Int] {
+        guard !isbns.isEmpty else { return [:] }
+        let d = try await query("""
+        query ISBNs($i: [String!]) { editions(where: {_or: [{isbn_13: {_in: $i}}, {isbn_10: {_in: $i}}]}, limit: \(isbns.count * 3)) { book_id isbn_13 isbn_10 } }
+        """, ["i": isbns])
+        var out: [String: Int] = [:]
+        for e in d["editions"].array {
+            guard let id = e["book_id"].int else { continue }
+            for key in [e["isbn_13"].string, e["isbn_10"].string].compactMap({ $0 }) where out[key] == nil { out[key] = id }
+        }
+        return out
+    }
+
     func setRating(userBookID: Int, rating: Double?) async {
         do {
             try await query("""

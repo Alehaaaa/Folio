@@ -129,9 +129,10 @@ struct FolioMobileShelvesView: View {
                         Button {
                             Task { await copyGoodreads() }
                         } label: {
-                            Label("Copy Goodreads to Hardcover", systemImage: "arrow.up.forward.app")
+                            Label(library.hardcoverCopy.map { "Copying \($0.done) of \($0.total) to Hardcover…" }
+                                    ?? "Copy Goodreads to Hardcover", systemImage: "arrow.up.forward.app")
                         }
-                        .disabled(copying)
+                        .disabled(copying || library.hardcoverCopy != nil)
                         NavigationLink {
                             FolioMobileGoodreadsSettings()
                         } label: {

@@ -112,20 +112,35 @@ struct FolioMobileGoodreadsSettings: View {
                 }
             }
             .folioRow()
-            Section("Sync to Hardcover") {
-                Button {
-                    Task {
-                        guard !copying else { return }
-                        copying = true
-                        let result = await library.sendTrackedToHardcover(hardcover)
-                        notice = "Copied \(result.sent) books to Hardcover; \(result.missed) could not be matched."
-                        copying = false
+            Section {
+                if let copy = library.hardcoverCopy {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ProgressView(value: Double(copy.done), total: Double(max(copy.total, 1)))
+                        Text(copy.stage == "Copying" ? "Copying \(copy.done) of \(copy.total)" : "\(copy.stage)…")
+                            .font(.subheadline)
+                        if copy.done > 0 {
+                            Text("\(copy.sent) on Hardcover\(copy.missed > 0 ? ", \(copy.missed) not found" : "")")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
                     }
-                } label: {
-                    if copying { ProgressView() }
-                    else { Label("Copy Goodreads Books to Hardcover", systemImage: "arrow.up.forward.app") }
+                    .padding(.vertical, 4)
+                } else {
+                    let waiting = library.data.tracked.filter { !$0.sentToHardcover }.count
+                    Button {
+                        Task {
+                            let result = await library.sendTrackedToHardcover(hardcover)
+                            notice = "Copied \(result.sent) books to Hardcover; \(result.missed) could not be matched."
+                        }
+                    } label: {
+                        Label(waiting > 0 ? "Copy \(waiting) Goodreads Books to Hardcover" : "All Goodreads Books Are on Hardcover",
+                              systemImage: "arrow.up.forward.app")
+                    }
+                    .disabled(waiting == 0 || !hardcover.isConnected)
                 }
-                .disabled(copying || !hardcover.isConnected || library.data.tracked.isEmpty)
+            } header: {
+                Text("Sync to Hardcover")
+            } footer: {
+                Text("Keeps going if you leave this screen. Books already on Hardcover with the same shelf are skipped.")
             }
             .folioRow()
         }
