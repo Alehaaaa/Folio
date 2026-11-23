@@ -2,40 +2,15 @@ import SwiftUI
 
 /// Hardcover and Goodreads reading shelves are merged by the book's
 /// normalized title and author, like the macOS My Shelves section.
-private struct FolioMobileShelfEntry: Identifiable {
+struct FolioMobileShelfEntry: Identifiable {
     var id: String
     var title: String
     var author: String
     var cover: URL?
     var hardcover: HCUserBook?
     var goodreads: TrackedBook?
-}
 
-struct FolioMobileShelvesView: View {
-    @Environment(LibraryStore.self) private var library
-    @Environment(HardcoverClient.self) private var hardcover
-    @State private var goodreads = GoodreadsClient.shared
-    @State private var selectedStatus: HCStatus = .reading
-    @State private var source = FolioMobileShelfSource.all
-    @State private var hcItems: [HCUserBook] = []
-    @State private var searching = ""
-    @State private var loading = false
-    @State private var copying = false
-    @State private var selectedBook: HCBook?
-    @State private var selectedTracked: TrackedBook?
-    @State private var notice: String?
-
-    private var grStatus: GRShelf? {
-        switch selectedStatus {
-        case .wantToRead: .wantToRead
-        case .reading: .currentlyReading
-        case .read: .read
-        case .paused: nil
-        case .dnf: .dnf
-        }
-    }
-
-    private var merged: [FolioMobileShelfEntry] {
+    static func merge(hardcover hcItems: [HCUserBook], goodreads tracked: [TrackedBook]) -> [FolioMobileShelfEntry] {
         var books: [FolioMobileShelfEntry] = []
         var index: [String: Int] = [:]
         var byHardcoverID: [Int: Int] = [:]
@@ -46,21 +21,56 @@ struct FolioMobileShelvesView: View {
             books.append(.init(id: "hc-\(item.id)", title: item.book.title, author: item.book.authors,
                                cover: item.book.imageURL, hardcover: item, goodreads: nil))
         }
-        if let grStatus {
-            for book in library.tracked(grStatus) {
-                let key = BookMatch.key(author: book.author, title: book.title)
-                if let i = book.hardcoverBookID.flatMap({ byHardcoverID[$0] }) ?? index[key] {
-                    books[i].goodreads = book
-                    if books[i].cover == nil { books[i].cover = book.coverURL.flatMap(URL.init(string:)) }
-                } else {
-                    index[key] = books.count
-                    books.append(.init(id: "gr-\(book.id)", title: book.title, author: book.author,
-                                       cover: book.coverURL.flatMap(URL.init(string:)),
-                                       hardcover: nil, goodreads: book))
-                }
+        for book in tracked {
+            let key = BookMatch.key(author: book.author, title: book.title)
+            if let i = book.hardcoverBookID.flatMap({ byHardcoverID[$0] }) ?? index[key] {
+                books[i].goodreads = book
+                if books[i].cover == nil { books[i].cover = book.coverURL.flatMap(URL.init(string:)) }
+            } else {
+                index[key] = books.count
+                books.append(.init(id: "gr-\(book.id)", title: book.title, author: book.author,
+                                   cover: book.coverURL.flatMap(URL.init(string:)),
+                                   hardcover: nil, goodreads: book))
             }
         }
         return books
+    }
+}
+
+extension HCStatus {
+    /// The matching Goodreads exclusive shelf; Goodreads has no Paused shelf.
+    var goodreadsShelf: GRShelf? {
+        switch self {
+        case .wantToRead: .wantToRead
+        case .reading: .currentlyReading
+        case .read: .read
+        case .paused: nil
+        case .dnf: .dnf
+        }
+    }
+}
+
+/// The reading shelves, shown inside Library rather than as a screen of their own.
+/// The surrounding Library view owns the scroll view, title and search field.
+struct FolioMobileShelvesView: View {
+    let search: String
+    @Environment(LibraryStore.self) private var library
+    @Environment(HardcoverClient.self) private var hardcover
+    @Environment(FolioMobileNavigation.self) private var navigation
+    @State private var goodreads = GoodreadsClient.shared
+    @State private var source = FolioMobileShelfSource.all
+    @State private var hcItems: [HCUserBook] = []
+    @State private var loading = false
+    @State private var copying = false
+    @State private var selectedBook: HCBook?
+    @State private var selectedTracked: TrackedBook?
+    @State private var notice: String?
+
+    private var selectedStatus: HCStatus { navigation.shelfStatus }
+    private var grStatus: GRShelf? { selectedStatus.goodreadsShelf }
+
+    private var merged: [FolioMobileShelfEntry] {
+        FolioMobileShelfEntry.merge(hardcover: hcItems, goodreads: grStatus.map { library.tracked($0) } ?? [])
     }
 
     private var visible: [FolioMobileShelfEntry] {
@@ -71,116 +81,47 @@ struct FolioMobileShelvesView: View {
             case .goodreads: entry.goodreads != nil
             }
         }.filter {
-            searching.isEmpty || $0.title.localizedCaseInsensitiveContains(searching)
-                || $0.author.localizedCaseInsensitiveContains(searching)
+            search.isEmpty || $0.title.localizedCaseInsensitiveContains(search)
+                || $0.author.localizedCaseInsensitiveContains(search)
         }
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 18) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 9) {
-                        ForEach(HCStatus.allCases) { status in
-                            Button {
-                                selectedStatus = status
-                            } label: {
-                                Label(status.shortLabel, systemImage: status.symbol)
-                            }
-                            .folioGlassPill(prominent: selectedStatus == status)
+        @Bindable var navigation = navigation
+        LazyVStack(alignment: .leading, spacing: 18) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 9) {
+                    ForEach(HCStatus.allCases) { status in
+                        Button {
+                            navigation.shelfStatus = status
+                        } label: {
+                            Label(status.shortLabel, systemImage: status.symbol)
                         }
-                    }
-                    .padding(.horizontal, 16)
-                }
-                if hardcover.isConnected && (goodreads.isLinked || !library.data.tracked.isEmpty) {
-                    Picker("Source", selection: $source) {
-                        ForEach(FolioMobileShelfSource.allCases) { choice in
-                            Text(choice.rawValue).tag(choice)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal, 16)
-                }
-                HStack {
-                    Text("\(visible.count) books")
-                        .font(.subheadline).foregroundStyle(.secondary)
-                    Spacer()
-                    if loading { ProgressView() }
-                }
-                .padding(.horizontal, 18)
-                if !hardcover.isConnected && !goodreads.isLinked && library.data.tracked.isEmpty {
-                    ContentUnavailableView {
-                        Label("Connect Your Reading Shelves", systemImage: "books.vertical")
-                    } description: {
-                        Text("Connect Hardcover or Goodreads in Settings to bring in your reading lists.")
-                    }
-                    .frame(maxWidth: .infinity)
-                } else if visible.isEmpty && !loading {
-                    ContentUnavailableView("No Books Yet", systemImage: "book.closed",
-                                           description: Text("No books match this shelf and filter."))
-                } else {
-                    LazyVStack(spacing: 0) {
-                        ForEach(visible) { entry in
-                            Button {
-                                if let hardcover = entry.hardcover { selectedBook = hardcover.book }
-                                else { selectedTracked = entry.goodreads }
-                            } label: {
-                                HStack(alignment: .top, spacing: 12) {
-                                    AsyncImage(url: entry.cover) { image in
-                                        image.resizable().scaledToFill()
-                                    } placeholder: {
-                                        RoundedRectangle(cornerRadius: 7)
-                                            .fill(.quaternary)
-                                            .overlay(Image(systemName: "book.closed"))
-                                    }
-                                    .frame(width: 65, height: 93)
-                                    .clipShape(RoundedRectangle(cornerRadius: 7))
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        Text(entry.title).font(.headline).foregroundStyle(.primary)
-                                            .lineLimit(2).multilineTextAlignment(.leading)
-                                        Text(entry.author).font(.subheadline)
-                                            .foregroundStyle(.secondary).lineLimit(2)
-                                        HStack(spacing: 8) {
-                                            if entry.hardcover != nil {
-                                                Label("Hardcover", systemImage: "book")
-                                            }
-                                            if entry.goodreads != nil {
-                                                Label("Goodreads", systemImage: "bookmark")
-                                            }
-                                        }
-                                        .font(.caption2).foregroundStyle(.secondary)
-                                        if let ub = entry.hardcover, let pages = ub.book.pages,
-                                           let read = ub.progressPages, pages > 0 {
-                                            ProgressView(value: Double(read), total: Double(pages))
-                                        }
-                                    }
-                                    Spacer()
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption).foregroundStyle(.tertiary)
-                                }
-                                .padding(.vertical, 9)
-                                .padding(.horizontal, 17)
-                            }
-                            .buttonStyle(.plain)
-                            Divider().padding(.leading, 94)
-                        }
+                        .folioGlassPill(prominent: selectedStatus == status)
                     }
                 }
-                if let notice {
-                    Text(notice).font(.footnote).foregroundStyle(.secondary)
-                        .padding(.horizontal, 16)
-                }
+                .padding(.horizontal, 16)
             }
-            .padding(.vertical, 14)
-        }
-        .searchable(text: $searching, prompt: "Search your shelves")
-        .navigationTitle("My Shelves")
-        .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
+            if hardcover.isConnected && (goodreads.isLinked || !library.data.tracked.isEmpty) {
+                Picker("Source", selection: $source) {
+                    ForEach(FolioMobileShelfSource.allCases) { choice in
+                        Text(choice.rawValue).tag(choice)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+            }
+            HStack(spacing: 10) {
+                Text("\(visible.count) books")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                Spacer()
+                if loading { ProgressView() }
                 Button {
                     Task { await refresh(includeGoodreads: true) }
                 } label: {
-                    Image(systemName: "arrow.clockwise")
+                    Label("Refresh Shelves", systemImage: "arrow.clockwise")
+                        .labelStyle(.iconOnly)
+                        .frame(minWidth: 30, minHeight: 30)
                 }
                 .folioGlassPill()
                 .disabled(loading || !goodreads.loading.isEmpty)
@@ -198,11 +139,78 @@ struct FolioMobileShelvesView: View {
                             Label("Import & Export CSV", systemImage: "square.and.arrow.up.on.square")
                         }
                     } label: {
-                        Image(systemName: "ellipsis")
+                        Label("Shelf Options", systemImage: "ellipsis")
+                            .labelStyle(.iconOnly)
+                            .frame(minWidth: 30, minHeight: 30)
+                    }
+                    .folioGlassPill()
+                }
+            }
+            .padding(.horizontal, 18)
+            if !hardcover.isConnected && !goodreads.isLinked && library.data.tracked.isEmpty {
+                ContentUnavailableView {
+                    Label("Connect Your Reading Shelves", systemImage: "books.vertical")
+                } description: {
+                    Text("Connect Hardcover or Goodreads in Settings to bring in your reading lists.")
+                }
+                .frame(maxWidth: .infinity)
+            } else if visible.isEmpty && !loading {
+                ContentUnavailableView("No Books Yet", systemImage: "book.closed",
+                                       description: Text("No books match this shelf and filter."))
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(visible) { entry in
+                        Button {
+                            if let hardcover = entry.hardcover { selectedBook = hardcover.book }
+                            else { selectedTracked = entry.goodreads }
+                        } label: {
+                            HStack(alignment: .top, spacing: 12) {
+                                AsyncImage(url: entry.cover) { image in
+                                    image.resizable().scaledToFill()
+                                } placeholder: {
+                                    RoundedRectangle(cornerRadius: 7)
+                                        .fill(.quaternary)
+                                        .overlay(Image(systemName: "book.closed"))
+                                }
+                                .frame(width: 65, height: 93)
+                                .clipShape(RoundedRectangle(cornerRadius: 7))
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text(entry.title).font(.headline).foregroundStyle(.primary)
+                                        .lineLimit(2).multilineTextAlignment(.leading)
+                                    Text(entry.author).font(.subheadline)
+                                        .foregroundStyle(.secondary).lineLimit(2)
+                                    HStack(spacing: 8) {
+                                        if entry.hardcover != nil {
+                                            Label("Hardcover", systemImage: "book")
+                                        }
+                                        if entry.goodreads != nil {
+                                            Label("Goodreads", systemImage: "bookmark")
+                                        }
+                                    }
+                                    .font(.caption2).foregroundStyle(.secondary)
+                                    if let ub = entry.hardcover, let pages = ub.book.pages,
+                                       let read = ub.progressPages, pages > 0 {
+                                        ProgressView(value: Double(read), total: Double(pages))
+                                    }
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption).foregroundStyle(.tertiary)
+                            }
+                            .padding(.vertical, 9)
+                            .padding(.horizontal, 17)
+                        }
+                        .buttonStyle(.plain)
+                        Divider().padding(.leading, 94)
                     }
                 }
             }
+            if let notice {
+                Text(notice).font(.footnote).foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+            }
         }
+        .padding(.bottom, 14)
         .task(id: selectedStatus.rawValue) { await refresh(includeGoodreads: false) }
         .sheet(item: $selectedBook) { book in
             NavigationStack { FolioMobileBookDetail(book: book) }

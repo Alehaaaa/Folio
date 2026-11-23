@@ -7,7 +7,6 @@ struct FolioMobileRootView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @AppStorage("folioIOS.onboardingCompleted") private var onboardingCompleted = false
     @State private var importing = false
-    @State private var showingShelves = false
     @State private var showingOnboarding = false
     @State private var importAfterOnboarding = false
     @State private var downloadToast: DownloadToast?
@@ -27,7 +26,7 @@ struct FolioMobileRootView: View {
         TabView(selection: $navigation.selectedTab) {
             Tab("Home", systemImage: "house.fill", value: .home) {
                 NavigationStack {
-                    FolioMobileHomeView(showImporter: { importing = true }, showShelves: { showingShelves = true })
+                    FolioMobileHomeView(showImporter: { importing = true })
                         .navigationDestination(for: UUID.self) { FolioMobileBookDetail(bookID: $0) }
                         .navigationDestination(for: HCBook.self) { FolioMobileBookDetail(book: $0) }
                 }
@@ -36,6 +35,7 @@ struct FolioMobileRootView: View {
                 NavigationStack {
                     FolioMobileLibraryView(showImporter: { importing = true })
                         .navigationDestination(for: UUID.self) { FolioMobileBookDetail(bookID: $0) }
+                        .navigationDestination(for: HCBook.self) { FolioMobileBookDetail(book: $0) }
                 }
             }
             Tab("Discover", systemImage: "magnifyingglass", value: .search) {
@@ -52,11 +52,6 @@ struct FolioMobileRootView: View {
                 Tab("More", systemImage: "ellipsis.circle", value: .settings) {
                     NavigationStack {
                         List {
-                            NavigationLink {
-                                FolioMobileShelvesView()
-                            } label: {
-                                Label("My Shelves", systemImage: "books.vertical")
-                            }
                             NavigationLink {
                                 FolioMobileSourcesView()
                             } label: {
@@ -93,9 +88,6 @@ struct FolioMobileRootView: View {
         .fullScreenCover(item: $navigation.reading) { route in
             NavigationStack { FolioMobileReaderView(bookID: route.id) }
                 .environment(store)
-        }
-        .sheet(isPresented: $showingShelves) {
-            NavigationStack { FolioMobileShelvesView() }
         }
         .sheet(isPresented: $showingOnboarding, onDismiss: {
             onboardingCompleted = true
@@ -253,9 +245,10 @@ struct FolioMobileHomeView: View {
     @Environment(FolioMobileNavigation.self) private var navigation
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     let showImporter: () -> Void
-    let showShelves: () -> Void
 
     @State private var discovery = FolioMobileHomeRecommendations()
+    @State private var shelves = FolioMobileHomeShelves()
+    @State private var selectedTracked: TrackedBook?
     @State private var refreshNumber = 0
     @ScaledMetric(relativeTo: .body) private var shelfWidth: CGFloat = 140
     @ScaledMetric(relativeTo: .title) private var goalRingSize: CGFloat = 84
@@ -274,7 +267,7 @@ struct FolioMobileHomeView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 28) {
+            LazyVStack(alignment: .leading, spacing: 30) {
                 heading
                 if let nextBook {
                     continueReadingCard(nextBook)
@@ -283,12 +276,14 @@ struct FolioMobileHomeView: View {
                 }
                 readingGoal
                 if store.continueReading.count > 1 {
-                    localShelf("Also in Progress", subtitle: "Your other open books",
+                    localShelf("Also in Progress",
                                books: Array(store.continueReading.dropFirst().prefix(10)))
                 }
+                shelvesSection
                 if !store.recentlyAdded.isEmpty {
-                    localShelf("Recently Added", subtitle: "Waiting for your next reading session",
-                               books: Array(store.recentlyAdded.prefix(12)))
+                    localShelf("Recently Added",
+                               books: Array(store.recentlyAdded.prefix(12)),
+                               seeAll: { navigation.libraryScope = .books; navigation.selectedTab = .library })
                 }
                 discoverySection
             }
@@ -298,27 +293,40 @@ struct FolioMobileHomeView: View {
             .frame(maxWidth: 900, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
-        .refreshable { await refreshDiscovery() }
+        .refreshable {
+            await shelves.load(from: hardcover)
+            await refreshDiscovery()
+        }
         .navigationTitle("Folio")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: discoveryKey) {
             await discovery.load(from: hardcover, books: store.books, tracked: store.data.tracked)
         }
+        .task(id: "\(hardcover.user?.id ?? -1)-\(hardcover.revision)") {
+            await shelves.load(from: hardcover)
+        }
+        .sheet(item: $selectedTracked) { book in
+            FolioMobileTrackedBookDetail(book: book)
+        }
+    }
+
+    private var greeting: String {
+        switch Calendar.current.component(.hour, from: .now) {
+        case 5..<12: "Good morning"
+        case 12..<18: "Good afternoon"
+        default: "Good evening"
+        }
     }
 
     private var heading: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 7) {
-                Text("YOUR READING SPACE")
-                    .font(.caption.weight(.bold))
-                    .tracking(1.3)
-                    .foregroundStyle(.tint)
-                Text(nextBook == nil ? "Your next chapter starts here." : "Good to have you back.")
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(greeting)
                     .font(.largeTitle.weight(.bold))
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityAddTraits(.isHeader)
-                Text("Great stories, your progress, and books worth exploring.")
-                    .font(.body)
+                Text(headingSubtitle)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -336,6 +344,15 @@ struct FolioMobileHomeView: View {
             .accessibilityLabel("Import books")
             .accessibilityHint("Choose books from Files to add to your library")
         }
+    }
+
+    private var headingSubtitle: String {
+        if store.isDailyGoalCompleted { return "Today's reading goal is done." }
+        if nextBook != nil {
+            let left = max(0, store.data.goals.dailyMinutes - Int(store.todayMinutes))
+            return "\(left) min to today's goal."
+        }
+        return store.books.isEmpty ? "Import a book to get started." : "Pick something to read today."
     }
 
     private func continueReadingCard(_ book: LocalBook) -> some View {
@@ -419,16 +436,9 @@ struct FolioMobileHomeView: View {
 
     private var readingGoal: some View {
         VStack(alignment: .leading, spacing: 15) {
-            HStack {
-                Text("Your Reading Goals")
-                    .font(.title3.weight(.bold))
-                    .accessibilityAddTraits(.isHeader)
-                Spacer()
-                Button { showShelves() } label: {
-                    Label("My Shelves", systemImage: "books.vertical")
-                }
-                .folioGlassPill()
-            }
+            Text("Reading Goals")
+                .font(.title3.weight(.bold))
+                .accessibilityAddTraits(.isHeader)
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 18) { goalDetail }
             } else {
@@ -510,9 +520,22 @@ struct FolioMobileHomeView: View {
         }
     }
 
-    private func localShelf(_ title: String, subtitle: String, books: [LocalBook]) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+    private func sectionHeader(_ title: String, subtitle: String? = nil,
+                               seeAll: (() -> Void)? = nil) -> some View {
+        HStack(alignment: .firstTextBaseline) {
             sectionHeading(title, subtitle: subtitle)
+            Spacer(minLength: 8)
+            if let seeAll {
+                Button("See All", action: seeAll)
+                    .font(.subheadline.weight(.semibold))
+                    .accessibilityLabel("See all \(title)")
+            }
+        }
+    }
+
+    private func localShelf(_ title: String, books: [LocalBook], seeAll: (() -> Void)? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            sectionHeader(title, seeAll: seeAll)
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 16) {
                     ForEach(books) { book in
@@ -531,17 +554,95 @@ struct FolioMobileHomeView: View {
         }
     }
 
+    /// The Hardcover and Goodreads reading shelves, brought up from Library.
+    @ViewBuilder
+    private var shelvesSection: some View {
+        let reading = shelfEntries(.reading)
+        let wanted = shelfEntries(.wantToRead)
+        if hardcover.isConnected || !store.data.tracked.isEmpty {
+            VStack(alignment: .leading, spacing: 22) {
+                sectionHeader("My Shelves", seeAll: { navigation.openShelf(.reading) })
+                if !reading.isEmpty {
+                    remoteShelfRow("Currently Reading", entries: reading, status: .reading)
+                }
+                if !wanted.isEmpty {
+                    remoteShelfRow("Want to Read", entries: wanted, status: .wantToRead)
+                }
+                if reading.isEmpty && wanted.isEmpty {
+                    if shelves.loading {
+                        HStack(spacing: 9) {
+                            ProgressView()
+                            Text("Loading your shelves…")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Text(shelves.error ?? "Books you mark as reading or want to read appear here.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private func shelfEntries(_ status: HCStatus) -> [FolioMobileShelfEntry] {
+        let remote = status == .reading ? shelves.reading : shelves.wantToRead
+        let tracked = status.goodreadsShelf.map { store.tracked($0) } ?? []
+        return Array(FolioMobileShelfEntry.merge(hardcover: remote, goodreads: tracked).prefix(15))
+    }
+
+    private func remoteShelfRow(_ title: String, entries: [FolioMobileShelfEntry], status: HCStatus) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title).font(.headline)
+                Spacer(minLength: 8)
+                Button("All \(title)") { navigation.openShelf(status) }
+                    .font(.footnote.weight(.semibold))
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 16) {
+                    ForEach(entries) { entry in
+                        if let item = entry.hardcover {
+                            FolioMobileRemoteBookTile(book: item.book, width: min(shelfWidth, 220) * 0.85)
+                        } else if let tracked = entry.goodreads {
+                            Button { selectedTracked = tracked } label: {
+                                VStack(alignment: .leading, spacing: 7) {
+                                    FolioMobileRemoteCover(url: entry.cover, title: entry.title)
+                                        .aspectRatio(0.69, contentMode: .fit)
+                                        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                                    Text(entry.title)
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(2)
+                                    Text(entry.author)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                .frame(width: min(shelfWidth, 220) * 0.85, alignment: .topLeading)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                }
+                .padding(.vertical, 5)
+            }
+            .contentMargins(.trailing, 18)
+        }
+    }
+
     @ViewBuilder
     private var discoverySection: some View {
         VStack(alignment: .leading, spacing: 18) {
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 10) {
-                    sectionHeading("Explore Your Next Read", subtitle: "Books from Hardcover's live catalogue")
+                    sectionHeading("Explore", subtitle: "From Hardcover's catalogue")
                     discoverAllButton
                 }
             } else {
                 HStack(alignment: .firstTextBaseline) {
-                    sectionHeading("Explore Your Next Read", subtitle: "Books from Hardcover's live catalogue")
+                    sectionHeading("Explore", subtitle: "From Hardcover's catalogue")
                     Spacer(minLength: 0)
                     discoverAllButton
                 }
@@ -565,14 +666,12 @@ struct FolioMobileHomeView: View {
                 if !discovery.byYourAuthors.isEmpty {
                     remoteShelf(
                         "More From Authors You Read",
-                        subtitle: "Based on your library and reading shelves: \(discovery.authorNames.joined(separator: ", "))",
+                        subtitle: discovery.authorNames.joined(separator: ", "),
                         books: discovery.byYourAuthors
                     )
                 }
                 if !discovery.trending.isEmpty {
-                    remoteShelf("Trending & Popular on Hardcover",
-                                subtitle: "Hardcover's trending feed or its popular-books fallback, not personalized recommendations",
-                                books: discovery.trending)
+                    remoteShelf("Trending on Hardcover", subtitle: nil, books: discovery.trending)
                 }
                 if discovery.loading && discovery.trending.isEmpty && discovery.byYourAuthors.isEmpty {
                     discoverySkeleton
@@ -609,7 +708,7 @@ struct FolioMobileHomeView: View {
             .folioGlassPill()
     }
 
-    private func remoteShelf(_ title: String, subtitle: String, books: [HCBook]) -> some View {
+    private func remoteShelf(_ title: String, subtitle: String?, books: [HCBook]) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             sectionHeading(title, subtitle: subtitle)
             ScrollView(.horizontal, showsIndicators: false) {
@@ -658,8 +757,44 @@ struct FolioMobileHomeView: View {
     }
 }
 
+/// Currently Reading and Want to Read from Hardcover, loaded for the Home screen.
+@Observable
+@MainActor
+final class FolioMobileHomeShelves {
+    var reading: [HCUserBook] = []
+    var wantToRead: [HCUserBook] = []
+    var loading = false
+    var error: String?
+
+    func load(from hardcover: HardcoverClient) async {
+        guard hardcover.isConnected else {
+            reading = []
+            wantToRead = []
+            error = nil
+            return
+        }
+        loading = true
+        defer { loading = false }
+        do {
+            async let current = hardcover.shelf(.reading)
+            async let wanted = hardcover.shelf(.wantToRead)
+            let (r, w) = try await (current, wanted)
+            reading = r
+            wantToRead = w
+            error = nil
+        } catch is CancellationError {
+            return
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            return
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+}
+
 struct FolioMobileLibraryView: View {
     @Environment(LibraryStore.self) private var store
+    @Environment(FolioMobileNavigation.self) private var navigation
     let showImporter: () -> Void
     @State private var search = ""
     @State private var filter: LibraryFilter = .all
@@ -678,71 +813,50 @@ struct FolioMobileLibraryView: View {
         }
     }
 
+    private var showingShelves: Bool { navigation.libraryScope == .shelves }
+
     var body: some View {
+        @Bindable var navigation = navigation
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(LibraryFilter.allCases) { option in
-                            Button {
-                                filter = option
-                                collection = nil
-                            } label: {
-                                Text(option.label)
-                                    .font(.subheadline.weight(.medium))
-                                    .padding(.horizontal, 13)
-                                    .padding(.vertical, 9)
-                            }
-                            .folioGlassPill(prominent: collection == nil && filter == option)
-                        }
+                Picker("Show", selection: $navigation.libraryScope) {
+                    ForEach(FolioMobileLibraryScope.allCases) { scope in
+                        Text(scope.rawValue).tag(scope)
                     }
-                    .padding(.horizontal, 16)
                 }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .accessibilityIdentifier("folio.libraryScope")
 
-                if visibleBooks.isEmpty {
-                    ContentUnavailableView {
-                        Label(search.isEmpty ? "No Books Yet" : "No Matches", systemImage: "books.vertical")
-                    } description: {
-                        Text(search.isEmpty ? "Import books to start reading." : "Try another title or author.")
-                    } actions: {
-                        if search.isEmpty {
-                            Button("Import Books", action: showImporter)
-                                .folioGlassPill(prominent: true)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
+                if showingShelves {
+                    FolioMobileShelvesView(search: search)
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 136, maximum: 190), spacing: 16)], alignment: .leading, spacing: 24) {
-                        ForEach(visibleBooks) { book in
-                            NavigationLink(value: book.id) {
-                                FolioMobileBookTile(book: book)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 16)
+                    booksContent
                 }
             }
             .padding(.vertical, 12)
         }
-        .searchable(text: $search, prompt: "Title or author")
-        .navigationTitle(collection.flatMap { id in store.data.collections.first { $0.id == id }?.name } ?? "Library")
+        .searchable(text: $search, prompt: showingShelves ? "Search your shelves" : "Title or author")
+        .navigationTitle(showingShelves ? "Library"
+                         : collection.flatMap { id in store.data.collections.first { $0.id == id }?.name } ?? "Library")
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Menu {
-                    Picker("Sort", selection: $sorting) {
-                        ForEach(FolioMobileSort.allCases) { option in
-                            Text(option.label).tag(option)
+            if !showingShelves {
+                ToolbarItem(placement: .topBarLeading) {
+                    Menu {
+                        Picker("Sort", selection: $sorting) {
+                            ForEach(FolioMobileSort.allCases) { option in
+                                Text(option.label).tag(option)
+                            }
                         }
+                        Divider()
+                        Button("All Books") { collection = nil }
+                        ForEach(store.data.collections) { c in
+                            Button(c.name) { collection = c.id }
+                        }
+                        Button("New Collection", systemImage: "plus") { addingCollection = true }
+                    } label: {
+                        Label("Filter and Sort", systemImage: "line.3.horizontal.decrease")
                     }
-                    Divider()
-                    Button("All Books") { collection = nil }
-                    ForEach(store.data.collections) { c in
-                        Button(c.name) { collection = c.id }
-                    }
-                    Button("New Collection", systemImage: "plus") { addingCollection = true }
-                } label: {
-                    Label("Filter and Sort", systemImage: "line.3.horizontal.decrease")
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -758,6 +872,51 @@ struct FolioMobileLibraryView: View {
                 if !name.isEmpty { collection = store.addCollection(name) }
                 newCollection = ""
             }
+        }
+    }
+
+    @ViewBuilder
+    private var booksContent: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(LibraryFilter.allCases) { option in
+                    Button {
+                        filter = option
+                        collection = nil
+                    } label: {
+                        Text(option.label)
+                            .font(.subheadline.weight(.medium))
+                            .padding(.horizontal, 13)
+                            .padding(.vertical, 9)
+                    }
+                    .folioGlassPill(prominent: collection == nil && filter == option)
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+
+        if visibleBooks.isEmpty {
+            ContentUnavailableView {
+                Label(search.isEmpty ? "No Books Yet" : "No Matches", systemImage: "books.vertical")
+            } description: {
+                Text(search.isEmpty ? "Import books to start reading." : "Try another title or author.")
+            } actions: {
+                if search.isEmpty {
+                    Button("Import Books", action: showImporter)
+                        .folioGlassPill(prominent: true)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        } else {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 136, maximum: 190), spacing: 16)], alignment: .leading, spacing: 24) {
+                ForEach(visibleBooks) { book in
+                    NavigationLink(value: book.id) {
+                        FolioMobileBookTile(book: book)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
         }
     }
 }

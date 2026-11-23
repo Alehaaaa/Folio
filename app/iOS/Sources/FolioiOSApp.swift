@@ -62,6 +62,11 @@ enum FolioMobileTab: Hashable {
     case settings
 }
 
+enum FolioMobileLibraryScope: String, CaseIterable, Identifiable {
+    case books = "My Books", shelves = "My Shelves"
+    var id: String { rawValue }
+}
+
 struct FolioMobileReading: Identifiable {
     let id: UUID
 }
@@ -71,6 +76,15 @@ struct FolioMobileReading: Identifiable {
 final class FolioMobileNavigation {
     var selectedTab: FolioMobileTab = .home
     var reading: FolioMobileReading?
+    /// Library shows either the imported books or the Hardcover/Goodreads shelves.
+    var libraryScope: FolioMobileLibraryScope = .books
+    var shelfStatus: HCStatus = .reading
+
+    func openShelf(_ status: HCStatus) {
+        shelfStatus = status
+        libraryScope = .shelves
+        selectedTab = .library
+    }
 
     func read(_ id: UUID) {
         reading = FolioMobileReading(id: id)
