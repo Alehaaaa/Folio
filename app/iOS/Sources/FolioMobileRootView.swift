@@ -301,9 +301,12 @@ struct FolioMobileHomeView: View {
 
     /// Open books first, so the book you're reading sits at the start of the shelf.
     private var shelfBooks: [LocalBook] {
-        let open = store.continueReading
+        let read = FolioReadBooks.shared
+        let open = store.continueReading.filter { !read.isRead($0) }
         let openIDs = Set(open.map(\.id))
-        return Array((open + store.recentlyAdded.filter { !openIDs.contains($0.id) }).prefix(24))
+        // Finished books stay in the Library; the nook shelf is for what's next.
+        let rest = store.recentlyAdded.filter { !openIDs.contains($0.id) && !read.isRead($0) }
+        return Array((open + rest).prefix(24))
     }
 
     var body: some View {
@@ -317,9 +320,10 @@ struct FolioMobileHomeView: View {
                 }
                 remoteShelfRow("Currently reading", entries: shelfEntries(.reading), status: .reading)
                 remoteShelfRow("Want to read", entries: shelfEntries(.wantToRead), status: .wantToRead)
-                if !discovery.byYourAuthors.isEmpty {
+                let forYou = FolioReadBooks.shared.unread(discovery.byYourAuthors)
+                if !forYou.isEmpty {
                     section("For you") {
-                        ForEach(discovery.byYourAuthors) { book in
+                        ForEach(forYou) { book in
                             FolioMobileRemoteBookTile(book: book, width: min(tileWidth, 180))
                         }
                     }
@@ -345,6 +349,7 @@ struct FolioMobileHomeView: View {
         }
         .task(id: "\(hardcover.user?.id ?? -1)-\(hardcover.revision)") {
             await shelves.load(from: hardcover)
+            await FolioReadBooks.shared.refresh(from: hardcover)
         }
     }
 
@@ -422,7 +427,12 @@ struct FolioMobileHomeView: View {
     private func shelfEntries(_ status: HCStatus) -> [FolioMobileShelfEntry] {
         let remote = status == .reading ? shelves.reading : shelves.wantToRead
         let tracked = status.goodreadsShelf.map { store.tracked($0) } ?? []
-        return Array(FolioMobileShelfEntry.merge(hardcover: remote, goodreads: tracked).prefix(15))
+        let read = FolioReadBooks.shared
+        let entries = FolioMobileShelfEntry.merge(hardcover: remote, goodreads: tracked).filter { entry in
+            !read.isRead(id: entry.hardcover?.book.id ?? entry.goodreads?.hardcoverBookID,
+                         title: entry.title, author: entry.author)
+        }
+        return Array(entries.prefix(15))
     }
 
     @ViewBuilder

@@ -21,6 +21,8 @@ struct FolioMobileBookDetail: View {
     @State private var stats: HCBookStats?
     @State private var edition: HCEdition?
     @State private var topReviews: [HCReview] = []
+    @State private var moreByAuthor: [HCBook] = []
+    @State private var similar: [HCBook] = []
     @State private var remoteProgress = 0.0
     /// The Hardcover record found for a book that arrived without one (an
     /// unlinked library file or a Goodreads shelf entry).
@@ -60,6 +62,8 @@ struct FolioMobileBookDetail: View {
         _bookSeries = State(initialValue: page.series)
         _seriesEntries = State(initialValue: snapshot.seriesBooks)
         _topReviews = State(initialValue: snapshot.reviews)
+        _moreByAuthor = State(initialValue: snapshot.moreByAuthor ?? [])
+        _similar = State(initialValue: snapshot.similar ?? [])
         if let total = page.book?.pages ?? page.edition?.pages, total > 0 {
             _remoteProgress = State(initialValue: min(1, Double(page.userBook?.progressPages ?? 0) / Double(total)))
         }
@@ -133,6 +137,7 @@ struct FolioMobileBookDetail: View {
                     if let overview, !overview.isEmpty { about(overview) }
                     ratingsCard
                     seriesSection
+                    recommendationRows
                     detailsSection
                     if let local, !library.data.collections.isEmpty { collectionsSection(local) }
                 }
@@ -548,6 +553,7 @@ struct FolioMobileBookDetail: View {
     }
 
     private func choose(_ status: HCStatus) {
+        FolioReadBooks.shared.set(shownBook, read: status == .read)
         if let local {
             library.setStatus(local.id, status.local)
         }
@@ -566,6 +572,7 @@ struct FolioMobileBookDetail: View {
     }
 
     private func clearStatus() {
+        FolioReadBooks.shared.set(shownBook, read: false)
         if let local { library.setStatus(local.id, .none) }
         if myHardcoverBook != nil, hardcover.isConnected { removingHardcoverShelf = true }
     }
@@ -818,6 +825,55 @@ struct FolioMobileBookDetail: View {
         }
     }
 
+    /// This book as Hardcover knows it, or as far as the page knows it.
+    private var shownBook: HCBook {
+        remote ?? HCBook(id: linkedID ?? 0, title: title, authors: author, imageURL: initialRemote?.imageURL)
+    }
+
+    /// Up to fifteen books for each row; read books are left out when shown.
+    @MainActor
+    private func loadRecommendations(_ bookID: Int) async {
+        let skip = Set([bookID] + seriesEntries.map(\.book.id))
+        var authorID = remoteDetails?.authorRefs.first?.id
+        if authorID == nil, let name = authorRoutes.first?.name {
+            authorID = await FolioAuthorCache.resolve(name, hardcover: hardcover)?.id
+        }
+        if let authorID, let books = try? await hardcover.authorBooks(id: authorID) {
+            moreByAuthor = Array(books.filter { !skip.contains($0.id) }.prefix(20))
+        }
+        if let genres = try? await hardcover.genres(bookID: bookID), !genres.isEmpty,
+           let books = try? await hardcover.similarBooks(bookID: bookID, genres: genres) {
+            let authorIDs = Set(moreByAuthor.map(\.id))
+            let byline = Set(FolioAuthorNames.split(author).map(FolioAuthorNames.key))
+            similar = Array(books.filter { book in
+                !skip.contains(book.id) && !authorIDs.contains(book.id)
+                    && FolioAuthorNames.split(book.authors).allSatisfy { !byline.contains(FolioAuthorNames.key($0)) }
+            }.prefix(20))
+        }
+    }
+
+    /// "More by" the first author and "More like this", as on Home.
+    @ViewBuilder
+    private var recommendationRows: some View {
+        let read = FolioReadBooks.shared
+        let byAuthor = read.unread(moreByAuthor).prefix(15)
+        let alike = read.unread(similar).prefix(15)
+        if !byAuthor.isEmpty, let name = authorRoutes.first?.name {
+            FolioMobileRow(title: "More by \(name)") {
+                ForEach(Array(byAuthor)) { book in
+                    FolioMobileRemoteBookTile(book: book, width: 118)
+                }
+            }
+        }
+        if !alike.isEmpty {
+            FolioMobileRow(title: "More like this") {
+                ForEach(Array(alike)) { book in
+                    FolioMobileRemoteBookTile(book: book, width: 118)
+                }
+            }
+        }
+    }
+
     /// Shows the cached page (if this is a different book than what is on
     /// screen), then refreshes from Hardcover. A failed refresh keeps what is shown.
     @MainActor
@@ -833,6 +889,7 @@ struct FolioMobileBookDetail: View {
         // page seen moments ago are fresh enough; only the book and your shelf reload.
         let recentlyLoaded = FolioBookPageCache.load(linkedID).map {
             Date().timeIntervalSince($0.saved) < 10 * 60 && !$0.seriesBooks.isEmpty == !$0.page.series.isEmpty
+                && $0.similar != nil
         } ?? false
         guard let page = try? await hardcover.bookPage(id: linkedID), !Task.isCancelled else { return }
         if let book = page.book { remoteDetails = book }
@@ -863,6 +920,7 @@ struct FolioMobileBookDetail: View {
         let bars = await distribution
         if !bars.isEmpty { stats?.distribution = bars }
         if let list = await reviews { topReviews = list }
+        await loadRecommendations(linkedID)
         guard !Task.isCancelled else { return }
         saveSnapshot()
     }
@@ -875,9 +933,13 @@ struct FolioMobileBookDetail: View {
         bookSeries = snapshot.page.series
         seriesEntries = snapshot.seriesBooks
         topReviews = snapshot.reviews
+        moreByAuthor = snapshot.moreByAuthor ?? []
+        similar = snapshot.similar ?? []
     }
 
     private func clearHardcoverData() {
+        moreByAuthor = []
+        similar = []
         myHardcoverBook = nil
         bookSeries = []
         seriesEntries = []
@@ -890,7 +952,8 @@ struct FolioMobileBookDetail: View {
         guard let linkedID, remoteDetails?.id == linkedID else { return }
         let page = HCBookPage(book: remoteDetails, userBook: myHardcoverBook, stats: stats,
                               edition: edition, series: bookSeries)
-        FolioBookPageCache.save(.init(page: page, seriesBooks: seriesEntries, reviews: topReviews), for: linkedID)
+        FolioBookPageCache.save(.init(page: page, seriesBooks: seriesEntries, reviews: topReviews,
+                                      moreByAuthor: moreByAuthor, similar: similar), for: linkedID)
     }
 
     @MainActor

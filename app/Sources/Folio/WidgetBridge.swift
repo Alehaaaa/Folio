@@ -43,9 +43,19 @@ enum FolioWidgetBridge {
             FolioWidgetList(id: id, name: name, symbol: symbol, count: values.count, books: Array(values.prefix(35)).map(book), deepLink: link)
         }
 
+        // Reading lists show what's next: books finished here or on Hardcover stay out.
+        let readIDs = Set((hardcoverBooks[.read] ?? []).map(\.book.id))
+        let readKeys = Set((hardcoverBooks[.read] ?? []).map { BookMatch.key(author: $0.book.authors, title: $0.book.title) })
+        func unread(_ values: [LocalBook]) -> [LocalBook] {
+            values.filter { b in
+                b.status != .finished && !(b.hardcoverBookID.map(readIDs.contains) ?? false)
+                    && !readKeys.contains(BookMatch.key(author: b.author, title: b.title))
+            }
+        }
+
         var lists: [FolioWidgetList] = [
-            localList("continue", "Continue Reading", "book", store.continueReading, link: "folio-reader://library/reading"),
-            localList("recent", "Recently Added", "clock", store.recentlyAdded, link: "folio-reader://library/all"),
+            localList("continue", "Continue Reading", "book", unread(store.continueReading), link: "folio-reader://library/reading"),
+            localList("recent", "Recently Added", "clock", unread(store.recentlyAdded), link: "folio-reader://library/all"),
             localList("all", "All Books", "books.vertical", store.books(.all), link: "folio-reader://library/all"),
             localList("epub", "EPUB Books", "book.closed", store.books(.books), link: "folio-reader://library/books"),
             localList("pdf", "PDFs", "doc.richtext", store.books(.pdfs), link: "folio-reader://library/pdfs"),

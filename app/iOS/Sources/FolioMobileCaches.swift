@@ -121,6 +121,8 @@ enum FolioBookPageCache {
         var seriesBooks: [HCSeriesBook] = []
         var reviews: [HCReview] = []
         var saved = Date()
+        var moreByAuthor: [HCBook]?
+        var similar: [HCBook]?
     }
 
     private static var memory: [Int: Snapshot] = [:]

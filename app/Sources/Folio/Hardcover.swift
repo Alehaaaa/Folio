@@ -768,6 +768,33 @@ final class HardcoverClient {
         }
     }
 
+    /// The book's genres, most-tagged first.
+    func genres(bookID: Int) async throws -> [String] {
+        let d = try await query("query Tags($id: Int!) { books(where: {id: {_eq: $id}}, limit: 1) { cached_tags } }", ["id": bookID])
+        let tags = d["books"].array.first?["cached_tags"] ?? .null
+        var out: [String] = []
+        for t in tags["Genre"].array {
+            if let name = t["tag"].string, !out.contains(name) { out.append(name) }
+        }
+        return out
+    }
+
+    /// Popular books that share this book's main genres: all of the top three
+    /// when enough books do, otherwise the top two, then the top one.
+    func similarBooks(bookID: Int, genres: [String]) async throws -> [HCBook] {
+        guard !genres.isEmpty else { return [] }
+        var best: [HCBook] = []
+        for count in Set([min(3, genres.count), min(2, genres.count), 1]).sorted(by: >) {
+            let tags: [String: Any] = ["Genre": genres.prefix(count).map { ["tag": $0] }]
+            let d = try await query("""
+            query Similar($id: Int!, $tags: jsonb!) { books(where: {_and: [{cached_tags: {_contains: $tags}}, {id: {_neq: $id}}, {users_count: {_gt: 25}}]}, order_by: {users_count: desc}, limit: 30) { \(Self.bookFields) } }
+            """, ["id": bookID, "tags": tags])
+            best = d["books"].array.compactMap(HCBook.from(book:))
+            if best.count >= 10 { break }
+        }
+        return best
+    }
+
     static func dedupeSeries(_ rows: [JSON]) -> [HCBookSeries] {
         var out: [HCBookSeries] = []
         for r in rows {

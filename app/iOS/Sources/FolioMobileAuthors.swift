@@ -831,8 +831,8 @@ struct FolioMobileAuthorRows: View {
             .task(id: "\(followKey)-\(hardcover.isConnected)") { await loadFollowedBooks() }
         }
         // The saved row shows on the first frame; the task only refreshes it.
-        let shownBooks = followedBooks.isEmpty && !follows.authors.isEmpty
-            ? (FolioAuthorCache.followedBooks(key: followKey)?.books ?? []) : followedBooks
+        let shownBooks = FolioReadBooks.shared.unread(followedBooks.isEmpty && !follows.authors.isEmpty
+            ? (FolioAuthorCache.followedBooks(key: followKey)?.books ?? []) : followedBooks)
         if !shownBooks.isEmpty {
             FolioMobileRow(title: "From authors you follow") {
                 ForEach(shownBooks) { book in
