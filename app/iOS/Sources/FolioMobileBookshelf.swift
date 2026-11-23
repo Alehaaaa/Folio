@@ -17,6 +17,9 @@ struct FolioMobileBookshelf: View {
     /// shelf only slides books aside to open a gap there; nothing re-packs or
     /// re-tilts until it's let go, so the books stay calm.
     @State private var dropSpot: FolioNookDropSpot?
+    /// The book just let go. It jumps straight into its gap, unseen, while
+    /// the others settle, then fades in there; it never travels from its old place.
+    @State private var landing: String?
     @Namespace private var shelfSpace
     @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 186
 
@@ -49,6 +52,9 @@ struct FolioMobileBookshelf: View {
                             .padding(.leading, lean.before)
                             .padding(.trailing, lean.after)
                             .zIndex(abs(lean.angle) > 3 ? 1 : 0)
+                            .transaction { t in
+                                if item.id == landing { t.animation = nil; t.disablesAnimations = true }
+                            }
                     }
                     if last && innerWidth - used - leanRoom >= 30,
                        abs(leans[row.last?.id ?? ""]?.angle ?? 0) < 3 {
@@ -250,7 +256,13 @@ struct FolioMobileBookshelf: View {
                 },
                 dropped: commitDrop
             ))
-            .modifier(FolioNookDragEnd { endDrag() })
+            .modifier(FolioNookDragEnd {
+                // A drop on the shelf may be reported after the drag ends, so
+                // only a drag that went nowhere brings the book back.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    if landing == nil { endDrag() }
+                }
+            })
             .accessibilityLabel(accessibilityLabel(item))
             .accessibilityHint("Opens book details. Long press for more.")
             .accessibilityAction(named: "Move left") { shift(item, by: -1) }
@@ -305,6 +317,7 @@ struct FolioMobileBookshelf: View {
             endDrag()
             return
         }
+        landing = key
         withAnimation(.spring(response: 0.38, dampingFraction: 0.88)) {
             if spot.position < list.count, spot.position > 0,
                list[spot.position - 1].id != key {
@@ -315,8 +328,12 @@ struct FolioMobileBookshelf: View {
             } else if let last = list.last, last.id != key {
                 nook.move(key, after: last.id)
             }
-            dragging = nil
             dropSpot = nil
+        }
+        // Once it stands in its new place, it appears there.
+        DispatchQueue.main.async {
+            landing = nil
+            withAnimation(.easeOut(duration: 0.16)) { dragging = nil }
         }
     }
 
