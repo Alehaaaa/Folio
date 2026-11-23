@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.38",
+          "buildVersion": "39",
+          "date": "2026-11-23",
+          "localizedDescription": "Tap a cover to see it full screen; edit books outside the library (1.0.38)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.38-39.ipa",
+          "size": 4583822,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.37",
           "buildVersion": "38",
           "date": "2026-11-23",
