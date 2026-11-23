@@ -60,6 +60,7 @@ struct FolioMobileShelvesView: View {
     @State private var goodreads = GoodreadsClient.shared
     @State private var source = FolioMobileShelfSource.all
     @State private var hcItems: [HCUserBook] = []
+    @State private var loadedStatus: HCStatus?
     @State private var loading = false
     @State private var copying = false
     @State private var notice: String?
@@ -209,18 +210,24 @@ struct FolioMobileShelvesView: View {
             }
         }
         .padding(.bottom, 14)
-        .task(id: selectedStatus.rawValue) { await refresh(includeGoodreads: false) }
+        .task(id: "\(selectedStatus.rawValue)-\(hardcover.revision)") { await refresh(includeGoodreads: false) }
     }
 
     private func refresh(includeGoodreads: Bool) async {
-        guard !loading else { return }
+        // Switching shelves while one loads must not show the previous shelf's books.
+        let status = selectedStatus
+        if loadedStatus != status { hcItems = [] }
         loading = true
-        defer { loading = false }
+        defer { if status == selectedStatus { loading = false } }
         if hardcover.isConnected {
             do {
-                hcItems = try await hardcover.shelf(selectedStatus)
+                let items = try await hardcover.shelf(status)
+                guard status == selectedStatus else { return }
+                hcItems = items
+                loadedStatus = status
                 notice = nil
             } catch {
+                guard status == selectedStatus, !Task.isCancelled else { return }
                 notice = error.localizedDescription
             }
         } else {

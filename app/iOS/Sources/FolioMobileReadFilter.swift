@@ -58,12 +58,13 @@ final class FolioReadBooks {
     }
 
     func isRead(id: Int?, title: String, author: String, library: LibraryStore = .shared) -> Bool {
-        if let id, id > 0, hardcoverIDs.contains(id) { return true }
+        isRead(id: id, title: title, author: author, local: localIndex(library))
+    }
+
+    private func isRead(id: Int?, title: String, author: String, local: (ids: Set<Int>, keys: Set<String>)) -> Bool {
+        if let id, id > 0, hardcoverIDs.contains(id) || local.ids.contains(id) { return true }
         let key = BookMatch.key(author: author, title: title)
-        if hardcoverKeys.contains(key) { return true }
-        let local = localIndex(library)
-        if let id, id > 0, local.ids.contains(id) { return true }
-        return local.keys.contains(key)
+        return hardcoverKeys.contains(key) || local.keys.contains(key)
     }
 
     /// Finished library files and Goodreads read entries, rebuilt only when they change.
@@ -89,7 +90,11 @@ final class FolioReadBooks {
     }
 
     /// The unread books of a list, in order.
-    func unread(_ books: [HCBook]) -> [HCBook] { books.filter { !isRead($0) } }
+    func unread(_ books: [HCBook]) -> [HCBook] {
+        // Check the library once per list, not once per book.
+        let local = localIndex(.shared)
+        return books.filter { !isRead(id: $0.id, title: $0.title, author: $0.authors, local: local) }
+    }
 
     private func save(userID: Int?) {
         let stored = Stored(ids: Array(hardcoverIDs), keys: Array(hardcoverKeys), userID: userID)

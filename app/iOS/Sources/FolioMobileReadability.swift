@@ -32,7 +32,7 @@ struct FolioMobileReadabilitySettings: View {
             Button {
                 applyComfortable()
             } label: {
-                readabilityRow("Comfortable", subtitle: "Larger serif text, generous line spacing", symbol: "textformat.size")
+                readabilityRow("Comfortable", symbol: "textformat.size")
             }
             .folioGlassPill()
             .accessibilityHint("Applies larger serif text, wider margins and line spacing")
@@ -40,7 +40,7 @@ struct FolioMobileReadabilitySettings: View {
             Button {
                 applyHighContrast()
             } label: {
-                readabilityRow("High Contrast", subtitle: "Clear bold type with stronger text contrast", symbol: "circle.lefthalf.filled")
+                readabilityRow("High Contrast", symbol: "circle.lefthalf.filled")
             }
             .folioGlassPill()
             .accessibilityHint("Applies high-contrast colors and bold sans serif text")
@@ -48,7 +48,7 @@ struct FolioMobileReadabilitySettings: View {
             Button {
                 applyFocus()
             } label: {
-                readabilityRow("Quiet Focus", subtitle: "Gentle paper tone with relaxed spacing", symbol: "leaf")
+                readabilityRow("Quiet Focus", symbol: "leaf")
             }
             .folioGlassPill()
             .accessibilityHint("Applies warm paper colors and calm typography")
@@ -70,21 +70,15 @@ struct FolioMobileReadabilitySettings: View {
         preferences.prefs.theme.palette(dark: preferences.appearance == .dark)
     }
 
-    private func readabilityRow(_ title: String, subtitle: String, symbol: String) -> some View {
+    private func readabilityRow(_ title: String, symbol: String) -> some View {
         HStack(alignment: .center, spacing: 12) {
             Image(systemName: symbol)
                 .font(.title3)
                 .frame(width: 27)
                 .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.primary)
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)

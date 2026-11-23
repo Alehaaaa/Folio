@@ -10,6 +10,7 @@ final class FolioImageCache: @unchecked Sendable {
     static let shared = FolioImageCache()
 
     private let memory = NSCache<NSURL, UIImage>()
+    private let localMemory = NSCache<NSString, UIImage>()
     private let directory: URL
     private let session: URLSession
 
@@ -20,6 +21,8 @@ final class FolioImageCache: @unchecked Sendable {
         memory.countLimit = 300
         // Decoded covers are about 1 MB each; keep the cache well under iOS's memory limit.
         memory.totalCostLimit = 80 * 1_048_576
+        localMemory.countLimit = 200
+        localMemory.totalCostLimit = 60 * 1_048_576
         let config = URLSessionConfiguration.default
         config.requestCachePolicy = .returnCacheDataElseLoad
         session = URLSession(configuration: config)
@@ -36,6 +39,17 @@ final class FolioImageCache: @unchecked Sendable {
         if let image = memory.object(forKey: url as NSURL) { return image }
         guard let image = UIImage(contentsOfFile: file(for: url).path) else { return nil }
         memory.setObject(image, forKey: url as NSURL, cost: Self.cost(of: image))
+        return image
+    }
+
+    /// A cover file from the library, decoded once at screen size. Keyed by its
+    /// modification date too, so a replaced cover shows at once.
+    func localCover(_ file: URL) -> UIImage? {
+        let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        let key = "\(file.path)#\(modified?.timeIntervalSince1970 ?? 0)" as NSString
+        if let image = localMemory.object(forKey: key) { return image }
+        guard let data = try? Data(contentsOf: file), let image = Self.thumbnail(data, maxPixels: 600) else { return nil }
+        localMemory.setObject(image, forKey: key, cost: Self.cost(of: image))
         return image
     }
 

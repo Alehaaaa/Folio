@@ -25,7 +25,7 @@ private struct FolioMobileBookContextMenu<Extra: View>: ViewModifier {
                 // there). Build it only from values resolved here.
                 FolioMobileBookMenuPreview(
                     image: library.book(bookID).flatMap { library.coverURL($0) }
-                        .flatMap { UIImage(contentsOfFile: $0.path) },
+                        .flatMap { FolioImageCache.shared.localCover($0) },
                     title: library.book(bookID)?.title ?? "",
                     author: library.book(bookID)?.author ?? ""
                 )

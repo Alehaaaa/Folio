@@ -677,7 +677,7 @@ struct FolioMobileCover: View {
 
     var body: some View {
         GeometryReader { geometry in
-            if let url = store.coverURL(book), let image = UIImage(contentsOfFile: url.path) {
+            if let url = store.coverURL(book), let image = FolioImageCache.shared.localCover(url) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()

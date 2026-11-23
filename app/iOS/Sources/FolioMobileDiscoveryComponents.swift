@@ -51,7 +51,6 @@ struct FolioMobileRemoteBookTile: View {
 /// Adaptive columns on phones and tablets, with wider tiles for accessibility text sizes.
 struct FolioMobileRemoteBookGridSection: View {
     let title: String
-    var subtitle: String? = nil
     let books: [HCBook]
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -64,17 +63,9 @@ struct FolioMobileRemoteBookGridSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.folioDisplay(.title2))
-                    .foregroundStyle(.primary)
-                if let subtitle {
-                    Text(subtitle)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+            Text(title)
+                .font(.folioDisplay(.title2))
+                .foregroundStyle(.primary)
             LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
                 ForEach(books) { book in
                     FolioMobileRemoteBookTile(book: book)
