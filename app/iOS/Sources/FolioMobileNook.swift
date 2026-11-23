@@ -96,6 +96,18 @@ enum FolioNookShelf {
         return day.date(from: String(text.prefix(10)))
     }
 
+    /// The progress the book page shows: the page you just set there (kept
+    /// until Hardcover catches up), else your shelf, against the page count
+    /// the book page uses (your edit, then the book, then its edition).
+    private static func hardcoverProgress(id: Int?, shelf: HCUserBook?, pages: Int?) -> (read: Int?, total: Int?) {
+        guard let id, id > 0 else { return (shelf?.progressPages, pages) }
+        let cached = FolioBookPageCache.load(id)?.page
+        let total = FolioBookOverrides.shared.override(for: id)?.pages
+            ?? cached?.book?.pages ?? cached?.edition?.pages ?? pages
+        let read = FolioPendingProgress.value(for: id) ?? shelf?.progressPages ?? cached?.userBook?.progressPages
+        return (read, total)
+    }
+
     /// Unread library books plus the Currently Reading shelves, one item per book.
     static func items(library: LibraryStore, reading: [HCUserBook]) -> [FolioNookItem] {
         let read = FolioReadBooks.shared
@@ -132,7 +144,10 @@ enum FolioNookShelf {
             let hcID = entry.hardcover?.book.id ?? entry.goodreads?.hardcoverBookID
             guard !read.isRead(id: hcID, title: entry.title, author: entry.author) else { continue }
             let match = BookMatch.key(author: entry.author, title: entry.title)
-            let hcPages = entry.hardcover?.progressPages
+            // Pages read and the page count exactly as the book page shows them.
+            let synced = hardcoverProgress(id: hcID, shelf: entry.hardcover,
+                                           pages: entry.hardcover?.book.pages ?? entry.goodreads?.pages)
+            let hcPages = synced.read
             let started = date(entry.hardcover?.startedAt) ?? date(entry.goodreads?.dateAdded)
 
             if let i = hcID.flatMap({ byHardcover[$0] }) ?? byKey[match] {
@@ -142,7 +157,7 @@ enum FolioNookShelf {
                 if items[i].localCover == nil { items[i].remoteCover = entry.cover }
                 if (items[i].progress ?? 0) <= 0.004, let hcPages, hcPages > 0 {
                     items[i].pagesRead = hcPages
-                    if items[i].pages == nil { items[i].pages = entry.hardcover?.book.pages }
+                    if items[i].pages == nil { items[i].pages = synced.total }
                 }
                 if items[i].lastActivity == nil { items[i].lastActivity = started }
                 continue
@@ -159,7 +174,7 @@ enum FolioNookShelf {
             let item = FolioNookItem(
                 id: id, aliases: aliases,
                 title: shown.title, author: shown.authors.isEmpty ? entry.author : shown.authors,
-                pages: shown.pages ?? entry.goodreads?.pages,
+                pages: synced.total ?? shown.pages,
                 source: .remote(book),
                 // The same cover as the book page: your edit, then the edition on your shelf.
                 remoteCover: hcID.flatMap { FolioBookOverrides.shared.override(for: $0)?.coverURL } ?? entry.cover ?? book.imageURL,
