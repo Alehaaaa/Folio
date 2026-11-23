@@ -283,9 +283,7 @@ struct WebReaderView: NSViewRepresentable {
             }
         }
 
-        /// WKWebView deliberately taints file:// images when drawn into a canvas.
-        /// Expose only small, decoded raster resources inside the active EPUB root
-        /// as data URLs so the reader can safely recolor monochrome ornaments.
+        /// See `ReaderScript.decorationDataURL(source:root:)` for what is exposed.
         private func sendDecorationData(for body: [String: Any], message: WKScriptMessage) {
             guard message.frameInfo.isMainFrame,
                   let requestID = body["requestID"] as? Int, requestID > 0,
@@ -295,35 +293,11 @@ struct WebReaderView: NSViewRepresentable {
                 decorationRequestCount = 0
             }
             var dataURL: String?
-            if decorationRequestCount < 24,
-               let source = body["src"] as? String,
-               let sourceURL = URL(string: source), sourceURL.isFileURL {
+            if decorationRequestCount < 24 {
                 decorationRequestCount += 1
-                let root = model.content.root.standardizedFileURL.resolvingSymlinksInPath()
-                let file = sourceURL.standardizedFileURL.resolvingSymlinksInPath()
-                let rootPath = root.path.hasSuffix("/") ? root.path : root.path + "/"
-                let mimeByExtension = [
-                    "jpg": "image/jpeg", "jpeg": "image/jpeg",
-                    "png": "image/png", "webp": "image/webp",
-                    "gif": "image/gif", "bmp": "image/bmp"
-                ]
-                if file.path.hasPrefix(rootPath),
-                   let mime = mimeByExtension[file.pathExtension.lowercased()],
-                   let attributes = try? FileManager.default.attributesOfItem(atPath: file.path),
-                   attributes[.type] as? FileAttributeType == .typeRegular,
-                   let byteCount = attributes[.size] as? NSNumber,
-                   byteCount.intValue > 0, byteCount.intValue <= 1_000_000,
-                   let bytes = try? Data(contentsOf: file, options: .mappedIfSafe),
-                   let image = CGImageSourceCreateWithData(bytes as CFData, nil),
-                   CGImageSourceGetCount(image) == 1,
-                   let metadata = CGImageSourceCopyPropertiesAtIndex(image, 0, nil) as? [CFString: Any],
-                   let width = metadata[kCGImagePropertyPixelWidth] as? Int,
-                   let height = metadata[kCGImagePropertyPixelHeight] as? Int,
-                   width >= 8, height >= 8,
-                   width <= 640, height <= 640,
-                   width * height <= 200_000 {
-                    dataURL = "data:\(mime);base64,\(bytes.base64EncodedString())"
-                }
+                dataURL = ReaderScript.decorationDataURL(
+                    source: body["src"] as? String, root: model.content.root
+                )
             }
             let serialized = (try? JSONEncoder().encode(dataURL))
                 .flatMap { String(data: $0, encoding: .utf8) } ?? "null"

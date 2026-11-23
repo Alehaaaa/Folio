@@ -1,0 +1,90 @@
+name: iOS IPA
+
+# Pushes to main: build the unsigned IPA and publish it to the AltStore
+# Classic feed (altstore/Folio-<version>-<build>.ipa + altstore.json) when
+# that version/build from app/iOS/generate_project.py is not published yet.
+on:
+  push:
+    branches: [main]
+    paths: ["app/**", "extensions/**", ".github/workflows/ios-ipa.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ipa:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the newest Xcode
+        run: |
+          XCODE="$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Reader script checks
+        run: for f in app/checks/reader-*.js; do node "$f"; done
+
+      - name: Build unsigned IPA
+        run: app/iOS/build-ipa.sh
+
+      - name: Read version
+        id: version
+        run: |
+          python3 - >> "$GITHUB_OUTPUT" <<'PY'
+          import re
+          s = open("app/iOS/generate_project.py").read()
+          print("version=" + re.search(r'APP_VERSION = "([^"]+)"', s).group(1))
+          print("build=" + re.search(r'BUILD_VERSION = "([^"]+)"', s).group(1))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Folio-${{ steps.version.outputs.version }}-${{ steps.version.outputs.build }}
+          path: app/iOS/dist/Folio.ipa
+
+      - name: Publish to the AltStore feed
+        if: github.ref == 'refs/heads/main'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD: ${{ steps.version.outputs.build }}
+        run: |
+          DEST="altstore/Folio-${VERSION}-${BUILD}.ipa"
+          if [ -f "$DEST" ]; then
+            echo "$DEST is already published; bump APP_VERSION/BUILD_VERSION in app/iOS/generate_project.py to release again."
+            exit 0
+          fi
+          cp app/iOS/dist/Folio.ipa "$DEST"
+          NOTES="$(git log -1 --format=%s)"
+          python3 - "$VERSION" "$BUILD" "$DEST" "$NOTES" <<'PY'
+          import json, os, sys, datetime
+          version, build, dest, notes = sys.argv[1:5]
+          feed = json.load(open("altstore.json"))
+          app = next(a for a in feed["apps"] if a["bundleIdentifier"] == "app.folio.reader.ios")
+          app["versions"] = [v for v in app["versions"]
+                             if not (v["version"] == version and v["buildVersion"] == build)]
+          app["versions"].insert(0, {
+              "version": version,
+              "buildVersion": build,
+              "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"),
+              "localizedDescription": notes,
+              "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/" + dest,
+              "size": os.path.getsize(dest),
+              "minOSVersion": "18.0",
+          })
+          with open("altstore.json", "w") as f:
+              json.dump(feed, f, indent=2, ensure_ascii=False)
+              f.write("\n")
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f "$DEST" altstore.json
+          git commit -m "Publish Folio iOS ${VERSION} (${BUILD}) to the AltStore feed"
+          git push
