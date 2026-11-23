@@ -2,3 +2,5 @@
 /target
 /Folio.app
 /shots
+/build/*
+!/build/*.command
