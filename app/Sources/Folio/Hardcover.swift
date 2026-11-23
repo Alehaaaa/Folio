@@ -174,7 +174,7 @@ struct HCAuthorRef: Hashable, Codable {
     var name: String
 }
 
-struct HCAuthor: Identifiable, Hashable {
+struct HCAuthor: Identifiable, Hashable, Codable {
     var id: Int
     var name: String
     var slug: String?
@@ -258,12 +258,19 @@ struct HCBookPage: Codable {
     var series: [HCBookSeries] = []
 }
 
-struct HCSeriesRef: Identifiable, Hashable {
+struct HCSeriesRef: Identifiable, Hashable, Codable {
     var id: Int
     var name: String
     var booksCount: Int?
     /// The author's books in this series, as far as the author page knows them.
     var bookIDs: [Int] = []
+}
+
+/// Everything the author page shows, from one request.
+struct HCAuthorPage: Codable {
+    var author: HCAuthor
+    var books: [HCBook]
+    var series: [HCSeriesRef]
 }
 
 struct HCUserBook: Identifiable, Hashable, Codable {
@@ -340,7 +347,31 @@ enum Keychain {
 
 struct HCError: LocalizedError {
     var message: String
+    var rateLimited = false
     var errorDescription: String? { message }
+
+    static func isRateLimit(_ error: Error) -> Bool { (error as? HCError)?.rateLimited == true }
+}
+
+/// Keeps requests under Hardcover's limits (60 a minute, bursts of 10) so pages
+/// that need several queries wait a moment instead of failing.
+actor HCRateGate {
+    static let shared = HCRateGate()
+    private var stamps: [Date] = []
+
+    func wait() async {
+        while true {
+            let now = Date()
+            stamps.removeAll { now.timeIntervalSince($0) > 60 }
+            let lastSecond = stamps.filter { now.timeIntervalSince($0) < 1 }.count
+            if stamps.count < 55 && lastSecond < 8 {
+                stamps.append(now)
+                return
+            }
+            let delay = stamps.count >= 55 ? max(0.1, 60.05 - now.timeIntervalSince(stamps[0])) : 0.25
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        }
+    }
 }
 
 @Observable
@@ -441,14 +472,30 @@ final class HardcoverClient {
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("Folio/1.0 (macOS)", forHTTPHeaderField: "User-Agent")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["query": q, "variables": variables])
-        let (data, resp) = try await URLSession.shared.data(for: req)
-        let json = try JSONDecoder().decode(JSON.self, from: data)
-        if let msg = json["errors"].array.first?["message"].string { throw HCError(message: msg) }
-        if let msg = json["error"].string ?? json["message"].string { throw HCError(message: msg) }
-        if let http = resp as? HTTPURLResponse, http.statusCode >= 400 {
-            throw HCError(message: "Hardcover answered with error \(http.statusCode).")
+        var attempt = 0
+        while true {
+            await HCRateGate.shared.wait()
+            let (data, resp) = try await URLSession.shared.data(for: req)
+            let http = resp as? HTTPURLResponse
+            let head = String(decoding: data.prefix(300), as: UTF8.self)
+            if http?.statusCode == 429 || head.localizedCaseInsensitiveContains("too many requests") {
+                // Wait as long as Hardcover asks, then try again, a couple of times at most.
+                guard attempt < 2 else {
+                    throw HCError(message: "Hardcover is busy right now. Try again in a minute.", rateLimited: true)
+                }
+                let asked = http?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init) ?? Double(2 << attempt)
+                try await Task.sleep(nanoseconds: UInt64(min(max(asked, 1), 15) * 1_000_000_000))
+                attempt += 1
+                continue
+            }
+            let json = try JSONDecoder().decode(JSON.self, from: data)
+            if let msg = json["errors"].array.first?["message"].string { throw HCError(message: msg) }
+            if let msg = json["error"].string ?? json["message"].string { throw HCError(message: msg) }
+            if let http, http.statusCode >= 400 {
+                throw HCError(message: "Hardcover answered with error \(http.statusCode).")
+            }
+            return json["data"]
         }
-        return json["data"]
     }
 
     static let bookFields = "id title slug pages release_year rating ratings_count description cached_contributors image { url }"
@@ -630,6 +677,59 @@ final class HardcoverClient {
         return d["authors"].array.first.flatMap(HCAuthor.from)
     }
 
+    /// The author, their books and their series in a single request (nested fields are free
+    /// on Hardcover's rate limit). Falls back to separate queries if the schema refuses it.
+    func authorPage(id: Int?, name: String) async throws -> HCAuthorPage? {
+        let inner = """
+        \(Self.authorFields) contributions(where: {contributable_type: {_eq: "Book"}}, order_by: {book: {users_count: desc}}, limit: 120) { contribution book { users_count compilation \(Self.bookFields) book_series { position series { id name books_count primary_books_count } } } }
+        """
+        do {
+            var row: JSON?
+            if let id {
+                let d = try await query("query AuthorPage($id: Int!) { authors(where: {id: {_eq: $id}}, limit: 1) { \(inner) } }", ["id": id])
+                row = d["authors"].array.first
+            }
+            if row == nil {
+                let d = try await query("""
+                query AuthorPageByName($n: String!) { authors(where: {name: {_eq: $n}}, order_by: {users_count: desc}, limit: 1) { \(inner) } }
+                """, ["n": name])
+                row = d["authors"].array.first
+            }
+            guard let row, let author = HCAuthor.from(row) else { return nil }
+            let contributions = row["contributions"].array
+            let books = Self.authorBookList(contributions)
+            let kept = Set(books.prefix(80).map(\.id))
+            var seriesRows: [(bookID: Int?, series: JSON)] = []
+            for c in contributions {
+                guard let bookID = c["book"]["id"].int, kept.contains(bookID) else { continue }
+                for bs in c["book"]["book_series"].array { seriesRows.append((bookID: bookID, series: bs["series"])) }
+            }
+            return HCAuthorPage(author: author, books: books, series: Self.seriesRefs(seriesRows))
+        } catch let error where !HCError.isRateLimit(error) && !(error is CancellationError) {
+            var found: HCAuthor?
+            if let id { found = try await author(id: id) }
+            if found == nil { found = try await author(named: name) }
+            guard let found else { return nil }
+            let books = try await authorBooks(id: found.id)
+            let series = (try? await self.series(forBooks: books.prefix(80).map(\.id))) ?? []
+            return HCAuthorPage(author: found, books: books, series: series)
+        }
+    }
+
+    /// Several authors by name in one request, the best-known match for each name.
+    func authors(named names: [String]) async throws -> [String: HCAuthor] {
+        guard !names.isEmpty else { return [:] }
+        let d = try await query("""
+        query AuthorsByName($n: [String!]) { authors(where: {name: {_in: $n}}, order_by: {users_count: desc}, limit: \(names.count * 4)) { \(Self.authorFields) } }
+        """, ["n": names])
+        var out: [String: HCAuthor] = [:]
+        for row in d["authors"].array {
+            guard let author = HCAuthor.from(row), out[author.name] == nil else { continue }
+            out[author.name] = author
+        }
+        return out
+    }
+
     /// An author's books, most-read first, one entry per title.
     func authorBooks(id: Int) async throws -> [HCBook] {
         var rows: [JSON]
@@ -643,7 +743,12 @@ final class HardcoverClient {
             """, ["id": id])
             rows = d["contributions"].array
         }
-        rows = rows.filter { r in
+        return Self.authorBookList(rows)
+    }
+
+    /// One entry per title: no compilations, other roles, translations or split editions.
+    static func authorBookList(_ input: [JSON]) -> [HCBook] {
+        let rows = input.filter { r in
             let role = r["contribution"].string?.lowercased() ?? ""
             return (role.isEmpty || role == "author") && r["book"]["compilation"] != .bool(true)
         }
@@ -667,7 +772,7 @@ final class HardcoverClient {
         guard !ids.isEmpty else { return [] }
         let d: JSON
         if let rich = try? await query("""
-        query AuthorSeries($ids: [Int!]) { book_series(where: {book_id: {_in: $ids}}) { book_id series { id name books_count } } }
+        query AuthorSeries($ids: [Int!]) { book_series(where: {book_id: {_in: $ids}}) { book_id series { id name books_count primary_books_count } } }
         """, ["ids": ids]) {
             d = rich
         } else {
@@ -675,16 +780,27 @@ final class HardcoverClient {
             query AuthorSeriesPlain($ids: [Int!]) { book_series(where: {book_id: {_in: $ids}}) { book_id series { id name } } }
             """, ["ids": ids])
         }
+        return Self.seriesRefs(d["book_series"].array.map { (bookID: $0["book_id"].int, series: $0["series"]) })
+    }
+
+    /// Group book_series rows into series, merging differently named copies of one series.
+    static func seriesRefs(_ rows: [(bookID: Int?, series: JSON)]) -> [HCSeriesRef] {
         var out: [HCSeriesRef] = []
-        for r in d["book_series"].array {
-            guard let sid = r["series"]["id"].int, let name = r["series"]["name"].string else { continue }
-            let bookID = r["book_id"].int
+        for r in rows {
+            guard let sid = r.series["id"].int, let name = r.series["name"].string else { continue }
+            let bookID = r.bookID
+            // Main books only: books_count also counts companions, prequels and other editions.
+            let count = r.series["primary_books_count"].int.flatMap { $0 > 0 ? $0 : nil } ?? r.series["books_count"].int
             let key = Self.seriesKey(name)
             if let i = out.firstIndex(where: { $0.id == sid || Self.seriesKey($0.name) == key }) {
                 if let bookID, !out[i].bookIDs.contains(bookID) { out[i].bookIDs.append(bookID) }
-                if name.count > out[i].name.count, out[i].id != sid { out[i].name = name; out[i].id = sid }
+                if name.count > out[i].name.count, out[i].id != sid {
+                    out[i].name = name
+                    out[i].id = sid
+                    out[i].booksCount = count
+                }
             } else {
-                out.append(HCSeriesRef(id: sid, name: name, booksCount: r["series"]["books_count"].int,
+                out.append(HCSeriesRef(id: sid, name: name, booksCount: count,
                                        bookIDs: bookID.map { [$0] } ?? []))
             }
         }

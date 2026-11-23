@@ -335,6 +335,7 @@ struct FolioMobileHomeView: View {
                     }
                 }
                 FolioMobileAuthorRows()
+                FolioMobileSavedSeriesRow()
             }
             .padding(.horizontal, 20)
             .padding(.top, 12)

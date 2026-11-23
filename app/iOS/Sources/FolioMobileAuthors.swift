@@ -144,6 +144,12 @@ enum FolioAuthorCache {
         var followedKey = ""
         var followedBooks: [Book] = []
         var followedSaved: Date?
+        var pages: [String: Page]?
+    }
+
+    struct Page: Codable {
+        var page: HCAuthorPage
+        var saved: Date
     }
 
     private static var loaded: Snapshot?
@@ -187,6 +193,39 @@ enum FolioAuthorCache {
         s.followedBooks = books.map(Book.init)
         s.followedSaved = Date()
         snapshot = s
+    }
+
+    static func page(_ name: String) -> Page? { snapshot.pages?[FolioAuthorNames.key(name)] }
+
+    static func save(page: HCAuthorPage, for name: String) {
+        var s = snapshot
+        var pages = s.pages ?? [:]
+        let entry = Page(page: page, saved: Date())
+        pages[FolioAuthorNames.key(name)] = entry
+        pages[FolioAuthorNames.key(page.author.name)] = entry
+        // Keep the most recent pages only.
+        if pages.count > 60 {
+            for key in pages.sorted(by: { $0.value.saved < $1.value.saved }).prefix(pages.count - 60).map(\.key) {
+                pages[key] = nil
+            }
+        }
+        s.pages = pages
+        s.authors[FolioAuthorNames.key(name)] = Author(id: page.author.id, name: page.author.name,
+                                                        imageURL: page.author.imageURL, checked: Date())
+        snapshot = s
+    }
+
+    /// Look up every unknown name in one request, remembering misses for two weeks.
+    static func resolveAll(_ names: [String], hardcover: HardcoverClient) async {
+        let fresh = names.filter { name in
+            guard let cached = author(name) else { return true }
+            return Date().timeIntervalSince(cached.checked) > 60 * 60 * 24 * 14
+        }
+        guard !fresh.isEmpty, hardcover.isConnected,
+              let found = try? await hardcover.authors(named: Array(fresh.prefix(25))) else { return }
+        for name in fresh.prefix(25) {
+            save(author: found[name], for: name)
+        }
     }
 
     /// Resolve an author by name once, then reuse the answer.
@@ -376,6 +415,16 @@ struct FolioMobileAuthorView: View {
         .task(id: "\(route.name)-\(route.id ?? 0)-\(hardcover.isConnected)") { await load() }
     }
 
+    init(route: FolioMobileAuthorRoute) {
+        self.route = route
+        // The saved page shows on the first frame; the network only refreshes it.
+        if let cached = FolioAuthorCache.page(route.name)?.page {
+            _author = State(initialValue: cached.author)
+            _books = State(initialValue: cached.books)
+            _series = State(initialValue: cached.series)
+        }
+    }
+
     private var header: some View {
         HStack(alignment: .center, spacing: 16) {
             FolioAuthorPortrait(name: name, url: portraitURL, size: 92)
@@ -433,7 +482,7 @@ struct FolioMobileAuthorView: View {
                                 .foregroundStyle(FolioTheme.ink)
                                 .multilineTextAlignment(.leading)
                             Spacer(minLength: 6)
-                            if let count = item.booksCount, count > 0 {
+                            if let count = FolioSeriesCache.load(item.id)?.mainCount ?? item.booksCount, count > 0 {
                                 Text("\(count)").font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
                             }
                             Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
@@ -470,85 +519,230 @@ struct FolioMobileAuthorView: View {
 
     @MainActor
     private func load() async {
+        if let cached = FolioAuthorCache.page(route.name) {
+            author = cached.page.author
+            books = cached.page.books
+            series = cached.page.series
+            // Author pages change slowly; refresh twice a day at most.
+            if Date().timeIntervalSince(cached.saved) < 60 * 60 * 12 { return }
+        }
         guard hardcover.isConnected else { return }
         loading = true
         failure = nil
         defer { loading = false }
         do {
-            var found: HCAuthor?
-            if let id = route.id { found = try await hardcover.author(id: id) }
-            if found == nil { found = try await hardcover.author(named: route.name) }
-            guard let found else {
-                failure = "Hardcover has no author page for \(route.name)."
+            guard let page = try await hardcover.authorPage(id: route.id ?? author?.id, name: route.name) else {
+                if books.isEmpty { failure = "Hardcover has no author page for \(route.name)." }
                 return
             }
-            author = found
-            FolioAuthorCache.save(author: found, for: route.name)
-            follows.refresh(name: found.name, hardcoverID: found.id, imageURL: found.imageURL)
-            books = try await hardcover.authorBooks(id: found.id)
-            series = (try? await hardcover.series(forBooks: books.prefix(80).map(\.id))) ?? []
+            author = page.author
+            books = page.books
+            series = page.series
+            FolioAuthorCache.save(page: page, for: route.name)
+            follows.refresh(name: page.author.name, hardcoverID: page.author.id, imageURL: page.author.imageURL)
         } catch is CancellationError {
             return
         } catch {
-            failure = error.localizedDescription
+            // Keep showing the saved page when a refresh fails.
+            if books.isEmpty { failure = error.localizedDescription }
         }
     }
 }
 
 // MARK: - Series page
 
+/// Series pages as last shown, so they open complete and the counts elsewhere
+/// match the list the reader sees.
+@MainActor
+enum FolioSeriesCache {
+    struct Entry: Codable {
+        var books: [HCSeriesBook]
+        var saved: Date
+        /// Numbered main entries, the count shown everywhere for this series.
+        var mainCount: Int { books.filter { FolioSeriesCache.isMain($0.position) }.count }
+    }
+
+    private static var memory: [Int: Entry] = [:]
+
+    private static var directory: URL {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("folio-series", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    static func isMain(_ position: Double?) -> Bool {
+        guard let position else { return false }
+        return position >= 1 && position == position.rounded()
+    }
+
+    static func load(_ id: Int) -> Entry? {
+        if let hit = memory[id] { return hit }
+        guard let data = try? Data(contentsOf: directory.appendingPathComponent("\(id).json")),
+              let entry = try? JSONDecoder().decode(Entry.self, from: data) else { return nil }
+        memory[id] = entry
+        return entry
+    }
+
+    static func save(_ books: [HCSeriesBook], for id: Int) {
+        let entry = Entry(books: books, saved: Date())
+        memory[id] = entry
+        if let data = try? JSONEncoder().encode(entry) {
+            try? data.write(to: directory.appendingPathComponent("\(id).json"), options: .atomic)
+        }
+    }
+}
+
+struct FolioSavedSeriesItem: Codable, Hashable, Identifiable {
+    var id: Int
+    var name: String
+    var coverURL: URL?
+    var count: Int?
+}
+
+/// Series the reader saved, kept on this device and shown on Home.
+@Observable
+@MainActor
+final class FolioSavedSeries {
+    static let shared = FolioSavedSeries()
+    private static let defaultsKey = "folio.savedSeries"
+
+    private(set) var items: [FolioSavedSeriesItem] = []
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: Self.defaultsKey),
+           let saved = try? JSONDecoder().decode([FolioSavedSeriesItem].self, from: data) {
+            items = saved
+        }
+    }
+
+    func isSaved(_ id: Int) -> Bool { items.contains { $0.id == id } }
+
+    func toggle(_ item: FolioSavedSeriesItem) {
+        if let index = items.firstIndex(where: { $0.id == item.id }) {
+            items.remove(at: index)
+        } else {
+            items.insert(item, at: 0)
+        }
+        persist()
+    }
+
+    /// Keep the cover and count of a saved series current.
+    func refresh(_ item: FolioSavedSeriesItem) {
+        guard let index = items.firstIndex(where: { $0.id == item.id }), items[index] != item else { return }
+        items[index] = item
+        persist()
+    }
+
+    private func persist() {
+        if let data = try? JSONEncoder().encode(items) {
+            UserDefaults.standard.set(data, forKey: Self.defaultsKey)
+        }
+    }
+}
+
 struct FolioMobileSeriesView: View {
     let route: FolioMobileSeriesRoute
 
     @Environment(LibraryStore.self) private var library
     @Environment(HardcoverClient.self) private var hardcover
-    private struct Entry: Identifiable {
-        var position: Double?
-        var book: HCBook
-        var id: Int { book.id }
+    @State private var saved = FolioSavedSeries.shared
+    @State private var entries: [HCSeriesBook]
+    @State private var loading = false
+    @State private var failure: String?
+
+    init(route: FolioMobileSeriesRoute) {
+        self.route = route
+        _entries = State(initialValue: FolioSeriesCache.load(route.id)?.books ?? [])
     }
 
-    @State private var entries: [Entry] = []
-    @State private var loading = true
-    @State private var failure: String?
+    /// Numbered books 1, 2, 3… in order.
+    private var main: [HCSeriesBook] { entries.filter { FolioSeriesCache.isMain($0.position) } }
+    /// Prequels, novellas (0.5, 2.5) and unnumbered companions.
+    private var companions: [HCSeriesBook] { entries.filter { !FolioSeriesCache.isMain($0.position) } }
+
+    private var savedItem: FolioSavedSeriesItem {
+        FolioSavedSeriesItem(id: route.id, name: route.name,
+                             coverURL: (main.first ?? entries.first)?.book.imageURL,
+                             count: main.isEmpty ? nil : main.count)
+    }
 
     var body: some View {
         List {
-            if loading && entries.isEmpty {
-                ProgressView().frame(maxWidth: .infinity).folioRow()
-            } else if let failure, entries.isEmpty {
-                Text(failure).foregroundStyle(.secondary).folioRow()
-            }
-            ForEach(entries) { entry in
-                NavigationLink(value: entry.book) {
-                    row(entry)
+            if entries.isEmpty {
+                if loading {
+                    ProgressView().frame(maxWidth: .infinity).folioRow()
+                } else if let failure {
+                    Text(failure).foregroundStyle(.secondary).folioRow()
                 }
-                .listRowBackground(entry.book.id == route.currentBookID ? FolioTheme.sage : FolioTheme.surface)
+            }
+            if !main.isEmpty {
+                Section {
+                    ForEach(main) { entry in bookLink(entry) }
+                } header: {
+                    Text(main.count == 1 ? "1 book" : "\(main.count) books")
+                }
+            }
+            if !companions.isEmpty {
+                Section(main.isEmpty ? "Books" : "Also in this series") {
+                    ForEach(companions) { entry in bookLink(entry) }
+                }
             }
         }
         .navigationTitle(route.name)
         .navigationBarTitleDisplayMode(.inline)
         .folioScreen()
-        .task(id: route.id) {
-            loading = true
-            do {
-                entries = try await hardcover.seriesBooks(route.id).map { Entry(position: $0.position, book: $0.book) }
-                failure = entries.isEmpty ? "No books found in this series." : nil
-            } catch {
-                failure = error.localizedDescription
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                let isSaved = saved.isSaved(route.id)
+                Button {
+                    saved.toggle(savedItem)
+                } label: {
+                    Label(isSaved ? "Saved" : "Save Series", systemImage: isSaved ? "bookmark.fill" : "bookmark")
+                }
+                .accessibilityIdentifier("folio.saveSeries")
             }
-            loading = false
+        }
+        .task(id: route.id) { await load() }
+    }
+
+    @MainActor
+    private func load() async {
+        if let cached = FolioSeriesCache.load(route.id) {
+            entries = cached.books
+            if Date().timeIntervalSince(cached.saved) < 60 * 60 * 12 { return }
+        }
+        guard hardcover.isConnected else { return }
+        loading = true
+        defer { loading = false }
+        do {
+            let books = try await hardcover.seriesBooks(route.id).map { HCSeriesBook(position: $0.position, book: $0.book) }
+            entries = books
+            failure = books.isEmpty ? "No books found in this series." : nil
+            FolioSeriesCache.save(books, for: route.id)
+            saved.refresh(savedItem)
+        } catch is CancellationError {
+            return
+        } catch {
+            if entries.isEmpty { failure = error.localizedDescription }
         }
     }
 
-    private func row(_ entry: Entry) -> some View {
+    private func bookLink(_ entry: HCSeriesBook) -> some View {
+        NavigationLink(value: entry.book) {
+            row(entry)
+        }
+        .listRowBackground(entry.book.id == route.currentBookID ? FolioTheme.sage : FolioTheme.surface)
+    }
+
+    private func row(_ entry: HCSeriesBook) -> some View {
         let owned = library.books.contains { $0.hardcoverBookID == entry.book.id }
             || library.localCopy(author: entry.book.authors, title: entry.book.title) != nil
         return HStack(spacing: 14) {
             Text(entry.position.map { $0.formatted(.number.precision(.fractionLength(0...1))) } ?? "–")
                 .font(.system(.title3, design: .serif))
                 .foregroundStyle(FolioTheme.olive)
-                .frame(minWidth: 26)
+                .frame(minWidth: 30)
                 .monospacedDigit()
             FolioMobileRemoteCover(url: entry.book.imageURL, title: entry.book.title)
                 .frame(width: 46, height: 68)
@@ -571,6 +765,37 @@ struct FolioMobileSeriesView: View {
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Saved series on Home, each opening its series page.
+struct FolioMobileSavedSeriesRow: View {
+    @State private var saved = FolioSavedSeries.shared
+
+    var body: some View {
+        if !saved.items.isEmpty {
+            FolioMobileRow(title: "Your series") {
+                ForEach(saved.items) { item in
+                    NavigationLink(value: FolioMobileSeriesRoute(id: item.id, name: item.name, currentBookID: nil)) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            FolioMobileRemoteCover(url: item.coverURL, title: item.name)
+                                .frame(width: 100, height: 146)
+                            Text(item.name)
+                                .font(.system(.caption, design: .serif))
+                                .foregroundStyle(FolioTheme.ink)
+                                .lineLimit(2, reservesSpace: true)
+                            if let count = FolioSeriesCache.load(item.id)?.mainCount ?? item.count {
+                                Text(count == 1 ? "1 book" : "\(count) books")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(width: 100, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
     }
 }
 
@@ -850,11 +1075,13 @@ struct FolioMobileAuthorRows: View {
                 portraits[FolioAuthorNames.key(author.name)] = url
             }
         }
-        for author in authors where portraits[FolioAuthorNames.key(author.name)] == nil {
-            guard !Task.isCancelled else { return }
-            if let found = await FolioAuthorCache.resolve(author.name, hardcover: hardcover), let url = found.imageURL {
-                portraits[FolioAuthorNames.key(author.name)] = url
-                follows.refresh(name: author.name, hardcoverID: found.id, imageURL: url)
+        let missing = authors.filter { portraits[$0.key] == nil }.map(\.name)
+        guard !missing.isEmpty, !Task.isCancelled else { return }
+        await FolioAuthorCache.resolveAll(missing, hardcover: hardcover)
+        for name in missing {
+            if let found = FolioAuthorCache.author(name), let url = found.imageURL {
+                portraits[FolioAuthorNames.key(name)] = url
+                follows.refresh(name: name, hardcoverID: found.id, imageURL: url)
             }
         }
     }
@@ -873,12 +1100,19 @@ struct FolioMobileAuthorRows: View {
         guard hardcover.isConnected else { return }
 
         let knownIDs = Set(store.books.compactMap(\.hardcoverBookID))
+        let followedNow = Array(follows.authors.prefix(6))
+        await FolioAuthorCache.resolveAll(followedNow.filter { $0.hardcoverID == nil }.map(\.name), hardcover: hardcover)
         var groups: [[HCBook]] = []
-        for followed in follows.authors.prefix(6) {
+        for followed in followedNow {
             guard !Task.isCancelled else { return }
-            var id = followed.hardcoverID
-            if id == nil { id = await FolioAuthorCache.resolve(followed.name, hardcover: hardcover)?.id }
-            guard let id, let books = try? await hardcover.authorBooks(id: id) else { continue }
+            let books: [HCBook]
+            if let page = FolioAuthorCache.page(followed.name), Date().timeIntervalSince(page.saved) < 60 * 60 * 24 {
+                books = page.page.books
+            } else {
+                guard let id = followed.hardcoverID ?? FolioAuthorCache.author(followed.name)?.id,
+                      let fetched = try? await hardcover.authorBooks(id: id) else { continue }
+                books = fetched
+            }
             let fresh = books.filter {
                 !knownIDs.contains($0.id) && store.localCopy(author: $0.authors, title: $0.title) == nil
             }
