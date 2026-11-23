@@ -68,19 +68,19 @@ final class FolioReadBooks {
         return hardcoverKeys.contains(key) || local.keys.contains(key)
     }
 
-    /// Finished library files and Goodreads read entries, rebuilt only when they change.
-    @ObservationIgnored private var localCache: (fingerprint: [Int], ids: Set<Int>, keys: Set<String>)?
+    @ObservationIgnored private var localCache: (version: Int, ids: Set<Int>, keys: Set<String>)?
 
+    /// Finished library books and Goodreads read entries, rebuilt only after the library
+    /// saves: Library asks once per tile, and rescanning every book each time was
+    /// quadratic for large libraries.
     private func localIndex(_ library: LibraryStore) -> (ids: Set<Int>, keys: Set<String>) {
+        if let cache = localCache, cache.version == library.changeCount { return (cache.ids, cache.keys) }
         let finished = library.books.filter { $0.status == .finished }
         let tracked = library.data.tracked.filter { $0.status == .read }
-        let fingerprint = [finished.count, tracked.count, library.books.count,
-                           finished.reduce(0) { $0 &+ ($1.hardcoverBookID ?? 1) }]
-        if let cache = localCache, cache.fingerprint == fingerprint { return (cache.ids, cache.keys) }
         let ids = Set(finished.compactMap(\.hardcoverBookID))
         let keys = Set(finished.map { BookMatch.key(author: $0.author, title: $0.title) }
                        + tracked.map { BookMatch.key(author: $0.author, title: $0.title) })
-        localCache = (fingerprint, ids, keys)
+        localCache = (library.changeCount, ids, keys)
         return (ids, keys)
     }
 

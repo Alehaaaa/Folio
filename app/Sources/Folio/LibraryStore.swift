@@ -39,7 +39,11 @@ final class LibraryStore {
     /// main thread every few seconds of reading made the app stutter.
     private static let saveQueue = DispatchQueue(label: "folio.library.save", qos: .utility)
 
+    /// Bumped on every save, so derived indexes know when to rebuild without rescanning.
+    @ObservationIgnored private(set) var changeCount = 0
+
     func save() {
+        changeCount &+= 1
         let snapshot = data
         let url = dataURL
         Self.saveQueue.async {

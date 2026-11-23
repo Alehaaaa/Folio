@@ -641,7 +641,8 @@ struct FolioMobileLibraryView: View {
             .padding(.horizontal, 16)
         }
 
-        if visibleBooks.isEmpty {
+        let books = visibleBooks
+        if books.isEmpty {
             ContentUnavailableView {
                 Label(search.isEmpty ? "No Books Yet" : "No Matches", systemImage: "books.vertical")
             } description: {
@@ -654,8 +655,8 @@ struct FolioMobileLibraryView: View {
             }
             .frame(maxWidth: .infinity)
         } else {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 136, maximum: 190), spacing: 16)], alignment: .leading, spacing: 24) {
-                ForEach(visibleBooks) { book in
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 136, maximum: 190), spacing: 16, alignment: .top)], alignment: .leading, spacing: 24) {
+                ForEach(books) { book in
                     NavigationLink(value: book.id) {
                         FolioMobileBookTile(book: book)
                     }
@@ -678,28 +679,41 @@ struct FolioMobileBookTile: View {
     @Environment(LibraryStore.self) private var store
     let book: LocalBook
 
+    /// Every tile has the same parts at the same heights: the cover, two lines of title,
+    /// the author, and a footer row for the progress bar, so a row of tiles lines up.
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             FolioMobileCover(book: book)
                 .aspectRatio(0.7, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .shadow(color: .black.opacity(0.14), radius: 6, x: 1, y: 4)
-                .overlay(alignment: .topTrailing) {
-                    if finished { FolioFinishedBadge().padding(6) }
-                }
             Text(book.title)
                 .font(.system(.subheadline, design: .serif))
                 .foregroundStyle(FolioTheme.ink)
-                .lineLimit(2)
-            Text(book.author.isEmpty ? "Unknown Author" : book.author)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            // A finished book shows its badge, not a full bar that reads like "still reading".
-            if !finished, book.progress > 0 {
-                ProgressView(value: min(1, book.progress))
-                    .tint(FolioTheme.olive)
+                .lineLimit(2, reservesSpace: true)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(book.author.isEmpty ? "Unknown Author" : book.author)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                // A read book shows a plain check by its author, not a full bar.
+                if finished {
+                    Image(systemName: "checkmark")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(FolioTheme.olive)
+                        .accessibilityHidden(true)
+                }
             }
+            Group {
+                if !finished, book.progress > 0 {
+                    ProgressView(value: min(1, book.progress))
+                        .tint(FolioTheme.olive)
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(height: 4)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .accessibilityElement(children: .combine)
@@ -707,20 +721,6 @@ struct FolioMobileBookTile: View {
     }
 
     private var finished: Bool { FolioReadBooks.shared.isRead(book) }
-}
-
-/// A small olive seal with a check, for books already read.
-struct FolioFinishedBadge: View {
-    var body: some View {
-        Image(systemName: "checkmark")
-            .font(.system(size: 11, weight: .bold))
-            .foregroundStyle(FolioTheme.surface)
-            .frame(width: 22, height: 22)
-            .background(FolioTheme.olive, in: Circle())
-            .overlay { Circle().strokeBorder(FolioTheme.surface.opacity(0.9), lineWidth: 1.5) }
-            .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 1)
-            .accessibilityHidden(true)
-    }
 }
 
 struct FolioMobileCover: View {
