@@ -7,6 +7,23 @@ import WidgetKit
 // FolioWidgetStorage resolves to group.app.folio.reader.ios on this platform,
 // matching the main app and the extension's App Group entitlements.
 
+/// The app's reading-nook palette: warm paper, forest ink and olive.
+enum FolioWidgetPalette {
+    static let paper = dynamic(light: 0xF5F2E9, dark: 0x151A15)
+    static let ink = dynamic(light: 0x29352B, dark: 0xE9E6D9)
+    static let olive = dynamic(light: 0x566447, dark: 0xB4C39C)
+    static let spine = dynamic(light: 0x40563F, dark: 0x5F7558)
+
+    private static func dynamic(light: UInt32, dark: UInt32) -> Color {
+        Color(uiColor: UIColor { traits in
+            let hex = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat((hex >> 16) & 0xFF) / 255,
+                           green: CGFloat((hex >> 8) & 0xFF) / 255,
+                           blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+        })
+    }
+}
+
 // Lists are discovered from the snapshot, including user-defined collections.
 // There is no fixed enumeration to maintain when someone creates a new list.
 struct FolioListEntity: AppEntity, Identifiable {
@@ -90,10 +107,10 @@ struct FolioCover: View {
                 Image(uiImage: image).resizable().scaledToFill()
             } else {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 4).fill(.tint.opacity(0.16))
-                    Image(systemName: "book.closed.fill")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(.tint)
+                    RoundedRectangle(cornerRadius: 4).fill(FolioWidgetPalette.spine)
+                    Image(systemName: "book.closed")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(Color(red: 0.95, green: 0.92, blue: 0.85))
                 }
             }
         }
@@ -113,14 +130,15 @@ struct FolioBookRow: View {
                 FolioCover(book: book)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(book.title)
-                        .font(compact ? .callout.weight(.semibold) : .subheadline.weight(.semibold))
+                        .font(.system(compact ? .callout : .subheadline, design: .serif))
+                        .foregroundStyle(FolioWidgetPalette.ink)
                         .lineLimit(compact ? 2 : 1)
                     if !book.author.isEmpty {
                         Text(book.author).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                     }
                     if let progress = book.progress {
                         HStack(spacing: 6) {
-                            ProgressView(value: progress).tint(.accentColor)
+                            ProgressView(value: progress).tint(FolioWidgetPalette.olive)
                             Text("\(Int((progress * 100).rounded()))%")
                                 .font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                         }
@@ -150,8 +168,8 @@ struct FolioShelfView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
             HStack(spacing: 8) {
-                Image(systemName: entry.list.symbol).foregroundStyle(.tint)
-                Text(entry.list.name).font(.headline).lineLimit(1)
+                Image(systemName: entry.list.symbol).foregroundStyle(FolioWidgetPalette.olive)
+                Text(entry.list.name).font(.system(.headline, design: .serif)).foregroundStyle(FolioWidgetPalette.ink).lineLimit(1)
                 Spacer(minLength: 0)
                 Text("\(entry.list.count)")
                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
@@ -177,7 +195,7 @@ struct FolioShelfView: View {
             }
         }
         .padding(family == .systemSmall ? 14 : 17)
-        .containerBackground(.fill.tertiary, for: .widget)
+        .containerBackground(FolioWidgetPalette.paper, for: .widget)
         .widgetURL(URL(string: entry.list.deepLink))
     }
 }
@@ -254,15 +272,15 @@ struct FolioGoalsView: View {
         } else {
         VStack(alignment: .leading, spacing: 12) {
             Label("Reading Goals", systemImage: "target")
-                .font(.headline).foregroundStyle(.primary)
+                .font(.system(.headline, design: .serif)).foregroundStyle(FolioWidgetPalette.ink)
             HStack(spacing: 18) {
                 ZStack {
                     Circle().stroke(.secondary.opacity(0.2), lineWidth: 9)
                     Circle().trim(from: 0, to: fraction)
-                        .stroke(.tint, style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                        .stroke(FolioWidgetPalette.olive, style: StrokeStyle(lineWidth: 9, lineCap: .round))
                         .rotationEffect(.degrees(-90))
                     VStack(spacing: 1) {
-                        Text("\(Int(entry.goals.todayMinutes))").font(.title3.weight(.bold).monospacedDigit())
+                        Text("\(Int(entry.goals.todayMinutes))").font(.system(.title3, design: .serif).monospacedDigit())
                         Text("/ \(entry.goals.dailyGoal) min").font(.system(size: 10)).foregroundStyle(.secondary)
                     }
                 }
@@ -285,7 +303,7 @@ struct FolioGoalsView: View {
             Spacer(minLength: 0)
         }
         .padding(16)
-        .containerBackground(.fill.tertiary, for: .widget)
+        .containerBackground(FolioWidgetPalette.paper, for: .widget)
         .widgetURL(URL(string: "folio-reader://goals"))
         }
     }

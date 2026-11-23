@@ -52,18 +52,22 @@ struct FolioMobileRootView: View {
                 Tab("More", systemImage: "ellipsis.circle", value: .settings) {
                     NavigationStack {
                         List {
-                            NavigationLink {
-                                FolioMobileSourcesView()
-                            } label: {
-                                Label("Sources", systemImage: "square.stack.3d.up")
+                            Group {
+                                NavigationLink {
+                                    FolioMobileSourcesView()
+                                } label: {
+                                    Label("Sources", systemImage: "square.stack.3d.up")
+                                }
+                                NavigationLink {
+                                    FolioMobileSettingsView(showImporter: { importing = true })
+                                } label: {
+                                    Label("Settings", systemImage: "gearshape")
+                                }
                             }
-                            NavigationLink {
-                                FolioMobileSettingsView(showImporter: { importing = true })
-                            } label: {
-                                Label("Settings", systemImage: "gearshape")
-                            }
+                            .folioRow()
                         }
                         .navigationTitle("More")
+                        .folioScreen()
                     }
                 }
             } else {
@@ -88,6 +92,8 @@ struct FolioMobileRootView: View {
         .fullScreenCover(item: $navigation.reading) { route in
             NavigationStack { FolioMobileReaderView(bookID: route.id) }
                 .environment(store)
+                // The reader has its own themes; keep the app palette out of it.
+                .tint(Color.accentColor)
         }
         .sheet(isPresented: $showingOnboarding, onDismiss: {
             onboardingCompleted = true
@@ -121,8 +127,8 @@ struct FolioMobileRootView: View {
                     HStack(spacing: 10) {
                         Image(systemName: downloadToast.kind == .ready ? "checkmark.circle.fill" :
                                           downloadToast.kind == .failed ? "exclamationmark.triangle.fill" : "arrow.down.circle.fill")
-                            .foregroundStyle(downloadToast.kind == .ready ? Color.green :
-                                             downloadToast.kind == .failed ? Color.orange : Color.secondary)
+                            .foregroundStyle(downloadToast.kind == .ready ? FolioTheme.success :
+                                             downloadToast.kind == .failed ? FolioTheme.caution : FolioTheme.olive)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(downloadToast.kind == .ready ? "Ready to read" :
                                  downloadToast.kind == .failed ? "Download needs attention" : "Added to Downloads")
@@ -162,7 +168,7 @@ struct FolioMobileRootView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
-                .folioGlassBackground(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .folioCreamGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .padding(.horizontal, 14)
                 .padding(.top, 6)
                 .accessibilityIdentifier("folio.downloadToast")
@@ -174,7 +180,7 @@ struct FolioMobileRootView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .folioGlassBackground(in: Capsule())
+                .folioCreamGlass(in: Capsule())
                 .padding(.top, 6)
                 .accessibilityIdentifier("folio.importing")
             }
@@ -269,6 +275,9 @@ struct FolioMobileHomeView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 30) {
                 heading
+                if !store.books.isEmpty {
+                    bookshelf
+                }
                 if let nextBook {
                     continueReadingCard(nextBook)
                 } else if store.books.isEmpty {
@@ -299,6 +308,8 @@ struct FolioMobileHomeView: View {
         }
         .navigationTitle("Folio")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
+        .folioScreen()
         .task(id: discoveryKey) {
             await discovery.load(from: hardcover, books: store.books, tracked: store.data.tracked)
         }
@@ -318,31 +329,76 @@ struct FolioMobileHomeView: View {
         }
     }
 
+    /// The Folio wordmark, a spaced eyebrow and a serif headline, as on the
+    /// first page of a book.
     private var heading: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(greeting)
-                    .font(.largeTitle.weight(.bold))
-                    .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 22) {
+            HStack(alignment: .center, spacing: 6) {
+                Text("folio")
+                    .font(.system(size: 46, weight: .regular, design: .serif))
+                    .tracking(-2)
+                    .foregroundStyle(FolioTheme.ink)
+                    .accessibilityLabel("Folio")
                     .accessibilityAddTraits(.isHeader)
-                Text(headingSubtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-            Button(action: showImporter) {
-                if dynamicTypeSize.isAccessibilitySize {
-                    Label("Import", systemImage: "plus")
-                        .frame(minHeight: 44)
-                } else {
+                Spacer(minLength: 0)
+                Button(action: showImporter) {
                     Image(systemName: "plus")
+                        .font(.title2.weight(.light))
                         .frame(minWidth: 44, minHeight: 44)
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(FolioTheme.ink)
+                .accessibilityLabel("Import books")
+                .accessibilityHint("Choose books from Files to add to your library")
+                Button { navigation.selectedTab = .settings } label: {
+                    Image(systemName: "gearshape")
+                        .font(.title2.weight(.light))
+                        .frame(minWidth: 44, minHeight: 44)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(FolioTheme.ink)
+                .accessibilityLabel("Settings")
             }
-            .folioGlassPill(prominent: true)
-            .accessibilityLabel("Import books")
-            .accessibilityHint("Choose books from Files to add to your library")
+            VStack(alignment: .leading, spacing: 10) {
+                Text("\(greeting) · your reading room")
+                    .folioEyebrow()
+                Text(headingTitle)
+                    .font(.folioDisplay(.largeTitle))
+                    .foregroundStyle(FolioTheme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(headingSubtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(FolioTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var headingTitle: String {
+        if store.books.isEmpty { return "A little room for every story." }
+        return nextBook == nil ? "A little room for your next book." : "A little room for your next chapter."
+    }
+
+    /// Your books as spines on a wooden bookcase, most recent first.
+    private var bookshelf: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Your shelf")
+                    .font(.folioDisplay(.title2))
+                    .foregroundStyle(FolioTheme.ink)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 8)
+                Button {
+                    navigation.libraryScope = .books
+                    navigation.selectedTab = .library
+                } label: {
+                    Label("All books", systemImage: "slider.horizontal.3")
+                        .font(.subheadline.weight(.medium))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(FolioTheme.olive)
+            }
+            FolioMobileBookshelf(books: Array(store.recentlyAdded.prefix(24)))
         }
     }
 
@@ -369,25 +425,26 @@ struct FolioMobileHomeView: View {
                 }
             }
         }
-        .padding(18)
+        .padding(22)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .folioCard()
         .accessibilityElement(children: .contain)
     }
 
     private func continueCover(_ book: LocalBook) -> some View {
         FolioMobileCover(book: book)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .shadow(color: .black.opacity(0.18), radius: 8, x: 2, y: 5)
             .accessibilityHidden(true)
     }
 
     private func continueReadingDetails(_ book: LocalBook) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("CONTINUE READING", systemImage: "book.pages")
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.tint)
+            Text("Settle into a story")
+                .folioEyebrow()
             Text(book.title)
-                .font(.title2.weight(.bold))
+                .font(.folioDisplay(.title))
+                .foregroundStyle(FolioTheme.ink)
                 .lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
             Text(book.author.isEmpty ? "Unknown author" : book.author)
@@ -396,7 +453,7 @@ struct FolioMobileHomeView: View {
                 .lineLimit(2)
             HStack(spacing: 8) {
                 ProgressView(value: min(1, max(0, book.progress)))
-                    .tint(.accentColor)
+                    .tint(FolioTheme.olive)
                     .accessibilityLabel("Reading progress")
                     .accessibilityValue(book.progressLabel)
                 Text(book.progressLabel)
@@ -404,9 +461,13 @@ struct FolioMobileHomeView: View {
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
             }
-            FolioGlassButton(title: "Keep Reading", systemImage: "arrow.right", prominent: true) {
-                navigation.read(book.id)
+            Button { navigation.read(book.id) } label: {
+                Label(book.progress > 0 ? "Keep reading" : "Begin reading", systemImage: "book")
+                    .font(.headline.weight(.medium))
+                    .frame(minHeight: 44)
             }
+            .buttonStyle(.plain)
+            .foregroundStyle(FolioTheme.ink)
             .accessibilityLabel("Continue reading \(book.title)")
             .padding(.top, 2)
         }
@@ -415,12 +476,11 @@ struct FolioMobileHomeView: View {
 
     private var emptyLibraryCard: some View {
         VStack(alignment: .leading, spacing: 15) {
-            Image(systemName: "books.vertical.fill")
-                .font(.largeTitle)
-                .foregroundStyle(.tint)
-                .accessibilityHidden(true)
+            Text("Start your shelf")
+                .folioEyebrow()
             Text("Build a library that's yours")
-                .font(.title2.weight(.bold))
+                .font(.folioDisplay(.title))
+                .foregroundStyle(FolioTheme.ink)
             Text("Import an EPUB, PDF, comic or document. Your place, progress and reading history stay together in Folio.")
                 .font(.body)
                 .foregroundStyle(.secondary)
@@ -431,13 +491,13 @@ struct FolioMobileHomeView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 24))
+        .folioCard()
     }
 
     private var readingGoal: some View {
         VStack(alignment: .leading, spacing: 15) {
-            Text("Reading Goals")
-                .font(.title3.weight(.bold))
+            Text("Reading goals")
+                .folioEyebrow()
                 .accessibilityAddTraits(.isHeader)
             if dynamicTypeSize.isAccessibilitySize {
                 VStack(alignment: .leading, spacing: 18) { goalDetail }
@@ -458,14 +518,14 @@ struct FolioMobileHomeView: View {
             }
             .font(.subheadline.weight(.medium))
         }
-        .padding(20)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 24))
+        .padding(22)
+        .folioCard(fill: FolioTheme.sage)
         .accessibilityElement(children: .contain)
     }
 
     private var goalStreak: some View {
         Label("\(store.streak)-day streak", systemImage: "flame.fill")
-            .foregroundStyle(.orange)
+            .foregroundStyle(FolioTheme.caution)
     }
 
     private var goalYearly: some View {
@@ -476,14 +536,14 @@ struct FolioMobileHomeView: View {
     @ViewBuilder
     private var goalDetail: some View {
         ZStack {
-            Circle().stroke(.quaternary, lineWidth: 9)
+            Circle().stroke(FolioTheme.line, lineWidth: 9)
             Circle()
                 .trim(from: 0, to: min(1, store.todayMinutes / Double(max(1, store.data.goals.dailyMinutes))))
-                .stroke(.tint, style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                .stroke(FolioTheme.olive, style: StrokeStyle(lineWidth: 9, lineCap: .round))
                 .rotationEffect(.degrees(-90))
             VStack(spacing: 0) {
                 Text("\(Int(store.todayMinutes))")
-                    .font(.title2.weight(.bold))
+                    .font(.folioDisplay(.title))
                     .monospacedDigit()
                 Text("min").font(.caption).foregroundStyle(.secondary)
             }
@@ -494,10 +554,11 @@ struct FolioMobileHomeView: View {
         .accessibilityValue("\(Int(store.todayMinutes)) of \(store.data.goals.dailyMinutes) minutes")
 
         VStack(alignment: .leading, spacing: 7) {
-            Text("Today's Reading")
-                .font(.headline)
+            Text("Today's reading")
+                .font(.folioDisplay(.title3))
+                .foregroundStyle(FolioTheme.ink)
             Text("\(Int(store.todayMinutes)) / \(store.data.goals.dailyMinutes) minutes")
-                .font(.title3.weight(.semibold))
+                .font(.folioDisplay(.title2))
                 .monospacedDigit()
             Text(store.isDailyGoalCompleted ? "Daily goal complete. Keep the momentum going." : "A little reading today goes a long way.")
                 .font(.subheadline)
@@ -509,7 +570,8 @@ struct FolioMobileHomeView: View {
 
     private func sectionHeading(_ title: String, subtitle: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.title2.weight(.bold))
+            Text(title).font(.folioDisplay(.title2))
+                .foregroundStyle(FolioTheme.ink)
                 .accessibilityAddTraits(.isHeader)
             if let subtitle {
                 Text(subtitle)
@@ -527,7 +589,8 @@ struct FolioMobileHomeView: View {
             Spacer(minLength: 8)
             if let seeAll {
                 Button("See All", action: seeAll)
-                    .font(.subheadline.weight(.semibold))
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(FolioTheme.olive)
                     .accessibilityLabel("See all \(title)")
             }
         }
@@ -594,10 +657,12 @@ struct FolioMobileHomeView: View {
     private func remoteShelfRow(_ title: String, entries: [FolioMobileShelfEntry], status: HCStatus) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                Text(title).font(.headline)
+                Text(title).font(.folioDisplay(.headline))
+                    .foregroundStyle(FolioTheme.ink)
                 Spacer(minLength: 8)
                 Button("All \(title)") { navigation.openShelf(status) }
-                    .font(.footnote.weight(.semibold))
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(FolioTheme.olive)
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 16) {
@@ -661,7 +726,7 @@ struct FolioMobileHomeView: View {
                 }
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.background.secondary, in: RoundedRectangle(cornerRadius: 20))
+                .folioCard(cornerRadius: 20)
             } else {
                 if !discovery.byYourAuthors.isEmpty {
                     remoteShelf(
@@ -689,7 +754,7 @@ struct FolioMobileHomeView: View {
                     }
                     .padding(18)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 20))
+                    .folioCard(cornerRadius: 20)
                 } else if discovery.loading {
                     HStack(spacing: 9) {
                         ProgressView()
@@ -733,13 +798,13 @@ struct FolioMobileHomeView: View {
                     ForEach(0..<3, id: \.self) { _ in
                         VStack(alignment: .leading, spacing: 9) {
                             RoundedRectangle(cornerRadius: 11)
-                                .fill(.quaternary)
+                                .fill(FolioTheme.line.opacity(0.7))
                                 .aspectRatio(0.69, contentMode: .fit)
                             RoundedRectangle(cornerRadius: 5)
-                                .fill(.quaternary)
+                                .fill(FolioTheme.line.opacity(0.7))
                                 .frame(height: 13)
                             RoundedRectangle(cornerRadius: 5)
-                                .fill(.quaternary)
+                                .fill(FolioTheme.line.opacity(0.7))
                                 .frame(width: 75, height: 10)
                         }
                         .frame(width: min(shelfWidth, 180))
@@ -836,6 +901,7 @@ struct FolioMobileLibraryView: View {
             }
             .padding(.vertical, 12)
         }
+        .folioScreen()
         .searchable(text: $search, prompt: showingShelves ? "Search your shelves" : "Title or author")
         .navigationTitle(showingShelves ? "Library"
                          : collection.flatMap { id in store.data.collections.first { $0.id == id }?.name } ?? "Library")
@@ -935,10 +1001,11 @@ struct FolioMobileBookTile: View {
         VStack(alignment: .leading, spacing: 7) {
             FolioMobileCover(book: book)
                 .aspectRatio(0.7, contentMode: .fit)
-                .clipShape(RoundedRectangle(cornerRadius: 9))
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .shadow(color: .black.opacity(0.14), radius: 6, x: 1, y: 4)
             Text(book.title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
+                .font(.system(.subheadline, design: .serif))
+                .foregroundStyle(FolioTheme.ink)
                 .lineLimit(2)
             Text(book.author.isEmpty ? "Unknown Author" : book.author)
                 .font(.caption)
@@ -946,7 +1013,7 @@ struct FolioMobileBookTile: View {
                 .lineLimit(1)
             if book.progress > 0 {
                 ProgressView(value: min(1, book.progress))
-                    .tint(.accentColor)
+                    .tint(FolioTheme.olive)
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -967,22 +1034,12 @@ struct FolioMobileCover: View {
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .clipped()
             } else {
-                ZStack {
-                    Color.indigo.opacity(0.78)
-                    VStack(spacing: 12) {
-                        Image(systemName: book.format.symbol)
-                            .font(.system(size: 29))
-                            .foregroundStyle(.white.opacity(0.75))
-                        Text(book.title)
-                            .font(.system(size: 14, weight: .bold, design: .serif))
-                            .multilineTextAlignment(.center)
-                            .lineLimit(4)
-                            .foregroundStyle(.white)
-                    }
-                    .padding(14)
-                }
+                FolioClothCover(title: book.title,
+                                subtitle: book.author.isEmpty ? nil : book.author,
+                                systemImage: book.format.symbol,
+                                compact: geometry.size.width < 90)
             }
         }
-        .background(.secondary.opacity(0.1))
+        .background(FolioTheme.sage)
     }
 }

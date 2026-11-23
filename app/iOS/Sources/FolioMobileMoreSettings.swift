@@ -17,6 +17,7 @@ struct FolioMobileMoreSettings: View {
                 Label("Manage Collections", systemImage: "rectangle.stack")
             }
         }
+        .folioRow()
         Section("Personalise Folio") {
             NavigationLink {
                 FolioMobileReaderAdvancedSettings()
@@ -29,6 +30,7 @@ struct FolioMobileMoreSettings: View {
                 Label("Reading Reminders", systemImage: "bell.badge")
             }
         }
+        .folioRow()
         Section("Sources") {
             NavigationLink {
                 FolioMobileExtensionSettings()
@@ -36,6 +38,7 @@ struct FolioMobileMoreSettings: View {
                 Label("Manage Source Extensions", systemImage: "puzzlepiece.extension")
             }
         }
+        .folioRow()
     }
 }
 
@@ -55,7 +58,7 @@ struct FolioMobileGoodreadsSettings: View {
             Section {
                 if goodreads.isLinked {
                     Label("Linked Goodreads profile \(goodreads.userID)", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(FolioTheme.success)
                     HStack {
                         Button("Refresh Shelves") { Task { await goodreads.syncAll(into: library) } }
                         Button("Unlink", role: .destructive) { goodreads.userID = "" }
@@ -81,13 +84,14 @@ struct FolioMobileGoodreadsSettings: View {
                 }
                 if let error = goodreads.lastError {
                     Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.footnote).foregroundStyle(.red)
+                        .font(.footnote).foregroundStyle(FolioTheme.danger)
                 }
             } header: {
                 Text("Goodreads Account")
             } footer: {
                 Text("Public Goodreads shelves are read through PirateReads. Goodreads does not allow Folio to publish changes directly.")
             }
+            .folioRow()
             Section("Import & Export") {
                 Button { importing = true } label: {
                     Label("Import Goodreads CSV", systemImage: "square.and.arrow.down")
@@ -102,6 +106,7 @@ struct FolioMobileGoodreadsSettings: View {
                     Label("Export Library for Goodreads", systemImage: "square.and.arrow.up")
                 }
             }
+            .folioRow()
             Section("Sync to Hardcover") {
                 Button {
                     Task {
@@ -117,8 +122,10 @@ struct FolioMobileGoodreadsSettings: View {
                 }
                 .disabled(copying || !hardcover.isConnected || library.data.tracked.isEmpty)
             }
+            .folioRow()
         }
         .navigationTitle("Goodreads")
+        .folioScreen()
         .fileImporter(isPresented: $importing, allowedContentTypes: [.commaSeparatedText, .plainText]) { result in
             if case .success(let file) = result {
                 library.importGoodreads(file)
@@ -213,6 +220,7 @@ struct FolioMobileCollectionsSettings: View {
                     .disabled(newName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
+            .folioRow()
             Section("Your Collections") {
                 ForEach(library.data.collections) { collection in
                     HStack {
@@ -235,8 +243,10 @@ struct FolioMobileCollectionsSettings: View {
                     for id in ids { library.deleteCollection(id) }
                 }
             }
+            .folioRow()
         }
         .navigationTitle("Collections")
+        .folioScreen()
         .alert("Rename Collection", isPresented: Binding(
             get: { editing != nil }, set: { if !$0 { editing = nil } }
         )) {
@@ -281,6 +291,7 @@ struct FolioMobileReminderSettings: View {
             } footer: {
                 Text("Notifications are requested only when you enable reminders.")
             }
+            .folioRow()
             Section("Notification Status") {
                 if reminders.isUpdating { ProgressView("Updating reminders…") }
                 else if reminders.authorizationStatus == .denied {
@@ -294,11 +305,13 @@ struct FolioMobileReminderSettings: View {
                     Text("Reminders are off").foregroundStyle(.secondary)
                 }
                 if let error = reminders.errorMessage {
-                    Text(error).font(.footnote).foregroundStyle(.red)
+                    Text(error).font(.footnote).foregroundStyle(FolioTheme.danger)
                 }
             }
+            .folioRow()
         }
         .navigationTitle("Reading Reminders")
+        .folioScreen()
         .task { await reminders.refreshAuthorization() }
     }
 }
@@ -320,6 +333,7 @@ struct FolioMobileReaderAdvancedSettings: View {
                     set: { reader.prefs.boldText = $0 }
                 ))
             }
+            .folioRow()
             Section("Page Layout") {
                 Picker("Reading Mode", selection: Binding(
                     get: { reader.prefs.navigation },
@@ -336,6 +350,7 @@ struct FolioMobileReaderAdvancedSettings: View {
                     set: { reader.prefs.multipleColumns = $0 }
                 ))
             }
+            .folioRow()
             Section("Spacing") {
                 Toggle("Custom Line Spacing", isOn: Binding(
                     get: { reader.prefs.customLineSpacing },
@@ -379,8 +394,10 @@ struct FolioMobileReaderAdvancedSettings: View {
                     ), in: 8...100, step: 4)
                 }
             }
+            .folioRow()
         }
         .navigationTitle("Typography & Layout")
+        .folioScreen()
     }
 }
 
@@ -424,21 +441,24 @@ struct FolioMobileExtensionSettings: View {
                 }
                 if let error = extensions.lastError {
                     Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.footnote).foregroundStyle(.red)
+                        .font(.footnote).foregroundStyle(FolioTheme.danger)
                 }
             } header: {
                 Text("Installed Extensions")
             } footer: {
                 Text("JavaScript sources run in isolated engines and can access only approved servers. Updates to bundled extensions arrive with Folio builds.")
             }
+            .folioRow()
             Section {
                 Button { importing = true } label: {
                     Label("Add Extension from File", systemImage: "plus")
                 }
                 .folioGlassPill(prominent: true)
             }
+            .folioRow()
         }
         .navigationTitle("Source Extensions")
+        .folioScreen()
         .fileImporter(isPresented: $importing, allowedContentTypes: [.javaScript, UTType(filenameExtension: "js") ?? .javaScript]) { result in
             if case .success(let url) = result { Task { await extensions.install(from: url) } }
         }

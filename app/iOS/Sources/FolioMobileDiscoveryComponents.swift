@@ -82,7 +82,7 @@ struct FolioMobileRemoteBookGridSection: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.title3.weight(.bold))
+                    .font(.folioDisplay(.title2))
                     .foregroundStyle(.primary)
                 if let subtitle {
                     Text(subtitle)

@@ -97,4 +97,16 @@ extension View {
             self.background(.regularMaterial, in: shape)
         }
     }
+
+    /// The app's cream-tinted glass for floating notices. The reader keeps
+    /// the neutral `folioGlassBackground`, since its themes are its own.
+    @ViewBuilder
+    func folioCreamGlass<S: Shape>(in shape: S) -> some View {
+        if #available(iOS 26, *) {
+            self.glassEffect(.regular.tint(FolioTheme.cream.opacity(0.55)), in: shape)
+        } else {
+            self.background(.regularMaterial, in: shape)
+                .background(FolioTheme.cream.opacity(0.5), in: shape)
+        }
+    }
 }

@@ -11,9 +11,14 @@ struct FolioIOSApp: App {
     @State private var extensions = ExtensionStore.shared
     @State private var navigation = FolioMobileNavigation()
 
+    init() {
+        FolioTheme.applyAppearance()
+    }
+
     var body: some Scene {
         WindowGroup {
             FolioMobileRootView()
+                .tint(FolioTheme.accent)
                 .environment(library)
                 .environment(hardcover)
                 .environment(preferences)

@@ -168,14 +168,12 @@ struct FolioMobileShelvesView: View {
                                 AsyncImage(url: entry.cover) { image in
                                     image.resizable().scaledToFill()
                                 } placeholder: {
-                                    RoundedRectangle(cornerRadius: 7)
-                                        .fill(.quaternary)
-                                        .overlay(Image(systemName: "book.closed"))
+                                    FolioClothCover(title: entry.title, compact: true)
                                 }
                                 .frame(width: 65, height: 93)
                                 .clipShape(RoundedRectangle(cornerRadius: 7))
                                 VStack(alignment: .leading, spacing: 5) {
-                                    Text(entry.title).font(.headline).foregroundStyle(.primary)
+                                    Text(entry.title).font(.folioDisplay(.headline)).foregroundStyle(FolioTheme.ink)
                                         .lineLimit(2).multilineTextAlignment(.leading)
                                     Text(entry.author).font(.subheadline)
                                         .foregroundStyle(.secondary).lineLimit(2)
@@ -201,9 +199,14 @@ struct FolioMobileShelvesView: View {
                             .padding(.horizontal, 17)
                         }
                         .buttonStyle(.plain)
-                        Divider().padding(.leading, 94)
+                        if entry.id != visible.last?.id {
+                            Divider().overlay(FolioTheme.line).padding(.leading, 94)
+                        }
                     }
                 }
+                .padding(.vertical, 6)
+                .folioCard(cornerRadius: 22)
+                .padding(.horizontal, 16)
             }
             if let notice {
                 Text(notice).font(.footnote).foregroundStyle(.secondary)
@@ -277,7 +280,7 @@ struct FolioMobileTrackedBookDetail: View {
                             .font(.system(size: 62)).foregroundStyle(.secondary)
                     }
                     .frame(width: 175, height: 230)
-                    Text(book.title).font(.title2.bold()).multilineTextAlignment(.center)
+                    Text(book.title).font(.folioDisplay(.title)).multilineTextAlignment(.center)
                     Text(book.author).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     Label(book.status?.label ?? book.shelf, systemImage: book.status?.symbol ?? "bookmark")
                         .foregroundStyle(.secondary)
@@ -326,6 +329,7 @@ struct FolioMobileTrackedBookDetail: View {
                 .padding(22)
             }
             .navigationTitle("Book Details")
+            .folioScreen()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
