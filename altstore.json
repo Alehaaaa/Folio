@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.63",
+          "buildVersion": "64",
+          "date": "2026-11-23",
+          "localizedDescription": "Find books by translated and edition titles in search",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.63-64.ipa",
+          "size": 5073001,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.62",
           "buildVersion": "63",
           "date": "2026-11-23",
