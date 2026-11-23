@@ -6,17 +6,17 @@ import SwiftUI
 struct FolioMetadataCandidate: Identifiable, Hashable {
     let id = UUID()
     var source: String
-    var title: String?
-    var author: String?
-    var summary: String?
-    var publisher: String?
-    var language: String?
-    var isbn: String?
-    var series: String?
-    var seriesIndex: Double?
-    var year: Int?
-    var pages: Int?
-    var coverURL: URL?
+    var title: String? = nil
+    var author: String? = nil
+    var summary: String? = nil
+    var publisher: String? = nil
+    var language: String? = nil
+    var isbn: String? = nil
+    var series: String? = nil
+    var seriesIndex: Double? = nil
+    var year: Int? = nil
+    var pages: Int? = nil
+    var coverURL: URL? = nil
 }
 
 extension HardcoverClient {
@@ -36,10 +36,57 @@ extension HardcoverClient {
     }
 }
 
+/// The metadata sources, in the reader's order of preference (as Calibre's source list).
+enum FolioMetadataSource: String, CaseIterable, Identifiable {
+    case hardcover, amazon, googleBooks, openLibrary
+    var id: String { rawValue }
+
+    var name: String {
+        switch self {
+        case .hardcover: "Hardcover"
+        case .amazon: "Amazon"
+        case .googleBooks: "Google Books"
+        case .openLibrary: "Open Library"
+        }
+    }
+
+    var note: String {
+        switch self {
+        case .hardcover: "Editions in the book's language, series"
+        case .amazon: "The store for the book's language: amazon.es, .fr, .de…"
+        case .googleBooks: "Descriptions and covers in the book's language"
+        case .openLibrary: "Editions and covers in the book's language"
+        }
+    }
+
+    private static let orderKey = "folio.metadataSources.order"
+    private static let disabledKey = "folio.metadataSources.disabled"
+
+    /// Every source, in the saved order.
+    static var ordered: [FolioMetadataSource] {
+        let saved = (UserDefaults.standard.string(forKey: orderKey) ?? "").split(separator: ",")
+            .compactMap { FolioMetadataSource(rawValue: String($0)) }
+        return saved + allCases.filter { !saved.contains($0) }
+    }
+
+    static var disabled: Set<FolioMetadataSource> {
+        Set((UserDefaults.standard.string(forKey: disabledKey) ?? "").split(separator: ",")
+            .compactMap { FolioMetadataSource(rawValue: String($0)) })
+    }
+
+    static var enabled: [FolioMetadataSource] { ordered.filter { !disabled.contains($0) } }
+
+    static func save(order: [FolioMetadataSource], disabled: Set<FolioMetadataSource>) {
+        UserDefaults.standard.set(order.map(\.rawValue).joined(separator: ","), forKey: orderKey)
+        UserDefaults.standard.set(disabled.map(\.rawValue).joined(separator: ","), forKey: disabledKey)
+    }
+}
+
 @MainActor
 enum FolioMetadataSources {
-    /// Every source at once: Hardcover (the work and its editions in the book's
-    /// language), Google Books and Open Library.
+    /// Every enabled source at once, in the reader's order. A book in Spanish only
+    /// gets Spanish data: other-language editions are left out, and the original
+    /// work only offers its series (which is the same in every language).
     static func all(for input: LocalBook, hardcover: HardcoverClient) async -> [FolioMetadataCandidate] {
         // Know the file's language first, so every source answers with that edition.
         let detected = LibraryStore.shared.ensureLanguage(input.id) ?? input.language
@@ -48,15 +95,104 @@ enum FolioMetadataSources {
             b.language = detected
             return b
         }()
-        async let google = googleBooks(title: book.title, author: book.author, language: book.language)
-        async let openLibrary = openLibrary(title: book.title, author: book.author, language: book.language)
-        let fromHardcover = await self.hardcover(book, client: hardcover)
-        let all = fromHardcover + (await google) + (await openLibrary)
-        // Candidates in the book's language come first, so their covers lead the picker.
+        let enabled = FolioMetadataSource.enabled
+        async let google = enabled.contains(.googleBooks)
+            ? googleBooks(title: book.title, author: book.author, language: book.language) : []
+        async let openLibrary = enabled.contains(.openLibrary)
+            ? openLibrary(title: book.title, author: book.author, language: book.language) : []
+        async let amazon = enabled.contains(.amazon)
+            ? amazon(title: book.title, author: book.author, language: book.language) : []
+        let fromHardcover = enabled.contains(.hardcover) ? await self.hardcover(book, client: hardcover) : []
+        let results: [FolioMetadataSource: [FolioMetadataCandidate]] = [
+            .hardcover: fromHardcover, .googleBooks: await google, .openLibrary: await openLibrary, .amazon: await amazon
+        ]
+        let all = enabled.flatMap { results[$0] ?? [] }
         guard let language = book.language else { return all }
-        let inLanguage = all.filter { $0.language == language }
-        let others = all.filter { $0.language != language }
-        return inLanguage + others
+        return all.compactMap { candidate in
+            // Catalogs default to English, so English books also keep unlabelled results.
+            if candidate.language == language || (language == "en" && candidate.language == nil) { return candidate }
+            // Unknown or other language: keep only what doesn't depend on language.
+            guard candidate.series != nil else { return nil }
+            var neutral = FolioMetadataCandidate(source: candidate.source)
+            neutral.series = candidate.series
+            neutral.seriesIndex = candidate.seriesIndex
+            neutral.author = candidate.author
+            return neutral
+        }
+    }
+
+    /// Amazon's store for a language, as Calibre picks one.
+    static func amazonHost(_ language: String?) -> String {
+        switch language {
+        case "es": "www.amazon.es"
+        case "fr": "www.amazon.fr"
+        case "de": "www.amazon.de"
+        case "it": "www.amazon.it"
+        case "nl": "www.amazon.nl"
+        case "pt": "www.amazon.com.br"
+        case "ja": "www.amazon.co.jp"
+        case "sv": "www.amazon.se"
+        case "pl": "www.amazon.pl"
+        case "tr": "www.amazon.com.tr"
+        default: "www.amazon.com"
+        }
+    }
+
+    /// Book search on the Amazon store for the book's language: titles and full-size covers.
+    /// Amazon has no public API, so this reads the search page and gives up quietly when blocked.
+    static func amazon(title: String, author: String, language: String?) async -> [FolioMetadataCandidate] {
+        let host = amazonHost(language)
+        var components = URLComponents(string: "https://\(host)/s")!
+        let surname = FolioAuthorNames.split(author).first ?? author
+        components.queryItems = [URLQueryItem(name: "k", value: "\(FolioHardcoverMatch.plainTitle(title)) \(surname)"),
+                                 URLQueryItem(name: "i", value: "stripbooks")]
+        guard let url = components.url else { return [] }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 15
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+                         forHTTPHeaderField: "User-Agent")
+        request.setValue("\(language ?? "en"),en;q=0.5", forHTTPHeaderField: "Accept-Language")
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let html = String(data: data, encoding: .utf8) else {
+            FolioLog.log("Amazon (\(host)) gave no results", "metadata")
+            return []
+        }
+        let wanted = Set(BookAutoMatch.words(title))
+        let pattern = #"<img[^>]*class="s-image"[^>]*>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        var out: [FolioMetadataCandidate] = []
+        var seen = Set<String>()
+        for match in regex.matches(in: html, range: NSRange(html.startIndex..., in: html)).prefix(16) {
+            guard let range = Range(match.range, in: html) else { continue }
+            let tag = String(html[range])
+            guard let src = attribute("src", in: tag), let alt = attribute("alt", in: tag) else { continue }
+            let name = decodeEntities(alt)
+            // Only results that are this book: most of its title words must appear.
+            let words = Set(BookAutoMatch.words(name))
+            guard !wanted.isEmpty, Double(wanted.intersection(words).count) / Double(wanted.count) >= 0.6 else { continue }
+            // "…/I/81abc._AC_UY218_.jpg" is a thumbnail; without the size suffix it is the full cover.
+            let full = src.replacingOccurrences(of: #"\._[^/]*_\."#, with: ".", options: .regularExpression)
+            guard seen.insert(full).inserted, let cover = URL(string: full) else { continue }
+            out.append(FolioMetadataCandidate(source: "Amazon \(host.replacingOccurrences(of: "www.amazon", with: ""))",
+                                              title: name, language: language, coverURL: cover))
+            if out.count >= 5 { break }
+        }
+        return out
+    }
+
+    private static func attribute(_ name: String, in tag: String) -> String? {
+        guard let range = tag.range(of: #"\b"# + name + #"="([^"]*)""#, options: .regularExpression) else { return nil }
+        let value = tag[range].dropFirst(name.count + 2).dropLast()
+        return value.isEmpty ? nil : String(value)
+    }
+
+    private static func decodeEntities(_ text: String) -> String {
+        var out = text
+        for (entity, value) in ["&amp;": "&", "&quot;": "\"", "&#39;": "'", "&apos;": "'", "&lt;": "<", "&gt;": ">"] {
+            out = out.replacingOccurrences(of: entity, with: value)
+        }
+        return out
     }
 
     static func hardcover(_ book: LocalBook, client: HardcoverClient) async -> [FolioMetadataCandidate] {
@@ -203,6 +339,7 @@ struct FolioMobileMetadataFixer: View {
     @State private var failure: String?
     @State private var writeFile = true
     @State private var expandedSummaries = false
+    @State private var editingSources = false
 
     @State private var title = ""
     @State private var author = ""
@@ -258,10 +395,18 @@ struct FolioMobileMetadataFixer: View {
                 ToolbarItem(placement: .confirmationAction) {
                     if saving { ProgressView() } else { Button("Save") { Task { await save() } }.disabled(title.isEmpty) }
                 }
+                ToolbarItem(placement: .bottomBar) {
+                    Button("Sources", systemImage: "list.number") { editingSources = true }
+                }
+            }
+            .sheet(isPresented: $editingSources) {
+                FolioMetadataSourcesEditor {
+                    Task { await search() }
+                }
             }
             .overlay(alignment: .top) {
                 if loading {
-                    Label("Searching Hardcover, Google Books and Open Library", systemImage: "magnifyingglass")
+                    Label("Searching \(FolioMetadataSource.enabled.map(\.name).formatted(.list(type: .and)))", systemImage: "magnifyingglass")
                         .font(.footnote)
                         .padding(.horizontal, 14).padding(.vertical, 8)
                         .background(FolioTheme.cream, in: Capsule())
@@ -390,6 +535,13 @@ struct FolioMobileMetadataFixer: View {
         year = book.publishedYear.map(String.init) ?? ""
         pages = book.hardcoverPages.map(String.init) ?? ""
         writeFile = book.format == .epub
+        await search()
+    }
+
+    @MainActor
+    private func search() async {
+        guard let book else { return }
+        loading = true
         candidates = await FolioMetadataSources.all(for: book, hardcover: hardcover)
         loading = false
     }
@@ -428,6 +580,7 @@ struct FolioMobileBulkMetadataFixer: View {
     @State private var writeFiles = true
     @State private var running = false
     @State private var done: [UUID: String] = [:]
+    @State private var editingSources = false
 
     private var needing: [LocalBook] {
         library.books.filter { b in
@@ -441,9 +594,13 @@ struct FolioMobileBulkMetadataFixer: View {
             List {
                 Section {
                     Toggle("Write into EPUB files", isOn: $writeFiles).disabled(running)
+                    Button("Sources: \(FolioMetadataSource.enabled.map(\.name).joined(separator: ", "))",
+                           systemImage: "list.number") { editingSources = true }
+                        .disabled(running)
                 } footer: {
-                    Text("Fills only empty fields and missing covers. Originals are kept in EPUB Backups.")
+                    Text("Fills only empty fields and missing covers, from sources in each book's own language. Originals are kept in EPUB Backups.")
                 }
+                .sheet(isPresented: $editingSources) { FolioMetadataSourcesEditor() }
                 .folioRow()
                 Section("\(needing.count) books with gaps") {
                     ForEach(needing) { book in
@@ -496,6 +653,54 @@ struct FolioMobileBulkMetadataFixer: View {
             }
             // Stay well within Hardcover's request limits.
             try? await Task.sleep(for: .seconds(1))
+        }
+    }
+}
+
+// MARK: - Source preferences
+
+/// Which sources Fix Metadata asks, and in what order: earlier sources win when
+/// the library-wide fixer fills gaps, and lead the suggestions on a single book.
+struct FolioMetadataSourcesEditor: View {
+    var onChange: () -> Void = {}
+    @Environment(\.dismiss) private var dismiss
+    @State private var order = FolioMetadataSource.ordered
+    @State private var disabled = FolioMetadataSource.disabled
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(order) { source in
+                        Toggle(isOn: Binding(
+                            get: { !disabled.contains(source) },
+                            set: { on in if on { disabled.remove(source) } else { disabled.insert(source) } }
+                        )) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(source.name)
+                                Text(source.note).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .onMove { order.move(fromOffsets: $0, toOffset: $1) }
+                } footer: {
+                    Text("Drag to set priority. Only results in the book's own language are suggested.")
+                }
+                .folioRow()
+            }
+            .environment(\.editMode, .constant(.active))
+            .folioScreen()
+            .navigationTitle("Metadata Sources")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        FolioMetadataSource.save(order: order, disabled: disabled)
+                        onChange()
+                        dismiss()
+                    }
+                }
+            }
         }
     }
 }
