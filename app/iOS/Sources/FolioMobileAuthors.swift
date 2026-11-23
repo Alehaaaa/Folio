@@ -571,7 +571,7 @@ enum FolioSeriesCache {
         return dir
     }
 
-    static func isMain(_ position: Double?) -> Bool {
+    nonisolated static func isMain(_ position: Double?) -> Bool {
         guard let position else { return false }
         return position >= 1 && position == position.rounded()
     }
