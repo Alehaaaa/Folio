@@ -38,12 +38,15 @@ struct FolioReadingGoals {
     var yearFraction: Double { Double(booksThisYear) / Double(yearlyGoal) }
 }
 
-/// Ring colors from the nook's cloth: rust, slate and forest, stepped for light and
-/// dark paper (checked for color-blind separation; each ring is also labeled).
+/// Ring colors are tones of the app's own ink: cream (dark ink on light paper) for
+/// minutes, olive for the week and wood for the year, so the rings sit in the header
+/// like the type does. Each ring is also labeled on the Reading page.
 enum FolioRingColors {
-    static let minutes = tone(light: 0xA84E30, dark: 0xE0704F)
-    static let week = tone(light: 0x33678F, dark: 0x6596C4)
-    static let year = tone(light: 0x567F36, dark: 0x68A85A)
+    static let minutes = tone(light: 0x29352B, dark: 0xE9E6D9)
+    static let week = tone(light: 0x6F8059, dark: 0xB4C39C)
+    static let year = tone(light: 0xA9825C, dark: 0xC9A27A)
+    /// The empty part of every ring: the hairline color, a little stronger.
+    static let track = tone(light: 0xE2E1D6, dark: 0x2C332B)
 
     private static func tone(light: UInt32, dark: UInt32) -> Color {
         Color(UIColor { traits in
@@ -66,7 +69,7 @@ struct FolioRadialBar: View {
     var body: some View {
         let value = max(0, shown)
         ZStack {
-            Circle().stroke(color.opacity(0.16), lineWidth: lineWidth)
+            Circle().stroke(FolioRingColors.track, lineWidth: lineWidth)
             Circle()
                 .trim(from: 0, to: min(1, value))
                 .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
