@@ -581,11 +581,13 @@ final class HardcoverClient {
         if let d = try? await query("""
         query Trending($from: date!, $to: date!) { books_trending(from: $from, to: $to, limit: 30, offset: 0) { ids } }
         """, ["from": from.isoDay, "to": to.isoDay]) {
-            let ids = d["books_trending"]["ids"].array.compactMap(\.int)
+            // Hardcover can repeat an id in the trending list, so keep the first of each.
+            var seen = Set<Int>()
+            let ids = d["books_trending"]["ids"].array.compactMap(\.int).filter { seen.insert($0).inserted }
             if !ids.isEmpty {
                 let b = try await query("query Books($ids: [Int!]) { books(where: {id: {_in: $ids}}) { \(Self.bookFields) } }", ["ids": ids])
                 let books = b["books"].array.compactMap(HCBook.from(book:))
-                let order = Dictionary(uniqueKeysWithValues: ids.enumerated().map { ($1, $0) })
+                let order = Dictionary(ids.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
                 return books.sorted { (order[$0.id] ?? 0) < (order[$1.id] ?? 0) }
             }
         }

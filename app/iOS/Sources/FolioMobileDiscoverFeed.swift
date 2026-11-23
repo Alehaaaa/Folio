@@ -221,7 +221,7 @@ final class FolioMobileDiscoverFeed {
 
     init() {
         if let cache = Self.readCache() {
-            books = cache.books.mapValues { $0.map(\.value) }
+            books = cache.books.mapValues { FolioMobileDiscoverySections.unique($0.map(\.value)) }
             lastRefresh = cache.savedAt
         }
     }
@@ -255,9 +255,11 @@ final class FolioMobileDiscoverFeed {
         await withTaskGroup(of: (String, Result<[HCBook], Error>).self) { group in
             var queue = topics[...]
             for _ in 0..<4 { if let topic = queue.popFirst() { add(topic, to: &group) } }
-            for await (id, result) in group {
+            while let (id, result) = await group.next() {
                 switch result {
-                case .success(let list):
+                case .success(let found):
+                    // Rows are lazy stacks keyed by book id, and a repeated id crashes them.
+                    let list = FolioMobileDiscoverySections.unique(found)
                     fresh[id] = list
                     // Replace a row only when it has new books, so nothing flickers away.
                     if list.count >= 3 || books[id] == nil { books[id] = list }
