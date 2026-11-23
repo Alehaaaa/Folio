@@ -165,9 +165,7 @@ struct FolioMobileShelvesView: View {
                             else { selectedTracked = entry.goodreads }
                         } label: {
                             HStack(alignment: .top, spacing: 12) {
-                                AsyncImage(url: entry.cover) { image in
-                                    image.resizable().scaledToFill()
-                                } placeholder: {
+                                FolioCachedImage(url: entry.cover) {
                                     FolioClothCover(title: entry.title, compact: true)
                                 }
                                 .frame(width: 65, height: 93)

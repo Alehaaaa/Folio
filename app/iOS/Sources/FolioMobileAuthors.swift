@@ -193,8 +193,13 @@ enum FolioAuthorCache {
     static func resolve(_ name: String, hardcover: HardcoverClient) async -> Author? {
         if let cached = author(name), Date().timeIntervalSince(cached.checked) < 60 * 60 * 24 * 14 { return cached }
         guard hardcover.isConnected else { return author(name) }
-        guard let found = try? await hardcover.author(named: name) else { return author(name) }
-        save(author: found, for: name)
+        do {
+            // Remember misses too, so unknown names are not looked up every launch.
+            let found = try await hardcover.author(named: name)
+            save(author: found, for: name)
+        } catch {
+            return author(name)
+        }
         return author(name)
     }
 }
@@ -214,16 +219,12 @@ struct FolioAuthorPortrait: View {
     }
 
     var body: some View {
-        AsyncImage(url: url) { phase in
-            if case .success(let image) = phase {
-                image.resizable().scaledToFill()
-            } else {
-                ZStack {
-                    FolioTheme.spine(for: name)
-                    Text(initials)
-                        .font(.system(size: size * 0.34, weight: .regular, design: .serif))
-                        .foregroundStyle(Color(hex: "#F3EBD8"))
-                }
+        FolioCachedImage(url: url) {
+            ZStack {
+                FolioTheme.spine(for: name)
+                Text(initials)
+                    .font(.system(size: size * 0.34, weight: .regular, design: .serif))
+                    .foregroundStyle(Color(hex: "#F3EBD8"))
             }
         }
         .frame(width: size, height: size)
@@ -802,7 +803,9 @@ struct FolioMobileAuthorRows: View {
                 ForEach(authors, id: \.key) { author in
                     NavigationLink(value: FolioMobileAuthorRoute(name: author.name, id: author.id)) {
                         VStack(spacing: 8) {
-                            FolioAuthorPortrait(name: author.name, url: portraits[FolioAuthorNames.key(author.name)], size: 78)
+                            FolioAuthorPortrait(name: author.name,
+                                                url: portraits[author.key] ?? FolioAuthorCache.author(author.name)?.imageURL,
+                                                size: 78)
                                 .overlay(alignment: .bottomTrailing) {
                                     if author.following {
                                         Image(systemName: "checkmark.circle.fill")
@@ -827,9 +830,12 @@ struct FolioMobileAuthorRows: View {
             }
             .task(id: "\(followKey)-\(hardcover.isConnected)") { await loadFollowedBooks() }
         }
-        if !followedBooks.isEmpty {
+        // The saved row shows on the first frame; the task only refreshes it.
+        let shownBooks = followedBooks.isEmpty && !follows.authors.isEmpty
+            ? (FolioAuthorCache.followedBooks(key: followKey)?.books ?? []) : followedBooks
+        if !shownBooks.isEmpty {
             FolioMobileRow(title: "From authors you follow") {
-                ForEach(followedBooks) { book in
+                ForEach(shownBooks) { book in
                     FolioMobileRemoteBookTile(book: book, width: min(tileWidth, 180))
                 }
             }

@@ -16,8 +16,8 @@ struct FolioMobileBookDetail: View {
     @State private var downloads = DownloadQueue.shared
     @State private var remoteDetails: HCBook?
     @State private var myHardcoverBook: HCUserBook?
-    @State private var bookSeries: [(id: Int, name: String, position: Double?)] = []
-    @State private var seriesEntries: [(position: Double?, book: HCBook)] = []
+    @State private var bookSeries: [HCBookSeries] = []
+    @State private var seriesEntries: [HCSeriesBook] = []
     @State private var stats: HCBookStats?
     @State private var edition: HCEdition?
     @State private var topReviews: [HCReview] = []
@@ -36,12 +36,30 @@ struct FolioMobileBookDetail: View {
     init(bookID: UUID) {
         localBookID = bookID
         initialRemote = nil
+        if let id = LibraryStore.shared.book(bookID)?.hardcoverBookID { restore(FolioBookPageCache.load(id)) }
     }
 
     init(book: HCBook) {
         localBookID = nil
         initialRemote = book
         _remoteDetails = State(initialValue: book)
+        if book.id > 0 { restore(FolioBookPageCache.load(book.id)) }
+    }
+
+    /// Open with the last data shown for this book, so nothing pops in later.
+    private mutating func restore(_ snapshot: FolioBookPageCache.Snapshot?) {
+        guard let snapshot else { return }
+        let page = snapshot.page
+        if let book = page.book { _remoteDetails = State(initialValue: book) }
+        _myHardcoverBook = State(initialValue: page.userBook)
+        _stats = State(initialValue: page.stats)
+        _edition = State(initialValue: page.edition)
+        _bookSeries = State(initialValue: page.series)
+        _seriesEntries = State(initialValue: snapshot.seriesBooks)
+        _topReviews = State(initialValue: snapshot.reviews)
+        if let total = page.book?.pages ?? page.edition?.pages, total > 0 {
+            _remoteProgress = State(initialValue: min(1, Double(page.userBook?.progressPages ?? 0) / Double(total)))
+        }
     }
 
     private var local: LocalBook? {
@@ -184,7 +202,7 @@ struct FolioMobileBookDetail: View {
                 }
             }
         }
-        .task(id: linkedID) { await loadHardcoverData() }
+        .task(id: "\(linkedID ?? 0)-\(hardcover.isConnected)") { await loadHardcoverData() }
     }
 
     // MARK: Hero
@@ -209,11 +227,64 @@ struct FolioMobileBookDetail: View {
                     .foregroundStyle(FolioTheme.ink)
                     .fixedSize(horizontal: false, vertical: true)
                 byline
+                heroFacts
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 6)
+    }
+
+    /// The quick facts good reading apps put beside the cover: community
+    /// rating, place in the series, length and year. Each opens its page.
+    @ViewBuilder
+    private var heroFacts: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            if let linkedID, let rating = stats?.rating ?? remote?.rating, rating > 0 {
+                NavigationLink(value: FolioMobileRatingsRoute(bookID: linkedID, title: title)) {
+                    HStack(spacing: 6) {
+                        FolioStars(rating: rating, size: 13)
+                        Text(rating.formatted(.number.precision(.fractionLength(2))))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(FolioTheme.ink)
+                        if let count = stats?.ratingsCount ?? remote?.ratingsCount, count > 0 {
+                            Text("(\(count.formatted(.number.notation(.compactName))))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .monospacedDigit()
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Show ratings and reviews")
+            }
+            if let series = bookSeries.first {
+                NavigationLink(value: FolioMobileSeriesRoute(id: series.id, name: series.name, currentBookID: linkedID)) {
+                    Label {
+                        Text(series.position.map { "Book \($0.formatted()) of \(series.name)" } ?? series.name)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    } icon: {
+                        Image(systemName: "books.vertical")
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(FolioTheme.olive)
+                }
+                .buttonStyle(.plain)
+            } else if let local, let series = nonEmpty(local.series) {
+                Label(local.seriesIndex.map { "Book \($0.formatted()) of \(series)" } ?? series, systemImage: "books.vertical")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            let facts = [pages.map { "\($0.formatted()) pages" }, (local?.publishedYear ?? remote?.year).map { String($0) }]
+                .compactMap { $0 }
+            if !facts.isEmpty {
+                Text(facts.joined(separator: " · "))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.top, 2)
     }
 
     /// Each author opens their page.
@@ -458,6 +529,7 @@ struct FolioMobileBookDetail: View {
                         await hardcover.setRating(userBookID: item.id, rating: Double(number))
                         if let linkedID {
                             myHardcoverBook = try? await hardcover.userBook(bookID: linkedID)
+                            saveSnapshot()
                         }
                     }
                 } label: {
@@ -480,7 +552,12 @@ struct FolioMobileBookDetail: View {
             busy = true
             let updated = await hardcover.setStatus(bookID: linkedID, status: status)
             busy = false
-            if let updated { myHardcoverBook = updated } else { showError(hardcover.lastError ?? "Could not update status.") }
+            if let updated {
+                myHardcoverBook = updated
+                saveSnapshot()
+            } else {
+                showError(hardcover.lastError ?? "Could not update status.")
+            }
         }
     }
 
@@ -577,7 +654,7 @@ struct FolioMobileBookDetail: View {
                     ScrollViewReader { proxy in
                         ScrollView(.horizontal, showsIndicators: false) {
                             LazyHStack(alignment: .top, spacing: 12) {
-                                ForEach(seriesEntries, id: \.book.id) { entry in
+                                ForEach(seriesEntries) { entry in
                                     seriesTile(entry)
                                 }
                             }
@@ -604,7 +681,7 @@ struct FolioMobileBookDetail: View {
         }
     }
 
-    private func seriesTile(_ entry: (position: Double?, book: HCBook)) -> some View {
+    private func seriesTile(_ entry: HCSeriesBook) -> some View {
         let isCurrent = entry.book.id == linkedID
         return NavigationLink(value: entry.book) {
             VStack(alignment: .leading, spacing: 6) {
@@ -627,7 +704,13 @@ struct FolioMobileBookDetail: View {
         .accessibilityLabel("\(entry.position.map { "Book \($0.formatted()), " } ?? "")\(entry.book.title)")
     }
 
+    private var hasDetails: Bool {
+        local != nil || edition != nil || nonEmpty(local?.publisher) != nil
+    }
+
+    @ViewBuilder
     private var detailsSection: some View {
+        if hasDetails {
         VStack(alignment: .leading, spacing: 11) {
             Text("Details").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
             if let publisher = nonEmpty(local?.publisher) ?? nonEmpty(edition?.publisher) {
@@ -636,7 +719,6 @@ struct FolioMobileBookDetail: View {
             if let published = publishedText {
                 LabeledContent("Published", value: published)
             }
-            if let pages { LabeledContent("Pages", value: pages.formatted()) }
             if let format = nonEmpty(edition?.format) {
                 LabeledContent("Edition", value: format.capitalized)
             }
@@ -647,9 +729,6 @@ struct FolioMobileBookDetail: View {
             if let isbn = nonEmpty(local?.isbn) ?? nonEmpty(edition?.isbn13) ?? nonEmpty(edition?.isbn10) {
                 LabeledContent("ISBN") { Text(isbn).textSelection(.enabled).monospacedDigit() }
             }
-            if bookSeries.isEmpty, let local, let series = nonEmpty(local.series) {
-                LabeledContent("Series", value: local.seriesIndex.map { "\(series) #\($0.formatted())" } ?? series)
-            }
             if let local {
                 LabeledContent("File", value: local.format.label)
                 LabeledContent("Added", value: local.addedAt.formatted(date: .abbreviated, time: .omitted))
@@ -657,11 +736,13 @@ struct FolioMobileBookDetail: View {
         }
         .font(.subheadline)
         .detailPanel()
+        }
     }
 
     private var publishedText: String? {
-        if let date = stats?.releaseDate ?? edition?.releaseDate { return date.folioReadableDate }
-        return (local?.publishedYear ?? remote?.year).map { String($0) }
+        // The year is already beside the cover; only a full date adds anything.
+        guard let date = stats?.releaseDate ?? edition?.releaseDate, date.count >= 10 else { return nil }
+        return date.folioReadableDate
     }
 
     private func nonEmpty(_ value: String?) -> String? {
@@ -700,6 +781,69 @@ struct FolioMobileBookDetail: View {
             $0.hardcoverAutoLinkChecked = true
         }
         remoteDetails = nil
+        clearHardcoverData()
+    }
+
+    /// Shows the cached page (if this is a different book than what is on
+    /// screen), then refreshes from Hardcover. A failed refresh keeps what is shown.
+    @MainActor
+    private func loadHardcoverData() async {
+        guard let linkedID else { return }
+        if remoteDetails?.id != linkedID {
+            clearHardcoverData()
+            if let snapshot = FolioBookPageCache.load(linkedID) { apply(snapshot) }
+        }
+        guard hardcover.isConnected else { return }
+        if let local { FolioHardcoverProgressSync.push(local.id, store: library, hardcover: hardcover) }
+        // Hardcover limits requests per minute: reviews, bars and the series of a
+        // page seen moments ago are fresh enough; only the book and your shelf reload.
+        let recentlyLoaded = FolioBookPageCache.load(linkedID).map {
+            Date().timeIntervalSince($0.saved) < 10 * 60 && !$0.seriesBooks.isEmpty == !$0.page.series.isEmpty
+        } ?? false
+        guard let page = try? await hardcover.bookPage(id: linkedID), !Task.isCancelled else { return }
+        if let book = page.book { remoteDetails = book }
+        myHardcoverBook = page.userBook
+        if let total = pages, total > 0 {
+            remoteProgress = min(1, Double(myHardcoverBook?.progressPages ?? 0) / Double(total))
+        }
+        edition = page.edition
+        bookSeries = page.series
+        var fresh = page.stats
+        // Keep the bars on screen while the distribution refreshes.
+        if let old = stats?.distribution, !old.isEmpty { fresh?.distribution = old }
+        stats = fresh
+        if recentlyLoaded {
+            saveSnapshot()
+            return
+        }
+        saveSnapshot()
+
+        async let distribution = hardcover.ratingDistribution(bookID: linkedID)
+        async let reviews = try? hardcover.reviews(bookID: linkedID, limit: 2)
+        if let first = bookSeries.first {
+            let rows = (try? await hardcover.seriesBooks(first.id)) ?? []
+            if !rows.isEmpty { seriesEntries = rows.map { HCSeriesBook(position: $0.position, book: $0.book) } }
+        } else {
+            seriesEntries = []
+        }
+        let bars = await distribution
+        if !bars.isEmpty { stats?.distribution = bars }
+        if let list = await reviews { topReviews = list }
+        guard !Task.isCancelled else { return }
+        saveSnapshot()
+    }
+
+    private func apply(_ snapshot: FolioBookPageCache.Snapshot) {
+        if let book = snapshot.page.book { remoteDetails = book }
+        myHardcoverBook = snapshot.page.userBook
+        stats = snapshot.page.stats
+        edition = snapshot.page.edition
+        bookSeries = snapshot.page.series
+        seriesEntries = snapshot.seriesBooks
+        topReviews = snapshot.reviews
+    }
+
+    private func clearHardcoverData() {
         myHardcoverBook = nil
         bookSeries = []
         seriesEntries = []
@@ -708,34 +852,11 @@ struct FolioMobileBookDetail: View {
         topReviews = []
     }
 
-    @MainActor
-    private func loadHardcoverData() async {
-        myHardcoverBook = nil
-        bookSeries = []
-        seriesEntries = []
-        stats = nil
-        edition = nil
-        topReviews = []
-        guard let linkedID, hardcover.isConnected else { return }
-        if let local { FolioHardcoverProgressSync.push(local.id, store: library, hardcover: hardcover) }
-        if let refreshed = try? await hardcover.book(id: linkedID) {
-            remoteDetails = refreshed
-        }
-        myHardcoverBook = try? await hardcover.userBook(bookID: linkedID)
-        if let total = pages, total > 0 {
-            remoteProgress = min(1, Double(myHardcoverBook?.progressPages ?? 0) / Double(total))
-        }
-        async let loadedStats = try? hardcover.stats(bookID: linkedID)
-        async let loadedEdition = try? hardcover.edition(bookID: linkedID)
-        async let loadedSeries = try? hardcover.series(forBook: linkedID)
-        async let loadedReviews = try? hardcover.reviews(bookID: linkedID, limit: 2)
-        bookSeries = (await loadedSeries) ?? []
-        stats = await loadedStats
-        edition = await loadedEdition
-        topReviews = (await loadedReviews) ?? []
-        if let first = bookSeries.first {
-            seriesEntries = (try? await hardcover.seriesBooks(first.id)) ?? []
-        }
+    private func saveSnapshot() {
+        guard let linkedID, remoteDetails?.id == linkedID else { return }
+        let page = HCBookPage(book: remoteDetails, userBook: myHardcoverBook, stats: stats,
+                              edition: edition, series: bookSeries)
+        FolioBookPageCache.save(.init(page: page, seriesBooks: seriesEntries, reviews: topReviews), for: linkedID)
     }
 
     @MainActor

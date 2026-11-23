@@ -558,9 +558,7 @@ struct FolioMobileRemoteCover: View {
 
     var body: some View {
         GeometryReader { geometry in
-            AsyncImage(url: url) { image in
-                image.resizable().scaledToFill()
-            } placeholder: {
+            FolioCachedImage(url: url) {
                 FolioClothCover(title: title, compact: true)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)

@@ -96,7 +96,7 @@ enum HCStatus: Int, CaseIterable, Identifiable, Codable {
     }
 }
 
-struct HCBook: Identifiable, Hashable {
+struct HCBook: Identifiable, Hashable, Codable {
     var id: Int
     var title: String
     var authors: String
@@ -200,7 +200,7 @@ struct HCAuthor: Identifiable, Hashable {
 }
 
 /// Community numbers for a book's ratings page.
-struct HCBookStats: Hashable {
+struct HCBookStats: Hashable, Codable {
     var rating: Double?
     var ratingsCount: Int?
     var reviewsCount: Int?
@@ -211,7 +211,7 @@ struct HCBookStats: Hashable {
     var distribution: [Int] = []
 }
 
-struct HCEdition: Hashable {
+struct HCEdition: Hashable, Codable {
     var publisher: String?
     var releaseDate: String?
     var pages: Int?
@@ -222,7 +222,7 @@ struct HCEdition: Hashable {
     var editionsCount: Int?
 }
 
-struct HCReview: Identifiable, Hashable {
+struct HCReview: Identifiable, Hashable, Codable {
     var id: Int
     var rating: Double?
     var text: String
@@ -233,6 +233,28 @@ struct HCReview: Identifiable, Hashable {
     var userImage: URL?
 }
 
+/// A series a book belongs to, with the book's place in it.
+struct HCBookSeries: Identifiable, Hashable, Codable {
+    var id: Int
+    var name: String
+    var position: Double?
+}
+
+struct HCSeriesBook: Identifiable, Hashable, Codable {
+    var position: Double?
+    var book: HCBook
+    var id: Int { book.id }
+}
+
+/// Everything the book page shows from Hardcover, fetched in one request.
+struct HCBookPage: Codable {
+    var book: HCBook?
+    var userBook: HCUserBook?
+    var stats: HCBookStats?
+    var edition: HCEdition?
+    var series: [HCBookSeries] = []
+}
+
 struct HCSeriesRef: Identifiable, Hashable {
     var id: Int
     var name: String
@@ -241,7 +263,7 @@ struct HCSeriesRef: Identifiable, Hashable {
     var bookIDs: [Int] = []
 }
 
-struct HCUserBook: Identifiable, Hashable {
+struct HCUserBook: Identifiable, Hashable, Codable {
     var id: Int
     var status: HCStatus?
     var rating: Double?
@@ -269,7 +291,7 @@ struct HCUserBook: Identifiable, Hashable {
     }
 }
 
-struct HCUser: Hashable {
+struct HCUser: Hashable, Codable {
     var id: Int
     var username: String
     var name: String?
@@ -330,10 +352,19 @@ final class HardcoverClient {
         // production keychain item (which can block launch behind a prompt).
         token = ProcessInfo.processInfo.environment["FOLIO_PREVIEW_NO_KEYCHAIN"] == "1"
             ? nil : Keychain.read()
+        // Start signed in as the last known account, so cached shelves and pages
+        // show at launch instead of waiting for the account check.
+        if token != nil, let data = UserDefaults.standard.data(forKey: Self.userDefaultsKey) {
+            user = try? JSONDecoder().decode(HCUser.self, from: data)
+        }
     }
 
+    private static let userDefaultsKey = "folio.hardcover.user"
+
+    private var verified = false
+
     func restore() async {
-        guard token != nil, user == nil else { return }
+        guard token != nil, !verified, !connecting else { return }
         await loadMe()
     }
 
@@ -352,6 +383,8 @@ final class HardcoverClient {
     }
 
     func disconnect() {
+        UserDefaults.standard.removeObject(forKey: Self.userDefaultsKey)
+        verified = false
         Keychain.write(nil)
         token = nil
         user = nil
@@ -365,13 +398,22 @@ final class HardcoverClient {
             let d = try await query("query { me { id username name image { url } } }")
             let me = d["me"].array.first ?? d["me"]
             guard let id = me["id"].int else { throw HCError(message: "Hardcover didn't recognise this token.") }
-            user = HCUser(id: id, username: me["username"].string ?? "reader", name: me["name"].string,
-                          imageURL: me["image"]["url"].string.flatMap(URL.init(string:)))
+            let fresh = HCUser(id: id, username: me["username"].string ?? "reader", name: me["name"].string,
+                               imageURL: me["image"]["url"].string.flatMap(URL.init(string:)))
+            let changed = fresh != user
+            user = fresh
+            verified = true
+            if let data = try? JSONEncoder().encode(fresh) { UserDefaults.standard.set(data, forKey: Self.userDefaultsKey) }
             lastError = nil
-            revision += 1
+            // The cached account already loaded everything; only reload for a different one.
+            if changed { revision += 1 }
             LibraryStore.shared.enqueueUnlinkedEPUBs()
+        } catch is URLError {
+            // Offline or slow network: keep the last known account and its cached data.
+            lastError = nil
         } catch {
             user = nil
+            UserDefaults.standard.removeObject(forKey: Self.userDefaultsKey)
             lastError = error.localizedDescription
         }
     }
@@ -629,7 +671,7 @@ final class HardcoverClient {
         return out.sorted { $0.bookIDs.count > $1.bookIDs.count }
     }
 
-    func stats(bookID: Int) async throws -> HCBookStats {
+    func stats(bookID: Int, distribution: Bool = true) async throws -> HCBookStats {
         let d = try await query("""
         query BookStats($id: Int!) { books(where: {id: {_eq: $id}}, limit: 1) { rating ratings_count reviews_count users_count users_read_count release_date } }
         """, ["id": bookID])
@@ -637,13 +679,13 @@ final class HardcoverClient {
         var stats = HCBookStats(rating: b["rating"].double, ratingsCount: b["ratings_count"].int,
                                 reviewsCount: b["reviews_count"].int, readersCount: b["users_count"].int,
                                 readCount: b["users_read_count"].int, releaseDate: b["release_date"].string)
-        stats.distribution = await ratingDistribution(bookID: bookID)
+        if distribution { stats.distribution = await ratingDistribution(bookID: bookID) }
         return stats
     }
 
     /// Counts per star (5 to 1). Uses Hardcover's stored distribution when it is
     /// available, otherwise tallies a sample of up to 1,000 public ratings.
-    private func ratingDistribution(bookID: Int) async -> [Int] {
+    func ratingDistribution(bookID: Int) async -> [Int] {
         var buckets = [0, 0, 0, 0, 0]
         func add(_ rating: Double, _ count: Int) {
             guard rating > 0 else { return }
@@ -674,12 +716,69 @@ final class HardcoverClient {
         let d = try await query("""
         query Edition($id: Int!) { editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 1) { release_date pages isbn_10 isbn_13 edition_format physical_format publisher { name } language { language } } }
         """, ["id": bookID])
-        guard let e = d["editions"].array.first else { return nil }
+        return d["editions"].array.first.map(Self.edition(from:))
+    }
+
+    static let editionFields = "release_date pages isbn_10 isbn_13 edition_format physical_format publisher { name } language { language }"
+
+    static func edition(from e: JSON) -> HCEdition {
         let format = [e["edition_format"].string, e["physical_format"].string]
             .compactMap { $0?.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
         return HCEdition(publisher: e["publisher"]["name"].string, releaseDate: e["release_date"].string,
                          pages: e["pages"].int, isbn13: e["isbn_13"].string, isbn10: e["isbn_10"].string,
                          format: format, language: e["language"]["language"].string)
+    }
+
+    /// The book, your shelf entry, community numbers, main edition and series
+    /// in a single request (Hardcover rate-limits per request). Falls back to
+    /// separate requests if the combined one is refused.
+    func bookPage(id: Int) async throws -> HCBookPage {
+        let uid = user?.id ?? -1
+        do {
+            let d = try await query("""
+            query BookPage($id: Int!, $uid: Int!) {
+              books(where: {id: {_eq: $id}}, limit: 1) { \(Self.bookFields) reviews_count users_count users_read_count release_date }
+              editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 1) { \(Self.editionFields) }
+              book_series(where: {book_id: {_eq: $id}}) { position series { id name } }
+              user_books(where: {user_id: {_eq: $uid}, book_id: {_eq: $id}}, limit: 1) { \(Self.userBookFields) }
+            }
+            """, ["id": id, "uid": uid])
+            let b = d["books"].array.first ?? .null
+            return HCBookPage(
+                book: HCBook.from(book: b),
+                userBook: d["user_books"].array.first.flatMap(HCUserBook.from),
+                stats: HCBookStats(rating: b["rating"].double, ratingsCount: b["ratings_count"].int,
+                                   reviewsCount: b["reviews_count"].int, readersCount: b["users_count"].int,
+                                   readCount: b["users_read_count"].int, releaseDate: b["release_date"].string),
+                edition: d["editions"].array.first.map(Self.edition(from:)),
+                series: Self.dedupeSeries(d["book_series"].array)
+            )
+        } catch let error as HCError where error.message.contains("not found in type") || error.message.contains("field") {
+            // A field this request relies on is missing from the schema: fetch piece by piece.
+            _ = error
+            var page = HCBookPage()
+            page.book = try await book(id: id)
+            page.userBook = try? await userBook(bookID: id)
+            page.stats = try? await stats(bookID: id, distribution: false)
+            page.edition = try? await edition(bookID: id)
+            page.series = ((try? await series(forBook: id)) ?? []).map { HCBookSeries(id: $0.id, name: $0.name, position: $0.position) }
+            return page
+        }
+    }
+
+    static func dedupeSeries(_ rows: [JSON]) -> [HCBookSeries] {
+        var out: [HCBookSeries] = []
+        for r in rows {
+            guard let sid = r["series"]["id"].int, let name = r["series"]["name"].string else { continue }
+            let s = HCBookSeries(id: sid, name: name, position: r["position"].double)
+            let key = seriesKey(name)
+            if let i = out.firstIndex(where: { seriesKey($0.name) == key && ($0.position == nil || s.position == nil || $0.position == s.position) }) {
+                if s.name.count > out[i].name.count { out[i] = HCBookSeries(id: s.id, name: s.name, position: s.position ?? out[i].position) }
+            } else {
+                out.append(s)
+            }
+        }
+        return out
     }
 
     /// Public reviews, most-liked first.

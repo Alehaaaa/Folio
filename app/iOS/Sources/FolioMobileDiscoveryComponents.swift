@@ -12,27 +12,11 @@ struct FolioMobileRemoteBookTile: View {
         NavigationLink(value: book) {
             VStack(alignment: .leading, spacing: 7) {
                 GeometryReader { geometry in
-                    AsyncImage(url: book.imageURL, transaction: Transaction(animation: .easeInOut(duration: 0.18))) { phase in
-                        Group {
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .scaledToFill()
-                            case .empty, .failure:
-                                ZStack {
-                                    Color.secondary.opacity(0.10)
-                                    Image(systemName: "book.closed.fill")
-                                        .font(.title2)
-                                        .foregroundStyle(.secondary)
-                                }
-                            @unknown default:
-                                Color.secondary.opacity(0.1)
-                            }
-                        }
-                        .frame(width: geometry.size.width, height: geometry.size.height)
-                        .clipped()
+                    FolioCachedImage(url: book.imageURL) {
+                        FolioClothCover(title: book.title, compact: true)
                     }
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .clipped()
                 }
                 .aspectRatio(0.69, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
