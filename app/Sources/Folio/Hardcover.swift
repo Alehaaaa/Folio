@@ -696,10 +696,17 @@ final class HardcoverClient {
     /// page has always used (a single nested query proved unreliable on Hardcover); the page
     /// caches the result, so each author costs these requests at most twice a day.
     func authorPage(id: Int?, name: String) async throws -> HCAuthorPage? {
-        var found: HCAuthor?
-        if let id { found = try await author(id: id) }
-        if found == nil { found = try await author(named: name) }
-        guard let found else { return nil }
+        // With an id, the author and their books load side by side.
+        if let id {
+            async let fetchedAuthor = author(id: id)
+            async let fetchedBooks = authorBooks(id: id)
+            if let found = try await fetchedAuthor {
+                let books = try await fetchedBooks
+                let series = (try? await self.series(forBooks: books.prefix(80).map(\.id))) ?? []
+                return HCAuthorPage(author: found, books: books, series: series)
+            }
+        }
+        guard let found = try await author(named: name) else { return nil }
         let books = try await authorBooks(id: found.id)
         let series = (try? await self.series(forBooks: books.prefix(80).map(\.id))) ?? []
         return HCAuthorPage(author: found, books: books, series: series)

@@ -909,8 +909,17 @@ struct FolioMobileBookDetail: View {
         if authorID == nil, let name = authorRoutes.first?.name {
             authorID = await FolioAuthorCache.resolve(name, hardcover: hardcover)?.id
         }
-        if let authorID, let books = try? await hardcover.authorBooks(id: authorID) {
-            moreByAuthor = Array(books.filter { !skip.contains($0.id) }.prefix(20))
+        // Fetch the whole author page here (not just their books) and keep it, so tapping
+        // the author opens their page instantly. A fresh saved page costs no request at all.
+        if let name = authorRoutes.first?.name {
+            var books = FolioAuthorCache.page(name).flatMap {
+                Date().timeIntervalSince($0.saved) < 60 * 60 * 12 ? $0.page.books : nil
+            }
+            if books == nil, let page = try? await hardcover.authorPage(id: authorID, name: name) {
+                FolioAuthorCache.save(page: page, for: name)
+                books = page.books
+            }
+            if let books { moreByAuthor = Array(books.filter { !skip.contains($0.id) }.prefix(20)) }
         }
         let genres: [String]?
         if let known { genres = known } else { genres = try? await hardcover.genres(bookID: bookID) }
