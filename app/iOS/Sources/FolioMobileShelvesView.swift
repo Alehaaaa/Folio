@@ -199,6 +199,7 @@ struct FolioMobileShelvesView: View {
                             .padding(.horizontal, 17)
                         }
                         .buttonStyle(.plain)
+                        .folioShelfEntryContextMenu(entry) { Task { await refresh(includeGoodreads: false) } }
                         if entry.id != visible.last?.id {
                             Divider().overlay(FolioTheme.line).padding(.leading, 94)
                         }
