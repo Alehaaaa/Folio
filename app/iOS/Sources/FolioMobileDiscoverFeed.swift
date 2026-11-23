@@ -299,7 +299,7 @@ final class FolioMobileDiscoverFeed {
         var books: [String: [StoredBook]]
     }
 
-    private static var cacheURL: URL {
+    nonisolated private static var cacheURL: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("folio-discover-rows.json")
     }
