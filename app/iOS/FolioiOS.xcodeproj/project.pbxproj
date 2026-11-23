@@ -17,6 +17,10 @@
 			isa = PBXBuildFile;
 			fileRef = 231D3AAF77B346C42F1317CA /* FolioMobileDetails.swift */;
 		};
+		C796CE30405C580BBECDD613 /* FolioMobileDiscoverFeed.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = BCB66813003E9B2B579E739B /* FolioMobileDiscoverFeed.swift */;
+		};
 		B681837F2B1698C48CD368B0 /* FolioMobileDiscoveryComponents.swift in Sources */ = {
 			isa = PBXBuildFile;
 			fileRef = 61D80B4C822625BF26BA1DB5 /* FolioMobileDiscoveryComponents.swift */;
@@ -234,6 +238,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
 			path = FolioMobileDetails.swift;
+			sourceTree = "<group>";
+		};
+		BCB66813003E9B2B579E739B /* FolioMobileDiscoverFeed.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = FolioMobileDiscoverFeed.swift;
 			sourceTree = "<group>";
 		};
 		61D80B4C822625BF26BA1DB5 /* FolioMobileDiscoveryComponents.swift */ = {
@@ -545,6 +555,7 @@
 				314AD9E6A55CFF89BD17383E /* FolioMobileAnnotationTools.swift */,
 				23DE7052D2916CBB9F435565 /* FolioMobileBookshelf.swift */,
 				231D3AAF77B346C42F1317CA /* FolioMobileDetails.swift */,
+				BCB66813003E9B2B579E739B /* FolioMobileDiscoverFeed.swift */,
 				61D80B4C822625BF26BA1DB5 /* FolioMobileDiscoveryComponents.swift */,
 				D57C61C533127E6CEFD9EFB5 /* FolioMobileDownloadsView.swift */,
 				65F13F86A14420B918CECCA8 /* FolioMobileFindSourceView.swift */,
@@ -716,6 +727,7 @@
 				81C2CB702F1B591C50BF3F8A /* FolioMobileAnnotationTools.swift in Sources */,
 				6EF42DAB9C3E3CF22C3D68B8 /* FolioMobileBookshelf.swift in Sources */,
 				DBE23ED2BDF10CF4FEDF1EEF /* FolioMobileDetails.swift in Sources */,
+				C796CE30405C580BBECDD613 /* FolioMobileDiscoverFeed.swift in Sources */,
 				B681837F2B1698C48CD368B0 /* FolioMobileDiscoveryComponents.swift in Sources */,
 				B399D3ADA5D4E0F9F632C2E9 /* FolioMobileDownloadsView.swift in Sources */,
 				4181EFA54A051F82037A2CCE /* FolioMobileFindSourceView.swift in Sources */,
@@ -790,12 +802,12 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Resources/Folio.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 8;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 1.0.7;
 				PRODUCT_BUNDLE_IDENTIFIER = app.folio.reader.ios;
 				PRODUCT_NAME = Folio;
 				SUPPORTS_MACCATALYST = NO;
@@ -822,12 +834,12 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Resources/Folio.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 8;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 1.0.7;
 				PRODUCT_BUNDLE_IDENTIFIER = app.folio.reader.ios;
 				PRODUCT_NAME = Folio;
 				SUPPORTS_MACCATALYST = NO;
@@ -894,11 +906,11 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = WidgetExtension/FolioWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 8;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = WidgetExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks");
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 1.0.7;
 				PRODUCT_BUNDLE_IDENTIFIER = app.folio.reader.ios.widgets;
 				PRODUCT_MODULE_NAME = FolioWidgets;
 				PRODUCT_NAME = FolioWidgets;
@@ -927,11 +939,11 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = WidgetExtension/FolioWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 8;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = WidgetExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks");
-				MARKETING_VERSION = 1.0.5;
+				MARKETING_VERSION = 1.0.7;
 				PRODUCT_BUNDLE_IDENTIFIER = app.folio.reader.ios.widgets;
 				PRODUCT_MODULE_NAME = FolioWidgets;
 				PRODUCT_NAME = FolioWidgets;

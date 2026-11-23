@@ -72,6 +72,10 @@ enum FolioMobileLibraryScope: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum FolioMobileMoreRoute: Hashable {
+    case downloads, sources, settings
+}
+
 struct FolioMobileReading: Identifiable {
     let id: UUID
 }
@@ -83,6 +87,10 @@ final class FolioMobileNavigation {
     var reading: FolioMobileReading?
     /// Library shows either the imported books or the Hardcover/Goodreads shelves.
     var libraryScope: FolioMobileLibraryScope = .books
+    /// Pages pushed inside the More tab, so Downloads can be opened from anywhere.
+    var morePath: [FolioMobileMoreRoute] = []
+    /// iPhone layout: Downloads, Sources and Settings live under More.
+    var compactTabs = true
     var shelfStatus: HCStatus = .reading
 
     func openShelf(_ status: HCStatus) {
