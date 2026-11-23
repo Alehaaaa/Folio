@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.12",
+          "buildVersion": "13",
+          "date": "2026-11-23",
+          "localizedDescription": "Author pages, ratings and reviews, explorable series, simpler reading card (1.0.12)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.12-13.ipa",
+          "size": 3865523,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.11",
           "buildVersion": "12",
           "date": "2026-11-23",
