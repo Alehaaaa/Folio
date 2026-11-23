@@ -2,8 +2,8 @@ import SwiftUI
 import UIKit
 
 /// Folio's "reading nook" design language: warm paper backgrounds, deep
-/// forest ink, olive accents, New York serif display type, small spaced
-/// eyebrows and soft cream cards. Every color adapts to Dark Mode with a
+/// forest ink, olive accents, New York serif display type and soft cream
+/// cards. Every color adapts to Dark Mode with a
 /// low-light forest palette rather than the stock grey system colors.
 enum FolioTheme {
     // MARK: Palette
@@ -19,15 +19,13 @@ enum FolioTheme {
     /// App tint: deep forest ink in light mode, a brighter fern in dark mode
     /// so white labels on prominent buttons keep their contrast.
     static let accent = dynamic(light: 0x29352B, dark: 0x6F8660)
-    /// Olive accent: eyebrows, links and tinted icons.
+    /// Olive accent: links and tinted icons.
     static let olive = dynamic(light: 0x566447, dark: 0xB4C39C)
     /// Secondary text.
     static let muted = dynamic(light: 0x596356, dark: 0xA0A897)
     /// Hairline separators and card borders.
     static let line = dynamic(light: 0xD7D9CC, dark: 0x343C32)
-    /// Text drawn on top of `ink` (the prominent button label).
-    static let onInk = dynamic(light: 0xF5F2E9, dark: 0x1A2019)
-    /// Cream glass tint for floating chrome such as the reader toolbar.
+    /// Cream glass tint for floating notices.
     static let cream = dynamic(light: 0xFBF3DE, dark: 0x2A3128)
     /// Warm wood used by shelf frames.
     static let wood = dynamic(light: 0xA9825C, dark: 0x6E5640)
@@ -54,16 +52,13 @@ enum FolioTheme {
         return spines[Int(hash % UInt64(spines.count))]
     }
 
-    // MARK: Shape and motion
+    // MARK: Shape
 
     static let cardRadius: CGFloat = 24
-    static let smallRadius: CGFloat = 14
-    /// Gentle, unhurried spring used for page-level transitions.
-    static let spring = Animation.spring(response: 0.42, dampingFraction: 0.86)
 
     // MARK: UIKit chrome
 
-    /// Serif navigation titles, olive tint and paper-colored UIKit containers.
+    /// Serif navigation titles and olive tint for UIKit-backed controls.
     /// Called once at launch, before the first window is created.
     @MainActor
     static func applyAppearance() {
@@ -154,15 +149,6 @@ extension View {
                     .strokeBorder(FolioTheme.line.opacity(0.75), lineWidth: 0.8)
             }
             .shadow(color: Color(red: 0.14, green: 0.2, blue: 0.13).opacity(0.06), radius: 14, y: 6)
-    }
-
-    /// Small, widely tracked uppercase label above a heading.
-    func folioEyebrow() -> some View {
-        self
-            .font(.caption.weight(.semibold))
-            .tracking(2.4)
-            .textCase(.uppercase)
-            .foregroundStyle(FolioTheme.olive)
     }
 
     /// Cream-tinted row background for List and Form rows.

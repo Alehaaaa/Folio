@@ -87,7 +87,19 @@ struct FolioMobileRootView: View {
             }
         }
         .onAppear { navigation.compactTabs = sizeClass == .compact }
-        .onChange(of: sizeClass) { _, value in navigation.compactTabs = value == .compact }
+        .onChange(of: sizeClass) { _, value in
+            navigation.compactTabs = value == .compact
+            // iPad Split View can drop the Downloads and Sources tabs: show them under More.
+            if value == .compact {
+                switch navigation.selectedTab {
+                case .downloads: navigation.openDownloads()
+                case .sources:
+                    navigation.selectedTab = .settings
+                    navigation.morePath = [.sources]
+                default: break
+                }
+            }
+        }
         .fileImporter(
             isPresented: $importing,
             allowedContentTypes: BookFormat.importTypes,
@@ -306,7 +318,7 @@ struct FolioMobileHomeView: View {
                 remoteShelfRow("Currently reading", entries: shelfEntries(.reading), status: .reading)
                 remoteShelfRow("Want to read", entries: shelfEntries(.wantToRead), status: .wantToRead)
                 if !discovery.byYourAuthors.isEmpty {
-                    section("For you", seeAll: { navigation.selectedTab = .search }) {
+                    section("For you") {
                         ForEach(discovery.byYourAuthors) { book in
                             FolioMobileRemoteBookTile(book: book, width: min(tileWidth, 180))
                         }

@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// Hardcover supplies all the books shown on Home: this model never invents
+/// Hardcover supplies the "For you" row on Home: this model never invents
 /// book records or presents trending books as personal recommendations.
 /// Without a recommendation API, "More by your authors" is explicitly based
 /// on authors found in the reader's own library and Hardcover shelves.
@@ -9,7 +9,6 @@ import Observation
 @MainActor
 final class FolioMobileHomeRecommendations {
     private(set) var byYourAuthors: [HCBook] = []
-    private(set) var trending: [HCBook] = []
     private(set) var authorNames: [String] = []
     private(set) var loading = false
     private(set) var loaded = false
@@ -21,7 +20,6 @@ final class FolioMobileHomeRecommendations {
         let run = UUID()
         generation = run
         byYourAuthors = []
-        trending = []
         authorNames = []
         error = nil
         loaded = false
@@ -87,18 +85,6 @@ final class FolioMobileHomeRecommendations {
                 !knownBooks.contains(BookMatch.key(author: book.authors, title: book.title))
         }
 
-        // "Trending" always comes directly from the live Hardcover service.
-        do {
-            let recent = try await hardcover.trending()
-            guard generation == run, !Task.isCancelled else { return }
-            var seen = Set<Int>()
-            trending = recent.filter { notInLibrary($0) && seen.insert($0.id).inserted }
-                .prefix(16).map { $0 }
-        } catch {
-            problems.append("Trending books could not be loaded: \(error.localizedDescription)")
-        }
-        guard generation == run, !Task.isCancelled else { return }
-
         let authors = preferences.values
             .sorted { $0.score == $1.score ? $0.display < $1.display : $0.score > $1.score }
             .prefix(2)
@@ -138,9 +124,7 @@ final class FolioMobileHomeRecommendations {
         }
         byYourAuthors = Array(chosen.prefix(12))
         authorNames = contributingAuthors
-        let personalizedIDs = Set(byYourAuthors.map(\.id))
-        trending.removeAll { personalizedIDs.contains($0.id) }
-        error = byYourAuthors.isEmpty && trending.isEmpty ?
+        error = byYourAuthors.isEmpty ?
             (problems.first ?? "Hardcover did not return any new books. Try again later.") : nil
         loaded = true
         loading = false

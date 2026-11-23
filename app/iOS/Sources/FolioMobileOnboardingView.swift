@@ -147,8 +147,6 @@ struct FolioMobileOnboardingView: View {
                     .frame(width: 152, height: 152)
                     .folioCard(cornerRadius: 38, fill: FolioTheme.sage)
                     .padding(.top, 55)
-                Text("Your reading room")
-                    .folioEyebrow()
                 Text(headline)
                     .font(.folioDisplay(.largeTitle))
                     .foregroundStyle(FolioTheme.ink)
