@@ -73,6 +73,10 @@
 			isa = PBXBuildFile;
 			fileRef = 16C0FF9C31E7D5CE17B286EC /* FolioMobileSourcesView.swift */;
 		};
+		A8A67CA844173428AF5C4516 /* FolioMobileTheme.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = C4A3A9554D0A95A9AFCDC0AC /* FolioMobileTheme.swift */;
+		};
 		FAC923DE549E318D51878226 /* FolioiOSApp.swift in Sources */ = {
 			isa = PBXBuildFile;
 			fileRef = 0B4DB22BB7727AA404D430F4 /* FolioiOSApp.swift */;
@@ -312,6 +316,12 @@
 			path = FolioMobileSourcesView.swift;
 			sourceTree = "<group>";
 		};
+		C4A3A9554D0A95A9AFCDC0AC /* FolioMobileTheme.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = FolioMobileTheme.swift;
+			sourceTree = "<group>";
+		};
 		0B4DB22BB7727AA404D430F4 /* FolioiOSApp.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
@@ -539,6 +549,7 @@
 				98B39FF336D86768902BFBC0 /* FolioMobileSettingsView.swift */,
 				6ED2AB23A4B62C198A4F31FB /* FolioMobileShelvesView.swift */,
 				16C0FF9C31E7D5CE17B286EC /* FolioMobileSourcesView.swift */,
+				C4A3A9554D0A95A9AFCDC0AC /* FolioMobileTheme.swift */,
 				0B4DB22BB7727AA404D430F4 /* FolioiOSApp.swift */,
 				0627C605CF6AF4B774FFBCED /* MobileAutomaticEPUBChoice.swift */,
 				3755FD332B3F1640329A99E5 /* MobileNames.swift */,
@@ -708,6 +719,7 @@
 				DDF29A3A61658C845AA104B1 /* FolioMobileSettingsView.swift in Sources */,
 				2DF704D4566705CB1E6A6315 /* FolioMobileShelvesView.swift in Sources */,
 				16F717511D48CC8E1EFA2C18 /* FolioMobileSourcesView.swift in Sources */,
+				A8A67CA844173428AF5C4516 /* FolioMobileTheme.swift in Sources */,
 				FAC923DE549E318D51878226 /* FolioiOSApp.swift in Sources */,
 				71A88045D5054AC8C3F62CAC /* MobileAutomaticEPUBChoice.swift in Sources */,
 				6D6954BA6AE2ACEA3242E39E /* MobileNames.swift in Sources */,

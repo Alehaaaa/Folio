@@ -16,8 +16,8 @@ enum ReaderTheme: String, CaseIterable, Codable, Identifiable {
         case (.original, true): Palette(bg: "#121212", fg: "#E3E3E5", accent: "#5AA2FF")
         case (.quiet, false): Palette(bg: "#E9EAEE", fg: "#31333A", accent: "#355FA8")
         case (.quiet, true): Palette(bg: "#4A4A4E", fg: "#D4D4D6", accent: "#A9C7FF")
-        case (.paper, false): Palette(bg: "#EEEBE4", fg: "#2A2926", accent: "#7A5C2E")
-        case (.paper, true): Palette(bg: "#2C2B29", fg: "#D9D5CC", accent: "#D7B47C")
+        case (.paper, false): Palette(bg: "#EDE0C6", fg: "#2D342C", accent: "#566447")
+        case (.paper, true): Palette(bg: "#1E211C", fg: "#E2DCCB", accent: "#B4C39C")
         case (.bold, false): Palette(bg: "#FFFFFF", fg: "#000000", accent: "#0050C8")
         case (.bold, true): Palette(bg: "#000000", fg: "#FFFFFF", accent: "#6FB0FF")
         case (.calm, false): Palette(bg: "#F4E8D3", fg: "#4A3B2A", accent: "#8A5A20")
@@ -126,7 +126,7 @@ enum ReaderAppearance: String, CaseIterable, Identifiable {
 struct ReaderPrefs: Codable, Equatable {
     static let fontSizes: [Int] = [12, 14, 15, 16, 17, 18, 20, 22, 24, 26, 28, 32, 36, 42, 48]
 
-    var theme: ReaderTheme = .original
+    var theme: ReaderTheme = .paper
     var font: ReaderFont = .original
     var fontSizeIndex = 6
     var boldText = false

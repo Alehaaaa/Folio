@@ -100,6 +100,7 @@ struct FolioMobileAnnotationsSheet: View {
                 }
             }
             .navigationTitle("Bookmarks & Annotations")
+            .folioScreen()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -133,12 +134,15 @@ struct FolioMobileNoteEditor: View {
                         Text(selectedText).font(.callout).foregroundStyle(.secondary)
                             .textSelection(.enabled)
                     }
+                    .folioRow()
                 }
                 Section("Your Note") {
                     TextEditor(text: $note).frame(minHeight: 180)
                 }
+                .folioRow()
             }
             .navigationTitle("Reading Note")
+            .folioScreen()
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

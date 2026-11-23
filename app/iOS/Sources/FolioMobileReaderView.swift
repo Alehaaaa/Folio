@@ -127,6 +127,7 @@ struct FolioMobileReaderView: View {
                 NavigationStack {
                     FolioMobileDictionaryView(term: text)
                         .navigationTitle("Dictionary")
+                        .folioScreen()
                         .toolbar {
                             ToolbarItem(placement: .topBarTrailing) {
                                 Button("Done") { showDictionary = false }.folioGlassPill()
@@ -298,63 +299,76 @@ struct FolioMobileReaderView: View {
     // MARK: Chrome
 
     private var topBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
-                    .font(.body.weight(.semibold))
-                    .frame(width: 34, height: 34)
+                    .font(.body.weight(.medium))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Circle())
             }
-            .folioGlassPill()
+            .buttonStyle(.plain)
+            .folioGlassBackground(in: Circle())
             .accessibilityLabel("Close Book")
 
             Text(book?.title ?? "")
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityAddTraits(.isHeader)
 
-            if let engine, !engine.content.toc.isEmpty {
-                chromeButton("Contents", systemImage: "list.bullet") { showContents = true }
-            }
             if engine != nil || pdf != nil {
-                chromeButton("Text and Reading Appearance", systemImage: "textformat.size") { showAppearance = true }
-                chromeButton(hasBookmark ? "Remove Bookmark" : "Bookmark This Page",
-                             systemImage: hasBookmark ? "bookmark.fill" : "bookmark") { toggleBookmark() }
-                Menu {
-                    Button("Highlights, Notes & Quotes", systemImage: "text.book.closed") {
-                        showAnnotations = true
+                HStack(spacing: 2) {
+                    if let engine, !engine.content.toc.isEmpty {
+                        chromeButton("Contents", systemImage: "list.bullet") { showContents = true }
                     }
-                    Button("Annotate Selected Text", systemImage: "highlighter") {
-                        handleSelection(.more)
+                    if engine != nil || pdf != nil {
+                        chromeButton("Text and Reading Appearance", systemImage: "textformat.size") { showAppearance = true }
+                        chromeButton(hasBookmark ? "Remove Bookmark" : "Bookmark This Page",
+                                     systemImage: hasBookmark ? "bookmark.fill" : "bookmark") { toggleBookmark() }
+                        Menu {
+                            Button("Highlights, Notes & Quotes", systemImage: "text.book.closed") {
+                                showAnnotations = true
+                            }
+                            Button("Annotate Selected Text", systemImage: "highlighter") {
+                                handleSelection(.more)
+                            }
+                            Divider()
+                            Picker("Reading Mode", selection: Binding(
+                                get: { preferences.prefs.navigation },
+                                set: { preferences.prefs.navigation = $0 }
+                            )) {
+                                Label("Pages", systemImage: "book").tag(PageNavigation.pages)
+                                Label("Scroll", systemImage: "scroll").tag(PageNavigation.scroll)
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.body.weight(.medium))
+                                .frame(width: 42, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Reading Tools")
                     }
-                    Divider()
-                    Picker("Reading Mode", selection: Binding(
-                        get: { preferences.prefs.navigation },
-                        set: { preferences.prefs.navigation = $0 }
-                    )) {
-                        Label("Pages", systemImage: "book").tag(PageNavigation.pages)
-                        Label("Scroll", systemImage: "scroll").tag(PageNavigation.scroll)
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.body.weight(.semibold))
-                        .frame(width: 34, height: 34)
                 }
-                .folioGlassPill()
-                .accessibilityLabel("Reading Tools")
+                .padding(.horizontal, 6)
+                .folioGlassBackground(in: Capsule())
             }
         }
+        .foregroundStyle(Color(hex: palette.fg))
+        .environment(\.colorScheme, dark ? .dark : .light)
         .padding(.horizontal, 14)
         .padding(.top, 4)
     }
 
+    /// One icon in the reader's grouped cream toolbar capsule.
     private func chromeButton(_ label: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.body.weight(.semibold))
-                .frame(width: 34, height: 34)
+                .font(.body.weight(.medium))
+                .frame(width: 42, height: 44)
+                .contentShape(Rectangle())
         }
-        .folioGlassPill()
+        .buttonStyle(.plain)
         .accessibilityLabel(label)
     }
 
@@ -408,6 +422,7 @@ struct FolioMobileReaderView: View {
         .padding(.top, 10)
         .padding(.bottom, 12)
         .folioGlassBackground(in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .environment(\.colorScheme, dark ? .dark : .light)
         .padding(.horizontal, 14)
         .padding(.bottom, 6)
     }
@@ -460,6 +475,7 @@ struct FolioMobileReaderView: View {
                 }
             }
             .navigationTitle("Contents")
+            .folioScreen()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -831,6 +847,7 @@ struct FolioMobileReaderAppearance: View {
                     }
                     .pickerStyle(.segmented)
                 }
+                .folioRow()
 
                 Section("Layout") {
                     Picker("Reading Mode", selection: Binding(
@@ -861,10 +878,12 @@ struct FolioMobileReaderAppearance: View {
                             .environment(preferences)
                     }
                 }
+                .folioRow()
 
                 FolioMobileReadabilitySettings()
             }
             .navigationTitle("Themes & Settings")
+            .folioScreen()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }

@@ -86,15 +86,16 @@ struct FolioGlassButton: View {
 }
 
 extension View {
-    /// A Liquid Glass panel background on iOS 26, regular material before.
+    /// A cream-tinted Liquid Glass panel on iOS 26, warm material before.
     /// The glass takes the given shape; a bare `glassEffect()` defaults to a
     /// capsule, which tall panels overflow.
     @ViewBuilder
     func folioGlassBackground<S: Shape>(in shape: S) -> some View {
         if #available(iOS 26, *) {
-            self.glassEffect(.regular, in: shape)
+            self.glassEffect(.regular.tint(FolioTheme.cream.opacity(0.55)), in: shape)
         } else {
             self.background(.regularMaterial, in: shape)
+                .background(FolioTheme.cream.opacity(0.5), in: shape)
         }
     }
 }

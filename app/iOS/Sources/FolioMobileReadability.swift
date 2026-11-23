@@ -57,6 +57,7 @@ struct FolioMobileReadabilitySettings: View {
         } footer: {
             Text("These profiles change only the reading appearance; they don't change your book progress, notes, or bookmarks.")
         }
+        .folioRow()
     }
 
     private var previewDesign: Font.Design {

@@ -31,7 +31,7 @@ struct FolioMobileFactView: View {
                         ProgressView("Looking up a reference…")
                             .frame(maxWidth: .infinity, minHeight: 130)
                     } else {
-                        Text(title).font(.title2.bold())
+                        Text(title).font(.folioDisplay(.title))
                         Text(extract).textSelection(.enabled)
                         if let article {
                             Link(destination: article) {
@@ -46,6 +46,7 @@ struct FolioMobileFactView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .navigationTitle("Fun Fact")
+            .folioScreen()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -131,6 +132,7 @@ struct FolioMobileTranslationView: View {
                 .padding(22)
             }
             .navigationTitle("Translate Selection")
+            .folioScreen()
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }.folioGlassPill()
