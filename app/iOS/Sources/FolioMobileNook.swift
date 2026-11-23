@@ -1,3 +1,4 @@
+import CoreImage
 import ImageIO
 import SwiftUI
 import UIKit
@@ -473,7 +474,7 @@ final class FolioSpinePalettes {
 
     private static var stripDirectory: URL {
         let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("folio-spine-strips", isDirectory: true)
+            .appendingPathComponent("folio-spine-strips-v2", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
@@ -534,12 +535,76 @@ final class FolioSpinePalettes {
         }
     }
 
-    /// The leftmost fifth of a cover, which is roughly what wraps onto a real spine.
+    /// The leftmost fifth of a cover, which is roughly what wraps onto a real
+    /// spine. It is softened once, here, before it is cached: a light blur
+    /// diffuses the cover's lettering, and a cloth weave and paper grain make
+    /// it read as a material rather than a cropped picture.
     private nonisolated static func spineStrip(from image: CGImage) -> UIImage? {
         let width = max(1, Int(Double(image.width) * 0.2))
         guard let cropped = image.cropping(to: CGRect(x: 0, y: 0, width: width, height: image.height)) else { return nil }
-        return UIImage(cgImage: cropped)
+        let size = CGSize(width: cropped.width, height: cropped.height)
+
+        // Blur, keeping the edges from fading to transparent.
+        var softened = cropped
+        let input = CIImage(cgImage: cropped)
+        let radius = max(2.0, Double(cropped.height) * 0.013)
+        if let blur = CIFilter(name: "CIGaussianBlur") {
+            blur.setValue(input.clampedToExtent(), forKey: kCIInputImageKey)
+            blur.setValue(radius, forKey: kCIInputRadiusKey)
+            if let output = blur.outputImage?.cropped(to: input.extent),
+               let rendered = spineContext.createCGImage(output, from: input.extent) {
+                softened = rendered
+            }
+        }
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let cg = context.cgContext
+            // UIKit's context is flipped relative to Core Graphics images.
+            cg.saveGState()
+            cg.translateBy(x: 0, y: size.height)
+            cg.scaleBy(x: 1, y: -1)
+            cg.draw(softened, in: CGRect(origin: .zero, size: size))
+            cg.restoreGState()
+
+            // Cloth weave: fine threads in both directions.
+            cg.setLineWidth(0.5)
+            var y: CGFloat = 0
+            while y < size.height {
+                cg.setStrokeColor(UIColor(white: 1, alpha: 0.07).cgColor)
+                cg.move(to: CGPoint(x: 0, y: y)); cg.addLine(to: CGPoint(x: size.width, y: y))
+                cg.strokePath()
+                cg.setStrokeColor(UIColor(white: 0, alpha: 0.06).cgColor)
+                cg.move(to: CGPoint(x: 0, y: y + 1)); cg.addLine(to: CGPoint(x: size.width, y: y + 1))
+                cg.strokePath()
+                y += 2
+            }
+            var x: CGFloat = 0
+            while x < size.width {
+                cg.setStrokeColor(UIColor(white: 0, alpha: 0.05).cgColor)
+                cg.move(to: CGPoint(x: x, y: 0)); cg.addLine(to: CGPoint(x: x, y: size.height))
+                cg.strokePath()
+                x += 3
+            }
+
+            // Paper grain: a sprinkle of light and dark specks, the same for every
+            // cover so nothing needs a random generator.
+            var seed: UInt64 = 0x9E3779B97F4A7C15
+            let specks = Int(size.width * size.height / 14)
+            for _ in 0..<specks {
+                seed = seed &* 6364136223846793005 &+ 1442695040888963407
+                let px = CGFloat(seed >> 40 & 0xFFFF) / 65535 * size.width
+                let py = CGFloat(seed >> 24 & 0xFFFF) / 65535 * size.height
+                let light = seed & 1 == 0
+                cg.setFillColor(UIColor(white: light ? 1 : 0, alpha: light ? 0.08 : 0.09).cgColor)
+                cg.fill(CGRect(x: px, y: py, width: 1, height: 1))
+            }
+        }
     }
+
+    nonisolated(unsafe) private static let spineContext = CIContext(options: [.useSoftwareRenderer: false])
 
     private nonisolated static func thumbnail(at url: URL) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary)
