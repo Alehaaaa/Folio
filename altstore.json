@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.51",
+          "buildVersion": "52",
+          "date": "2026-11-23",
+          "localizedDescription": "Less stutter and memory: library saves off the main thread, smaller image caches, no SVG refetching; hang and request logging (1.0.51)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.51-52.ipa",
+          "size": 4766661,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.47",
           "buildVersion": "48",
           "date": "2026-11-23",
