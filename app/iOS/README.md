@@ -30,6 +30,17 @@ specific edition or format manually. All download tasks run independently of
 the active navigation tab and reading view. Reader appearance supports both
 horizontal paginated EPUB pages and vertical Scroll mode.
 
+**Reader:** EPUB and HTML books use the shared `ReaderScript.swift` page engine,
+the same one as the macOS reader, hosted by `FolioMobileReaderEngine.swift`.
+Reading is immersive: tap the middle of the page to show or hide the controls,
+tap or swipe the sides to turn pages. Highlight, Add Note and Save Quote appear
+in the native text-selection menu. PDFs swipe page by page in Pages mode.
+
+**CI:** `.github/workflows/ios-ipa.yml` builds the unsigned IPA for every pull
+request. On main it also publishes `altstore/Folio-<version>-<build>.ipa` and
+updates `altstore.json` when that version/build (from `generate_project.py`)
+is not published yet, so bump `APP_VERSION`/`BUILD_VERSION` for each release.
+
 Every `../../extensions/*.js` file is copied into the app bundle and installed
 through the shared `ExtensionStore` on launch. Gutenberg and Calibre are
 embedded by the shared `DefaultSources.swift` implementation.

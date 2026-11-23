@@ -8,6 +8,7 @@
 !/app/
 !/extensions/
 !/checks/
+!/.github/
 
 # All generated builds, packaged applications, screenshots and diagnostics.
 **/.DS_Store

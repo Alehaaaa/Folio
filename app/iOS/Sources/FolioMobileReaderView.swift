@@ -5,23 +5,29 @@ import UIKit
 import Combine
 import Translation
 
-/// A native, full-screen iOS reader backed by the existing EPUB package parser,
-/// PDFKit and the same persisted progress and reader preferences as macOS.
+/// A native, full-screen iOS reader. EPUB and HTML books use the shared
+/// `ReaderScript` page engine (the same pagination as macOS); PDFs use PDFKit.
+/// Both share the persisted progress, annotations and reader preferences.
+///
+/// Reading is immersive: the controls fade away after the first page turn
+/// and come back with a tap in the middle of the page. Tapping or swiping
+/// on the sides turns pages.
 struct FolioMobileReaderView: View {
     let bookID: UUID
     @Environment(LibraryStore.self) private var store
     @Environment(ReaderPrefsStore.self) private var preferences
-    @Environment(HardcoverClient.self) private var hardcover
     @Environment(\.colorScheme) private var systemColorScheme
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
 
-    @State private var content: WebContent?
+    @State private var engine: FolioMobileReaderEngine?
     @State private var pdf: PDFDocument?
-    @State private var chapter = 0
-    @State private var chapterFraction = 0.0
     @State private var pdfPage = 0
     @State private var error: String?
+    @State private var chromeVisible = true
+    @State private var scrubValue: Double?
     @State private var showContents = false
     @State private var showAppearance = false
     @State private var showAnnotations = false
@@ -36,13 +42,11 @@ struct FolioMobileReaderView: View {
     @State private var translationError: String?
     @State private var translating = false
     @State private var translationConfig: TranslationSession.Configuration?
-    @State private var selectionText: String?
+    @State private var pendingSelection: FolioMobileSelection?
     @State private var selectionError: String?
     @State private var noteDraft = ""
     @State private var annotations = ReadingAnnotationsStore.shared
-    @State private var webInteraction = FolioMobileWebInteraction()
     @State private var pdfInteraction = FolioMobilePDFInteraction()
-    @State private var openedAt = Date()
     @State private var lastTick = Date()
     @State private var lastSaved = Date.distantPast
 
@@ -51,165 +55,73 @@ struct FolioMobileReaderView: View {
     private var book: LocalBook? { store.book(bookID) }
     private var dark: Bool { preferences.appearance.isDark(systemDark: systemColorScheme == .dark) }
     private var palette: ReaderTheme.Palette { preferences.prefs.theme.palette(dark: dark) }
-    private var totalChapters: Int { content?.chapters.count ?? 0 }
-    private var chapterTitle: String {
-        content?.toc.last(where: { $0.chapter <= chapter })?.title ?? "Chapter \(chapter + 1)"
-    }
+    private var paginated: Bool { preferences.prefs.navigation == .pages && !(engine?.content.isComic ?? false) }
+    private var showsChrome: Bool { chromeVisible || voiceOver || (engine == nil && pdf == nil) }
 
     private var progress: Double {
-        if let pdf {
-            return Double(pdfPage + 1) / Double(max(1, pdf.pageCount))
-        }
-        guard let content, content.chapterSizes.indices.contains(chapter) else { return 0 }
-        let total = max(content.chapterSizes.reduce(0, +), 1)
-        let previous = content.chapterSizes.prefix(chapter).reduce(0, +)
-        return min(1, (previous + content.chapterSizes[chapter] * chapterFraction) / total)
+        if let pdf { return Double(pdfPage + 1) / Double(max(1, pdf.pageCount)) }
+        return engine?.progress ?? 0
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            Group {
-                if let pdf {
-                    FolioMobilePDFPage(
-                        document: pdf,
-                        page: pdfPage,
-                        interaction: pdfInteraction,
-                        background: palette.bg,
-                        onPageChange: { newPage in
-                            guard newPage != pdfPage else { return }
-                            pdfPage = newPage
-                            savePositionIfNeeded()
-                        }
-                    )
-                } else if let content, content.chapters.indices.contains(chapter) {
-                    FolioMobileHTMLPage(
-                        url: content.chapters[chapter],
-                        root: content.root,
-                        initialFraction: chapterFraction,
-                        preferences: preferences.prefs,
-                        palette: palette,
-                        comic: content.isComic,
-                        interaction: webInteraction,
-                        highlights: annotations.items(for: bookID)
-                            .filter { $0.chapter == chapter && ($0.kind == .highlight || $0.kind == .note) }
-                            .map(\.text),
-                        onPositionChange: { value in
-                            let adjusted = max(0, min(0.999, value))
-                            guard abs(adjusted - chapterFraction) > 0.001 else { return }
-                            chapterFraction = adjusted
-                            savePositionIfNeeded()
-                        }
-                    )
-                    .id(chapter)
-                } else if let error {
-                    ContentUnavailableView("Cannot Open Book", systemImage: "exclamationmark.triangle", description: Text(error))
-                } else {
-                    ProgressView("Opening Book…")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ZStack {
+            Color(hex: palette.bg).ignoresSafeArea()
 
-            if pdf != nil || content != nil {
-                readingControls
+            readingSurface
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityAction(.magicTap) { toggleChrome() }
+
+            if !showsChrome {
+                quietFooter
+                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+            }
+
+            if showsChrome {
+                VStack(spacing: 0) {
+                    topBar
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    Spacer(minLength: 0)
+                    if engine != nil || pdf != nil {
+                        bottomPanel
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+            }
+
+            if hasBookmark {
+                bookmarkRibbon
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .allowsHitTesting(false)
             }
         }
-        .background(Color(hex: palette.bg).ignoresSafeArea())
-        .navigationTitle(book?.title ?? "Reader")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button("Done") { dismiss() }
-                    .folioGlassPill()
-            }
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    annotations.toggleBookmark(bookID: bookID, chapter: currentChapter, fraction: currentFraction)
-                } label: {
-                    Label("Bookmark", systemImage: hasBookmark ? "bookmark.fill" : "bookmark")
-                }
-                .folioGlassPill()
-                Button {
-                    showAppearance = true
-                } label: {
-                    Label("Text and Reading Appearance", systemImage: "textformat.size")
-                }
-                .folioGlassPill()
-                Menu {
-                    if let content, !content.toc.isEmpty {
-                        Button("Table of Contents", systemImage: "list.bullet") {
-                            showContents = true
-                        }
-                    }
-                    Button("Highlights, Notes & Quotes", systemImage: "text.book.closed") {
-                        showAnnotations = true
-                    }
-                    Button("Save Selected Text", systemImage: "highlighter") {
-                        Task { await captureSelection() }
-                    }
-                    Button(hasBookmark ? "Remove Bookmark" : "Bookmark This Page",
-                           systemImage: hasBookmark ? "bookmark.slash" : "bookmark") {
-                        annotations.toggleBookmark(bookID: bookID, chapter: currentChapter, fraction: currentFraction)
-                    }
-                } label: {
-                    Label("Reading Tools", systemImage: "ellipsis.circle")
-                }
-                .folioGlassPill()
-            }
-        }
-        .sheet(isPresented: $showContents) {
-            NavigationStack {
-                List(content?.toc ?? []) { entry in
-                    Button {
-                        chapter = entry.chapter
-                        chapterFraction = 0
-                        savePosition()
-                        showContents = false
-                    } label: {
-                        HStack {
-                            Text(entry.title).padding(.leading, CGFloat(max(0, entry.level - 1) * 12))
-                            Spacer()
-                            if entry.chapter == chapter { Image(systemName: "checkmark").foregroundStyle(.tint) }
-                        }
-                    }
-                    .foregroundStyle(.primary)
-                }
-                .navigationTitle("Contents")
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Done") { showContents = false }
-                    }
-                }
-            }
-            .presentationDetents([.medium, .large])
-        }
+        .animation(.easeInOut(duration: 0.22), value: showsChrome)
+        .toolbar(.hidden, for: .navigationBar)
+        .statusBarHidden(!showsChrome)
+        .persistentSystemOverlays(showsChrome ? .automatic : .hidden)
+        .foregroundStyle(Color(hex: palette.fg))
+        .sheet(isPresented: $showContents) { contentsSheet }
         .sheet(isPresented: $showAppearance) {
             FolioMobileReaderAppearance()
                 .environment(preferences)
                 .presentationDetents([.medium, .large])
+                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
         .sheet(isPresented: $showAnnotations) {
-            FolioMobileAnnotationsSheet(bookID: bookID) { entry in
-                if pdf != nil {
-                    pdfPage = entry.chapter
-                } else {
-                    chapter = max(0, min(totalChapters - 1, entry.chapter))
-                    chapterFraction = entry.fraction
-                }
-                savePosition()
-            }
-            .presentationDetents([.medium, .large])
+            FolioMobileAnnotationsSheet(bookID: bookID) { entry in jump(to: entry) }
+                .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showNoteEditor) {
-            FolioMobileNoteEditor(selectedText: selectionText ?? "", note: $noteDraft) { value in
+            FolioMobileNoteEditor(selectedText: pendingSelection?.text ?? "", note: $noteDraft) { value in
                 saveSelectedAnnotation(.note, note: value)
                 showNoteEditor = false
             }
         }
         .sheet(isPresented: $showDictionary) {
-            if let selectionText {
+            if let text = pendingSelection?.text {
                 NavigationStack {
-                    FolioMobileDictionaryView(term: selectionText)
+                    FolioMobileDictionaryView(term: text)
                         .navigationTitle("Dictionary")
                         .toolbar {
                             ToolbarItem(placement: .topBarTrailing) {
@@ -220,8 +132,8 @@ struct FolioMobileReaderView: View {
             }
         }
         .sheet(isPresented: $showFact) {
-            if let selectionText {
-                FolioMobileFactView(selection: selectionText)
+            if let text = pendingSelection?.text {
+                FolioMobileFactView(selection: text)
             }
         }
         .sheet(isPresented: $showTranslation) {
@@ -251,7 +163,7 @@ struct FolioMobileReaderView: View {
             Button("Translate") { chooseTranslationLanguage = true }
             Button("Fun Fact") { showFact = true }
         } message: {
-            Text(selectionText ?? "")
+            Text(pendingSelection?.text ?? "")
         }
         .confirmationDialog("Translate To", isPresented: $chooseTranslationLanguage,
                             titleVisibility: .visible) {
@@ -281,12 +193,8 @@ struct FolioMobileReaderView: View {
             if phase != .active { savePosition() }
             lastTick = Date()
         }
-        .onChange(of: chapter) { _, _ in savePosition() }
-        .onChange(of: annotations.entries) { _, _ in
-            webInteraction.restoreHighlights(annotations.items(for: bookID)
-                .filter { $0.chapter == chapter && ($0.kind == .highlight || $0.kind == .note) }
-                .map(\.text))
-        }
+        .onChange(of: engine?.chapter) { _, _ in savePosition() }
+        .onChange(of: annotations.entries) { _, _ in engine?.refreshHighlights() }
         .onDisappear {
             if scenePhase == .active {
                 store.addReading(seconds: min(30, Date().timeIntervalSince(lastTick)))
@@ -296,117 +204,354 @@ struct FolioMobileReaderView: View {
         .preferredColorScheme(preferences.appearance == .system ? nil : (dark ? .dark : .light))
     }
 
-    private var readingControls: some View {
-        HStack(spacing: 15) {
-            Button {
-                if pdf != nil { pdfPage = max(0, pdfPage - 1) }
-                else if !webInteraction.turnPage(-1) && chapter > 0 {
-                    chapter -= 1
-                    chapterFraction = 0.999
-                }
-                savePosition()
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.title3.weight(.semibold))
-                    .frame(width: 38, height: 38)
-            }
-            .disabled(pdf != nil ? pdfPage == 0 : (preferences.prefs.navigation == .scroll && chapter == 0))
-            .accessibilityLabel("Previous page or chapter")
-            .folioGlassPill()
+    // MARK: Page
 
-            VStack(spacing: 7) {
-                Text(pdf != nil ? "Page \(pdfPage + 1) of \(pdf?.pageCount ?? 1)" : chapterTitle)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                    .accessibilityAddTraits(.isHeader)
-                Slider(value: Binding(
-                    get: { progress },
-                    set: { seek(to: $0) }
-                ), in: 0...1)
-                    .tint(Color(hex: palette.accent))
-                    .accessibilityLabel("Reading progress")
-                    .accessibilityValue("\(Int((progress * 100).rounded())) percent")
-                Text("\(Int((progress * 100).rounded()))%")
-                    .font(.footnote.weight(.medium).monospacedDigit())
-            }
-            .frame(maxWidth: .infinity)
-
-            Button {
-                if let pdf { pdfPage = min(pdf.pageCount - 1, pdfPage + 1) }
-                else if !webInteraction.turnPage(1) && chapter + 1 < totalChapters {
-                    chapter += 1
-                    chapterFraction = 0
-                }
-                savePosition()
-            } label: {
-                Image(systemName: "chevron.right")
-                    .font(.title3.weight(.semibold))
-                    .frame(width: 38, height: 38)
-            }
-            .disabled(pdf != nil ? pdfPage >= (pdf?.pageCount ?? 1) - 1 : (preferences.prefs.navigation == .scroll && chapter >= totalChapters - 1))
-            .accessibilityLabel("Next page or chapter")
-            .folioGlassPill()
+    @ViewBuilder
+    private var readingSurface: some View {
+        if let pdf {
+            FolioMobilePDFPage(
+                document: pdf,
+                page: pdfPage,
+                paged: preferences.prefs.navigation == .pages,
+                interaction: pdfInteraction,
+                background: palette.bg,
+                onPageChange: { newPage in
+                    guard newPage != pdfPage else { return }
+                    pdfPage = newPage
+                    if chromeVisible && !voiceOver { chromeVisible = false }
+                    savePositionIfNeeded()
+                },
+                onTap: { toggleChrome() },
+                selectionAction: handleSelection
+            )
+            .ignoresSafeArea(edges: .bottom)
+        } else if let engine {
+            FolioMobileEPUBPage(
+                engine: engine,
+                config: Self.config(
+                    preferences.prefs, palette: palette, comic: engine.content.isComic,
+                    regularWidth: horizontalSizeClass == .regular
+                ),
+                paginated: paginated,
+                background: palette.bg,
+                selectionAction: handleSelection
+            )
+        } else if let error {
+            ContentUnavailableView("Cannot Open Book", systemImage: "exclamationmark.triangle", description: Text(error))
+        } else {
+            ProgressView("Opening Book…")
         }
-        .foregroundStyle(Color(hex: palette.fg))
-        .padding(.horizontal, 12)
+    }
+
+    /// What stays on screen while reading: a quiet page count, like a printed folio.
+    @ViewBuilder
+    private var quietFooter: some View {
+        let text: String? = {
+            if let pdf { return "\(pdfPage + 1) of \(pdf.pageCount)" }
+            guard let engine, !engine.content.isComic, engine.ready else { return nil }
+            if !paginated { return "\(Int((progress * 100).rounded()))%" }
+            switch engine.pagesLeftInChapter {
+            case 0: return engine.isLastChapter ? "Last page" : "Last page in chapter"
+            case 1: return "1 page left in chapter"
+            case let n: return "\(n) pages left in chapter"
+            }
+        }()
+        if let text {
+            Text(text)
+                .font(.caption2.weight(.medium).monospacedDigit())
+                .foregroundStyle(Color(hex: palette.fg).opacity(0.45))
+                .padding(.bottom, 6)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var bookmarkRibbon: some View {
+        Image(systemName: "bookmark.fill")
+            .font(.title2)
+            .foregroundStyle(Color(hex: palette.accent))
+            .padding(.trailing, 22)
+            .offset(y: -4)
+            .accessibilityLabel("This page is bookmarked")
+    }
+
+    // MARK: Chrome
+
+    private var topBar: some View {
+        HStack(spacing: 10) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.body.weight(.semibold))
+                    .frame(width: 34, height: 34)
+            }
+            .folioGlassPill()
+            .accessibilityLabel("Close Book")
+
+            Text(book?.title ?? "")
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                .accessibilityAddTraits(.isHeader)
+
+            if let engine, !engine.content.toc.isEmpty {
+                chromeButton("Contents", systemImage: "list.bullet") { showContents = true }
+            }
+            if engine != nil || pdf != nil {
+                chromeButton("Text and Reading Appearance", systemImage: "textformat.size") { showAppearance = true }
+                chromeButton(hasBookmark ? "Remove Bookmark" : "Bookmark This Page",
+                             systemImage: hasBookmark ? "bookmark.fill" : "bookmark") { toggleBookmark() }
+                Menu {
+                    Button("Highlights, Notes & Quotes", systemImage: "text.book.closed") {
+                        showAnnotations = true
+                    }
+                    Button("Annotate Selected Text", systemImage: "highlighter") {
+                        handleSelection(.more)
+                    }
+                    Divider()
+                    Picker("Reading Mode", selection: Binding(
+                        get: { preferences.prefs.navigation },
+                        set: { preferences.prefs.navigation = $0 }
+                    )) {
+                        Label("Pages", systemImage: "book").tag(PageNavigation.pages)
+                        Label("Scroll", systemImage: "scroll").tag(PageNavigation.scroll)
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 34, height: 34)
+                }
+                .folioGlassPill()
+                .accessibilityLabel("Reading Tools")
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 4)
+    }
+
+    private func chromeButton(_ label: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.body.weight(.semibold))
+                .frame(width: 34, height: 34)
+        }
+        .folioGlassPill()
+        .accessibilityLabel(label)
+    }
+
+    private var bottomPanel: some View {
+        let shown = scrubValue ?? progress
+        return VStack(spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(panelTitle(at: scrubValue))
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text(panelDetail)
+                        .font(.caption)
+                        .foregroundStyle(Color(hex: palette.fg).opacity(0.6))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Text("\(Int((shown * 100).rounded()))%")
+                    .font(.footnote.weight(.semibold).monospacedDigit())
+            }
+            HStack(spacing: 12) {
+                pageButton(-1)
+                Slider(value: Binding(
+                    get: { scrubValue ?? progress },
+                    set: { scrubValue = $0 }
+                ), in: 0...1, onEditingChanged: { editing in
+                    if !editing, let value = scrubValue {
+                        seek(to: value)
+                        scrubValue = nil
+                    }
+                })
+                .tint(Color(hex: palette.accent))
+                .accessibilityLabel("Reading progress")
+                .accessibilityValue("\(Int((shown * 100).rounded())) percent")
+                pageButton(1)
+            }
+        }
+        .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .background {
             if #available(iOS 26, *) {
-                RoundedRectangle(cornerRadius: 22).glassEffect(.regular)
+                RoundedRectangle(cornerRadius: 26).glassEffect(.regular)
             } else {
-                RoundedRectangle(cornerRadius: 22).fill(.regularMaterial)
+                RoundedRectangle(cornerRadius: 26).fill(.regularMaterial)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.bottom, 6)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 4)
     }
 
-    private var currentChapter: Int { pdf != nil ? pdfPage : chapter }
-    private var currentFraction: Double { pdf != nil ? 0 : chapterFraction }
-    private var hasBookmark: Bool {
-        annotations.bookmark(bookID: bookID, chapter: currentChapter, fraction: currentFraction) != nil
+    private func pageButton(_ direction: Int) -> some View {
+        Button { turn(direction) } label: {
+            Image(systemName: direction > 0 ? "chevron.right" : "chevron.left")
+                .font(.body.weight(.semibold))
+                .frame(width: 30, height: 30)
+        }
+        .folioGlassPill()
+        .disabled(direction > 0 ? atEnd : atStart)
+        .accessibilityLabel(direction > 0 ? "Next Page" : "Previous Page")
     }
 
-    @MainActor
+    private func panelTitle(at scrub: Double?) -> String {
+        if let pdf {
+            let page = scrub.map { min(pdf.pageCount - 1, Int($0 * Double(pdf.pageCount))) } ?? pdfPage
+            return "Page \(page + 1) of \(pdf.pageCount)"
+        }
+        guard let engine else { return "" }
+        if let scrub { return engine.title(ofChapter: engine.location(at: scrub).chapter) }
+        return engine.chapterTitle
+    }
+
+    private var panelDetail: String {
+        if pdf != nil { return book?.author ?? "" }
+        guard let engine else { return "" }
+        if scrubValue != nil { return "Release to jump here" }
+        if !paginated || engine.content.isComic { return book?.author ?? "" }
+        switch engine.pagesLeftInChapter {
+        case 0: return engine.isLastChapter ? "End of book" : "Last page in chapter"
+        case 1: return "1 page left in chapter"
+        case let n: return "\(n) pages left in chapter"
+        }
+    }
+
+    private var contentsSheet: some View {
+        NavigationStack {
+            ScrollViewReader { proxy in
+                List(engine?.content.toc ?? []) { entry in
+                    Button {
+                        engine?.go(entry)
+                        showContents = false
+                    } label: {
+                        HStack {
+                            Text(entry.title)
+                                .fontWeight(entry.chapter == currentTOCChapter ? .semibold : .regular)
+                                .padding(.leading, CGFloat(max(0, entry.level - 1) * 14))
+                            Spacer()
+                            if entry.chapter == currentTOCChapter {
+                                Image(systemName: "checkmark").foregroundStyle(.tint)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .foregroundStyle(.primary)
+                    .id(entry.id)
+                }
+                .onAppear {
+                    if let current = engine?.content.toc.last(where: { $0.chapter <= (engine?.chapter ?? 0) }) {
+                        proxy.scrollTo(current.id, anchor: .center)
+                    }
+                }
+            }
+            .navigationTitle("Contents")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { showContents = false }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private var currentTOCChapter: Int? {
+        guard let engine else { return nil }
+        return engine.content.toc.last(where: { $0.chapter <= engine.chapter })?.chapter
+    }
+
+    // MARK: Navigation
+
+    private var atStart: Bool { pdf != nil ? pdfPage == 0 : (engine?.atStart ?? true) }
+    private var atEnd: Bool { pdf != nil ? pdfPage >= (pdf?.pageCount ?? 1) - 1 : (engine?.atEnd ?? true) }
+
+    private func toggleChrome() {
+        guard !voiceOver else { return }
+        chromeVisible.toggle()
+    }
+
+    private func handleTap(_ x: Double) {
+        if paginated && x < 0.3 { turn(-1) }
+        else if paginated && x > 0.7 { turn(1) }
+        else { toggleChrome() }
+    }
+
+    private func turn(_ direction: Int) {
+        if let pdf {
+            pdfPage = max(0, min(pdf.pageCount - 1, pdfPage + direction))
+            savePositionIfNeeded()
+        } else {
+            engine?.turn(direction)
+        }
+    }
+
     private func seek(to fraction: Double) {
         let target = max(0, min(1, fraction))
         if let pdf {
             pdfPage = min(max(0, pdf.pageCount - 1), Int(target * Double(pdf.pageCount)))
-        } else if let content, !content.chapters.isEmpty {
-            let total = max(1, content.chapterSizes.reduce(0, +))
-            let raw = target * total
-            var running = 0.0
-            for index in content.chapters.indices {
-                let length = content.chapterSizes.indices.contains(index) ? content.chapterSizes[index] : 1
-                if raw <= running + length || index == content.chapters.count - 1 {
-                    chapter = index
-                    chapterFraction = max(0, min(0.999, (raw - running) / max(1, length)))
-                    break
-                }
-                running += length
+            savePosition()
+        } else {
+            engine?.seek(target)
+        }
+    }
+
+    private func jump(to entry: ReadingAnnotation) {
+        if let pdf {
+            pdfPage = max(0, min(pdf.pageCount - 1, entry.chapter))
+        } else if let engine {
+            engine.go(chapter: max(0, min(engine.content.chapters.count - 1, entry.chapter)), fraction: entry.fraction)
+        }
+        savePosition()
+    }
+
+    // MARK: Bookmarks and selection
+
+    private var currentChapter: Int { pdf != nil ? pdfPage : (engine?.chapter ?? 0) }
+    private var currentFraction: Double { pdf != nil ? 0 : (engine?.chapterFraction ?? 0) }
+    /// Paged EPUBs compare real pages so a bookmark follows the page it was made on.
+    private var bookmarkPageCount: Int? { pdf == nil && paginated ? engine?.pages : nil }
+
+    private var hasBookmark: Bool {
+        guard engine?.ready == true || pdf != nil else { return false }
+        return annotations.bookmark(bookID: bookID, chapter: currentChapter, fraction: currentFraction,
+                                    pageCount: bookmarkPageCount) != nil
+    }
+
+    private func toggleBookmark() {
+        annotations.toggleBookmark(bookID: bookID, chapter: currentChapter, fraction: currentFraction,
+                                   pageCount: bookmarkPageCount)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    private func handleSelection(_ action: FolioMobileSelectionAction) {
+        Task { @MainActor in
+            let selection: FolioMobileSelection?
+            if pdf != nil {
+                selection = pdfInteraction.selectedText().map { FolioMobileSelection(text: $0, prefix: "", suffix: "") }
+            } else {
+                selection = await engine?.currentSelection()
+            }
+            guard let selection else {
+                selectionError = "Select text in the book first. Touch and hold a word, then drag to choose more."
+                return
+            }
+            pendingSelection = selection
+            switch action {
+            case .highlight: saveSelectedAnnotation(.highlight)
+            case .quote: saveSelectedAnnotation(.quote)
+            case .note:
+                noteDraft = ""
+                showNoteEditor = true
+            case .more:
+                showSelectionActions = true
             }
         }
-        savePositionIfNeeded()
     }
 
-    @MainActor
-    private func captureSelection() async {
-        let text: String?
-        if pdf != nil { text = pdfInteraction.selectedText() }
-        else { text = await webInteraction.selectedText() }
-        guard let text, !text.isEmpty else {
-            selectionError = "Select text in the book, then tap the highlighter to save it."
-            return
-        }
-        selectionText = text
-        showSelectionActions = true
-    }
-
-    @MainActor
     private func translateSelection(to language: String) {
-        guard let selectionText, !selectionText.isEmpty else { return }
-        translationSource = selectionText
+        guard let text = pendingSelection?.text, !text.isEmpty else { return }
+        translationSource = text
         translatedText = ""
         translationError = nil
         translating = true
@@ -417,29 +562,29 @@ struct FolioMobileReaderView: View {
         )
     }
 
-    @MainActor
     private func saveSelectedAnnotation(_ kind: ReadingAnnotationKind, note: String = "") {
-        guard let selectedText = selectionText, !selectedText.isEmpty else { return }
-        _ = annotations.add(bookID: bookID, chapter: currentChapter,
-                            fraction: currentFraction, kind: kind, text: selectedText,
-                            prefix: "", suffix: "", note: note)
-        if kind == .highlight || kind == .note {
-            if pdf != nil { pdfInteraction.highlightSelection() }
-            else {
-                Task { await webInteraction.highlightSelection() }
-            }
+        guard let selection = pendingSelection, !selection.text.isEmpty else { return }
+        annotations.add(bookID: bookID, chapter: currentChapter,
+                        fraction: currentFraction, kind: kind, text: selection.text,
+                        prefix: selection.prefix, suffix: selection.suffix, note: note)
+        if pdf != nil {
+            if kind == .highlight || kind == .note { pdfInteraction.highlightSelection() }
+        } else {
+            // Highlights are painted from the saved annotations, not the live selection.
+            engine?.clearSelection()
         }
-        selectionText = nil
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        pendingSelection = nil
     }
 
-    @MainActor
+    // MARK: Opening and saving
+
     private func open() {
-        guard let book, pdf == nil, content == nil else { return }
+        guard let book, pdf == nil, engine == nil else { return }
         store.update(bookID) {
             $0.lastOpenedAt = Date()
             if $0.status == .none || $0.status == .wantToRead { $0.status = .reading }
         }
-        openedAt = Date()
         lastTick = Date()
         if book.format == .pdf {
             guard let document = PDFDocument(url: store.fileURL(book)) else {
@@ -456,274 +601,305 @@ struct FolioMobileReaderView: View {
                 error = "There are no readable chapters in this file."
                 return
             }
-            chapter = max(0, min(parsed.chapters.count - 1, book.position.chapter))
-            chapterFraction = max(0, min(0.999, book.position.fraction))
-            content = parsed
+            let reader = FolioMobileReaderEngine(content: parsed, chapter: book.position.chapter,
+                                                 fraction: book.position.fraction)
+            reader.paginated = preferences.prefs.navigation == .pages && !parsed.isComic
+            let id = bookID
+            let annotationStore = annotations
+            reader.annotationsForBook = { annotationStore.items(for: id) }
+            reader.onPositionChange = { savePositionIfNeeded() }
+            reader.onTap = { x in handleTap(x) }
+            reader.onTurn = {
+                if chromeVisible && !voiceOver { chromeVisible = false }
+            }
+            engine = reader
         } catch {
             self.error = error.localizedDescription
         }
     }
 
-    @MainActor
     private func savePositionIfNeeded() {
         guard Date().timeIntervalSince(lastSaved) > 3 else { return }
         savePosition()
     }
 
-    @MainActor
     private func savePosition() {
-        guard book != nil, pdf != nil || content != nil else { return }
-        let chapter = chapter
-        let fraction = chapterFraction
+        guard book != nil, pdf != nil || engine?.ready == true else { return }
+        let chapter = engine?.chapter ?? 0
+        let fraction = engine?.chapterFraction ?? 0
         let page = pdfPage
         let progress = progress
         store.update(bookID) {
-            $0.position.chapter = chapter
-            $0.position.fraction = fraction
-            $0.position.pdfPage = page
+            if pdf != nil {
+                $0.position.pdfPage = page
+            } else {
+                $0.position.chapter = chapter
+                $0.position.fraction = fraction
+            }
             if $0.status != .finished { $0.progress = progress }
         }
         lastSaved = Date()
     }
+
+    /// The `ReaderScript` configuration, sized for iPhone and iPad screens.
+    static func config(_ prefs: ReaderPrefs, palette: ReaderTheme.Palette, comic: Bool, regularWidth: Bool) -> String {
+        // Respect Dynamic Type: the chosen size is a base that scales with the system text size.
+        let fontSize = min(78, max(12, UIFontMetrics(forTextStyle: .body).scaledValue(for: CGFloat(prefs.fontSize))))
+        let margin: Double
+        if comic { margin = 4 }
+        else if prefs.customMargins { margin = regularWidth ? prefs.margins : max(10, prefs.margins / 2) }
+        else { margin = regularWidth ? 56 : 24 }
+        var config: [String: Any] = [
+            "bg": palette.bg, "fg": palette.fg, "accent": palette.accent,
+            "fontSize": Int(fontSize.rounded()), "mode": comic ? "scroll" : prefs.navigation.rawValue,
+            "columns": prefs.multipleColumns, "justify": prefs.justify, "bold": prefs.boldText,
+            "margin": margin, "comic": comic,
+        ]
+        if let font = prefs.font.css { config["font"] = font }
+        if prefs.customLineSpacing { config["lineHeight"] = prefs.lineSpacing }
+        if prefs.customCharacterSpacing { config["letterSpacing"] = prefs.characterSpacing }
+        if prefs.customWordSpacing { config["wordSpacing"] = prefs.wordSpacing }
+        let data = (try? JSONSerialization.data(withJSONObject: config, options: [.sortedKeys])) ?? Data("{}".utf8)
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
 }
 
-/// A WKWebView renders extracted EPUB chapters and local HTML assets.
-struct FolioMobileHTMLPage: UIViewRepresentable {
-    let url: URL
-    let root: URL
-    let initialFraction: Double
-    let preferences: ReaderPrefs
-    let palette: ReaderTheme.Palette
-    let comic: Bool
-    let interaction: FolioMobileWebInteraction
-    let highlights: [String]
-    let onPositionChange: (Double) -> Void
+// MARK: - PDF
 
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
+/// Adds Folio's annotation commands to PDF text selection.
+final class FolioMobilePDFView: PDFView {
+    var selectionAction: ((FolioMobileSelectionAction) -> Void)?
 
-    func makeUIView(context: Context) -> WKWebView {
-        let web = WKWebView(frame: .zero)
-        interaction.view = web
-        interaction.paginated = preferences.navigation == .pages && !comic
-        web.isOpaque = false
-        web.backgroundColor = UIColor(Color(hex: palette.bg))
-        web.scrollView.backgroundColor = UIColor(Color(hex: palette.bg))
-        web.scrollView.delegate = context.coordinator
-        web.navigationDelegate = context.coordinator
-        web.scrollView.contentInsetAdjustmentBehavior = .never
-        web.allowsBackForwardNavigationGestures = false
-        return web
-    }
-
-    func updateUIView(_ web: WKWebView, context: Context) {
-        context.coordinator.parent = self
-        interaction.view = web
-        interaction.paginated = preferences.navigation == .pages && !comic
-        if context.coordinator.loadedURL != url {
-            context.coordinator.loadedURL = url
-            context.coordinator.startFraction = initialFraction
-            context.coordinator.lastPreferences = preferences
-            context.coordinator.lastPalette = palette.bg
-            web.loadFileURL(url, allowingReadAccessTo: root)
-        } else if context.coordinator.lastPreferences != preferences || context.coordinator.lastPalette != palette.bg {
-            context.coordinator.lastPreferences = preferences
-            context.coordinator.lastPalette = palette.bg
-            context.coordinator.installAppearance(in: web, scroll: false)
-        } else if context.coordinator.lastHighlights != highlights {
-            context.coordinator.lastHighlights = highlights
-            interaction.restoreHighlights(highlights)
-        }
-    }
-
-    final class Coordinator: NSObject, WKNavigationDelegate, UIScrollViewDelegate {
-        var parent: FolioMobileHTMLPage
-        var loadedURL: URL?
-        var startFraction = 0.0
-        var lastPreferences: ReaderPrefs?
-        var lastPalette: String?
-        var lastHighlights: [String] = []
-        private var didLoad = false
-
-        init(_ parent: FolioMobileHTMLPage) { self.parent = parent }
-
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            didLoad = false
-            lastHighlights = parent.highlights
-            installAppearance(in: webView, scroll: true)
-        }
-
-        func installAppearance(in web: WKWebView, scroll: Bool) {
-            let prefs = parent.preferences
-            let pal = parent.palette
-            let fontFamily = prefs.font.css ?? "-apple-system"
-            let margin = parent.comic ? 0 : (prefs.customMargins ? Int(prefs.margins / 3) : 16)
-            let isPaged = prefs.navigation == .pages && !parent.comic
-            let readableFontSize = min(78, max(12, UIFontMetrics(forTextStyle: .body).scaledValue(for: CGFloat(prefs.fontSize))))
-            let css = """
-                html, body { background: \(pal.bg) !important; color: \(pal.fg) !important; }
-                body { font-family: \(fontFamily), serif !important;
-                       font-size: \(readableFontSize)px !important;
-                       font-weight: \(prefs.boldText ? "700" : "400") !important;
-                       line-height: \(prefs.customLineSpacing ? prefs.lineSpacing : 1.55) !important;
-                       letter-spacing: \(prefs.customCharacterSpacing ? prefs.characterSpacing : 0)em !important;
-                       word-spacing: \(prefs.customWordSpacing ? prefs.wordSpacing : 0)em !important;
-                       text-align: \(prefs.justify ? "justify" : "start") !important;
-                       margin: \(margin)px !important;
-                       -webkit-text-size-adjust: 100%; }
-                body :is(p, li, blockquote, h1, h2, h3, h4, h5, h6, span) {
-                    color: inherit !important;
-                }
-                img, svg, video { max-width: 100% !important; height: auto; }
-                a { color: \(pal.accent) !important; }
-                mark.folio-mobile-highlight { background: #F7D85F !important; color: #222 !important; border-radius: 2px; }
-                \(isPaged ?
-                    "html { height:100%; overflow-x:auto; overflow-y:hidden; scroll-snap-type:x mandatory; } body { height:calc(100vh - 6px) !important; column-width:calc(100vw - \(margin * 3)px); column-gap:\(margin * 2)px; column-fill:auto; overflow-y:hidden; margin:0 !important; padding:\(margin)px; box-sizing:border-box; }" :
-                    (prefs.multipleColumns && !parent.comic ? "@media (min-width: 900px) { body { column-count: 2; column-gap: 44px; } }" : ""))
-                """
-            guard let encoded = try? JSONSerialization.data(withJSONObject: ["css": css], options: []),
-                  let json = String(data: encoded, encoding: .utf8) else { return }
-            let fraction = max(0, min(0.999, startFraction))
-            let script = """
-                (function () {
-                    const styles = \(json);
-                    let style = document.getElementById('folio-mobile-appearance');
-                    if (!style) { style = document.createElement('style'); style.id = 'folio-mobile-appearance'; document.head.appendChild(style); }
-                    style.textContent = styles.css;
-                    \(scroll ? (isPaged
-                        ? "requestAnimationFrame(() => window.scrollTo((document.documentElement.scrollWidth - innerWidth) * \(fraction), 0));"
-                        : "requestAnimationFrame(() => window.scrollTo(0, (document.documentElement.scrollHeight - innerHeight) * \(fraction)));") : "")
-                })();
-                """
-            web.evaluateJavaScript(script) { _, _ in
-                self.didLoad = true
-                Task { @MainActor in self.parent.interaction.restoreHighlights(self.parent.highlights) }
-            }
-        }
-
-        func scrollViewDidScroll(_ scrollView: UIScrollView) {
-            guard didLoad else { return }
-            let horizontal = parent.preferences.navigation == .pages && !parent.comic
-            let total = horizontal
-                ? max(1, scrollView.contentSize.width - scrollView.bounds.width)
-                : max(1, scrollView.contentSize.height - scrollView.bounds.height)
-            let offset = horizontal ? scrollView.contentOffset.x : scrollView.contentOffset.y
-            let fraction = max(0, min(0.999, offset / total))
-            parent.onPositionChange(fraction)
-        }
-
-        func webView(
-            _ webView: WKWebView,
-            decidePolicyFor navigationAction: WKNavigationAction,
-            decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
-        ) {
-            guard let url = navigationAction.request.url else {
-                decisionHandler(.cancel)
-                return
-            }
-            if url.isFileURL || url.scheme == "about" {
-                decisionHandler(.allow)
-            } else {
-                UIApplication.shared.open(url)
-                decisionHandler(.cancel)
-            }
+    override func buildMenu(with builder: UIMenuBuilder) {
+        super.buildMenu(with: builder)
+        guard builder.system == .context, let selectionAction, currentSelection != nil else { return }
+        let menu = UIMenu(title: "", identifier: UIMenu.Identifier("app.folio.reader.pdf-annotate"),
+                          options: .displayInline, children: [
+            UIAction(title: "Highlight", image: UIImage(systemName: "highlighter")) { _ in selectionAction(.highlight) },
+            UIAction(title: "Add Note", image: UIImage(systemName: "note.text.badge.plus")) { _ in selectionAction(.note) },
+            UIAction(title: "More…", image: UIImage(systemName: "ellipsis.circle")) { _ in selectionAction(.more) },
+        ])
+        if builder.menu(for: .standardEdit) != nil {
+            builder.insertSibling(menu, beforeMenu: .standardEdit)
+        } else {
+            builder.insertChild(menu, atStartOfMenu: .root)
         }
     }
 }
 
+/// PDFKit pages: swipe one page at a time in Pages mode, or scroll continuously.
 struct FolioMobilePDFPage: UIViewRepresentable {
     let document: PDFDocument
     let page: Int
+    let paged: Bool
     let interaction: FolioMobilePDFInteraction
     let background: String
     let onPageChange: (Int) -> Void
+    let onTap: () -> Void
+    let selectionAction: (FolioMobileSelectionAction) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    func makeUIView(context: Context) -> PDFView {
-        let view = PDFView()
+    func makeUIView(context: Context) -> FolioMobilePDFView {
+        let view = FolioMobilePDFView()
         interaction.view = view
         view.document = document
-        view.autoScales = true
-        view.displayDirection = .vertical
-        view.displayMode = .singlePageContinuous
+        view.selectionAction = selectionAction
+        configure(view, paged: paged)
+        context.coordinator.paged = paged
         view.backgroundColor = UIColor(Color(hex: background))
         context.coordinator.observer = NotificationCenter.default.addObserver(
             forName: .PDFViewPageChanged,
             object: view,
             queue: .main
         ) { [weak view, weak coordinator = context.coordinator] _ in
-            guard let view, let current = view.currentPage,
-                  let idx = view.document?.index(for: current) else { return }
-            coordinator?.parent.onPageChange(idx)
+            MainActor.assumeIsolated {
+                guard let view, let current = view.currentPage,
+                      let index = view.document?.index(for: current) else { return }
+                coordinator?.parent.onPageChange(index)
+            }
         }
-        if let target = document.page(at: page) { view.go(to: target) }
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:)))
+        tap.delegate = context.coordinator
+        tap.cancelsTouchesInView = false
+        view.addGestureRecognizer(tap)
+        let target = page
+        DispatchQueue.main.async {
+            if let destination = document.page(at: target) { view.go(to: destination) }
+        }
         return view
     }
 
-    func updateUIView(_ view: PDFView, context: Context) {
+    func updateUIView(_ view: FolioMobilePDFView, context: Context) {
         context.coordinator.parent = self
         interaction.view = view
+        view.selectionAction = selectionAction
         if view.document !== document { view.document = document }
         view.backgroundColor = UIColor(Color(hex: background))
-        if let current = view.currentPage,
-           document.index(for: current) == page { return }
+        if context.coordinator.paged != paged {
+            context.coordinator.paged = paged
+            configure(view, paged: paged)
+        }
+        if let current = view.currentPage, document.index(for: current) == page { return }
         if let target = document.page(at: page) { view.go(to: target) }
     }
 
-    final class Coordinator {
+    private func configure(_ view: PDFView, paged: Bool) {
+        view.autoScales = true
+        if paged {
+            view.displayMode = .singlePage
+            view.displayDirection = .horizontal
+            view.usePageViewController(true, withViewOptions: [UIPageViewController.OptionsKey.interPageSpacing: 16])
+        } else {
+            view.usePageViewController(false, withViewOptions: nil)
+            view.displayMode = .singlePageContinuous
+            view.displayDirection = .vertical
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var parent: FolioMobilePDFPage
+        var paged = true
         var observer: NSObjectProtocol?
         init(_ parent: FolioMobilePDFPage) { self.parent = parent }
+
+        @objc func tapped(_ gesture: UITapGestureRecognizer) {
+            guard parent.interaction.selectedText() == nil else { return }
+            parent.onTap()
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
         deinit {
             if let observer { NotificationCenter.default.removeObserver(observer) }
         }
     }
 }
 
+// MARK: - Appearance
+
+/// Quick reading controls shown over the page, so changes are visible while
+/// adjusting them. Deeper spacing options live in Typography & Layout.
 struct FolioMobileReaderAppearance: View {
     @Environment(ReaderPrefsStore.self) private var preferences
+    @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.dismiss) private var dismiss
+
+    private var dark: Bool { preferences.appearance.isDark(systemDark: systemColorScheme == .dark) }
 
     var body: some View {
         NavigationStack {
             Form {
-                FolioMobileReadabilitySettings()
-                Section("Theme") {
-                    Picker("Reading Theme", selection: Binding(
-                        get: { preferences.prefs.theme },
-                        set: { preferences.pickTheme($0) }
-                    )) {
-                        ForEach(ReaderTheme.allCases) { theme in
-                            Text(theme.label).tag(theme)
+                Section {
+                    HStack(spacing: 12) {
+                        sizeButton(smaller: true)
+                        VStack(spacing: 2) {
+                            Text("\(preferences.prefs.fontSize) pt")
+                                .font(.headline.monospacedDigit())
+                            Text("Text Size").font(.caption).foregroundStyle(.secondary)
                         }
+                        .frame(maxWidth: .infinity)
+                        .accessibilityElement(children: .combine)
+                        sizeButton(smaller: false)
                     }
+                    .padding(.vertical, 2)
+
+                    themeGrid
+                        .listRowInsets(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12))
+
                     Picker("Appearance", selection: Binding(
                         get: { preferences.appearance },
                         set: { preferences.appearance = $0 }
                     )) {
                         ForEach(ReaderAppearance.allCases) { appearance in
-                            Text(appearance.label).tag(appearance)
+                            Label(appearance.label, systemImage: appearance.symbol).tag(appearance)
                         }
                     }
+                    .pickerStyle(.segmented)
                 }
-                Section("Text") {
-                    Stepper(
-                        "Font Size: \(preferences.prefs.fontSize) pt",
-                        value: Binding(
-                            get: { preferences.prefs.fontSizeIndex },
-                            set: { preferences.prefs.fontSizeIndex = $0 }
-                        ),
-                        in: 0...(ReaderPrefs.fontSizes.count - 1)
-                    )
+
+                Section("Layout") {
+                    Picker("Reading Mode", selection: Binding(
+                        get: { preferences.prefs.navigation },
+                        set: { preferences.prefs.navigation = $0 }
+                    )) {
+                        ForEach(PageNavigation.allCases) { mode in Text(mode.label).tag(mode) }
+                    }
+                    .pickerStyle(.segmented)
+                    Picker("Font", selection: Binding(
+                        get: { preferences.prefs.font },
+                        set: { preferences.prefs.font = $0 }
+                    )) {
+                        ForEach(ReaderFont.allCases) { font in
+                            Text(font.label).font(font.swiftUIFont).tag(font)
+                        }
+                    }
                     Toggle("Bold Text", isOn: Binding(
                         get: { preferences.prefs.boldText },
                         set: { preferences.prefs.boldText = $0 }
                     ))
+                    Toggle("Justify Paragraphs", isOn: Binding(
+                        get: { preferences.prefs.justify },
+                        set: { preferences.prefs.justify = $0 }
+                    ))
+                    NavigationLink("Typography & Layout") {
+                        FolioMobileReaderAdvancedSettings()
+                            .environment(preferences)
+                    }
                 }
+
+                FolioMobileReadabilitySettings()
             }
-            .navigationTitle("Reading Appearance")
+            .navigationTitle("Themes & Settings")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
+            }
+        }
+    }
+
+    private func sizeButton(smaller: Bool) -> some View {
+        let index = preferences.prefs.fontSizeIndex
+        let limit = smaller ? 0 : ReaderPrefs.fontSizes.count - 1
+        return Button {
+            preferences.prefs.fontSizeIndex = max(0, min(ReaderPrefs.fontSizes.count - 1, index + (smaller ? -1 : 1)))
+        } label: {
+            Text("A")
+                .font(.system(size: smaller ? 15 : 24, weight: .semibold, design: .serif))
+                .frame(width: 52, height: 40)
+        }
+        .folioGlassPill()
+        .disabled(index == limit)
+        .accessibilityLabel(smaller ? "Smaller Text" : "Larger Text")
+    }
+
+    private var themeGrid: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+            ForEach(ReaderTheme.allCases) { theme in
+                let palette = theme.palette(dark: dark)
+                let selected = preferences.prefs.theme == theme
+                Button { preferences.pickTheme(theme) } label: {
+                    VStack(spacing: 4) {
+                        Text("Aa")
+                            .font(theme.defaultFont.swiftUIFont.weight(theme.isBold ? .bold : .regular))
+                            .imageScale(.large)
+                        Text(theme.label).font(.caption2)
+                    }
+                    .foregroundStyle(Color(hex: palette.fg))
+                    .frame(maxWidth: .infinity, minHeight: 58)
+                    .background(Color(hex: palette.bg), in: RoundedRectangle(cornerRadius: 14))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14)
+                            .strokeBorder(selected ? Color(hex: palette.accent) : Color.secondary.opacity(0.25),
+                                          lineWidth: selected ? 2.5 : 1)
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("\(theme.label) theme")
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
         }
     }
