@@ -422,6 +422,7 @@ struct FolioMobileHomeView: View {
                 ForEach(entries) { entry in
                     if let item = entry.hardcover {
                         FolioMobileRemoteBookTile(book: item.book, width: min(tileWidth, 180))
+                            .folioShelfEntryContextMenu(entry) { Task { await shelves.load(from: hardcover) } }
                     } else if let tracked = entry.goodreads {
                         Button { selectedTracked = tracked } label: {
                             VStack(alignment: .leading, spacing: 7) {
@@ -441,6 +442,7 @@ struct FolioMobileHomeView: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityElement(children: .combine)
+                        .folioShelfEntryContextMenu(entry)
                     }
                 }
             }
@@ -606,6 +608,7 @@ struct FolioMobileLibraryView: View {
                         FolioMobileBookTile(book: book)
                     }
                     .buttonStyle(.plain)
+                    .folioBookContextMenu(book)
                 }
             }
             .padding(.horizontal, 16)
