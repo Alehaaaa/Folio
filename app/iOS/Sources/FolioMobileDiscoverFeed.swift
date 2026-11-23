@@ -1,120 +1,318 @@
 import Foundation
 import Observation
 
-/// Curated Hardcover lists for the iOS Discover tab.
-extension HardcoverClient {
-    /// Books Hardcover readers have shelved most, optionally filtered.
-    func popularBooks(where filter: String = "", limit: Int = 24) async throws -> [HCBook] {
-        let clause = filter.isEmpty ? "" : "where: {\(filter)}, "
-        let d = try await query("query Popular { books(\(clause)order_by: {users_count: desc}, limit: \(limit)) { \(Self.bookFields) } }")
-        return d["books"].array.compactMap(HCBook.from(book:))
+// MARK: - Topics
+
+/// One browsable Discover list: a row on the Discover page, an entry in the
+/// theme index, and a full page with filters.
+struct FolioDiscoverTopic: Hashable, Identifiable {
+    enum Kind: Hashable {
+        case trending, popular, newThisYear, acclaimed, shortReads, longReads
+        case genre(String)
+        /// Books first published from `from` up to, but not including, `to`.
+        case years(from: Int?, to: Int?)
     }
 
-    /// The best-rated books among those with plenty of ratings.
-    func acclaimedBooks(limit: Int = 24) async throws -> [HCBook] {
-        let d = try await query("""
-        query Acclaimed { books(where: {ratings_count: {_gt: 2000}}, order_by: {rating: desc}, limit: \(limit)) { \(Self.bookFields) } }
-        """)
-        return d["books"].array.compactMap(HCBook.from(book:))
+    let kind: Kind
+    let title: String
+    var id: String { title }
+}
+
+struct FolioDiscoverGroup: Identifiable {
+    let title: String
+    let topics: [FolioDiscoverTopic]
+    /// Whether the group's topics appear as rows on the Discover page, or only in the index.
+    var showsRows = true
+    var id: String { title }
+}
+
+enum FolioDiscoverCatalog {
+    private static func genre(_ name: String) -> FolioDiscoverTopic { .init(kind: .genre(name), title: name) }
+
+    static let groups: [FolioDiscoverGroup] = [
+        FolioDiscoverGroup(title: "Highlights", topics: [
+            .init(kind: .trending, title: "Trending now"),
+            .init(kind: .newThisYear, title: "New this year"),
+            .init(kind: .acclaimed, title: "Acclaimed"),
+            .init(kind: .popular, title: "All-time favorites"),
+            .init(kind: .shortReads, title: "Short reads"),
+            .init(kind: .longReads, title: "Epic reads")
+        ]),
+        FolioDiscoverGroup(title: "Fiction", topics: [
+            "Fantasy", "Science Fiction", "Mystery", "Thriller", "Romance", "Historical Fiction",
+            "Horror", "Literary Fiction", "Young Adult", "Classics", "Graphic Novels"
+        ].map(genre)),
+        FolioDiscoverGroup(title: "Nonfiction", topics: [
+            "Nonfiction", "Biography", "History", "Science", "Self Help", "Philosophy", "Poetry"
+        ].map(genre)),
+        FolioDiscoverGroup(title: "By era", topics: [
+            .init(kind: .years(from: 2020, to: nil), title: "2020s"),
+            .init(kind: .years(from: 2010, to: 2020), title: "2010s"),
+            .init(kind: .years(from: 2000, to: 2010), title: "2000s"),
+            .init(kind: .years(from: 1900, to: 2000), title: "20th century"),
+            .init(kind: .years(from: nil, to: 1900), title: "Before 1900")
+        ], showsRows: false)
+    ]
+
+    static var rowTopics: [FolioDiscoverTopic] { groups.filter(\.showsRows).flatMap(\.topics) }
+}
+
+// MARK: - Filters
+
+struct FolioDiscoverFilters: Hashable {
+    enum Sort: String, CaseIterable, Identifiable {
+        case popular = "Most read", rated = "Top rated", newest = "Newest", oldest = "Oldest"
+        var id: String { rawValue }
     }
 
-    /// Popular books carrying a Hardcover genre tag. Falls back to the cached
-    /// tag list when the tag relation can't be queried.
-    func genreBooks(_ genre: String, limit: Int = 20) async throws -> [HCBook] {
-        if let d = try? await query("""
-        query Genre($g: String!) { books(where: {taggings: {tag: {tag: {_eq: $g}}}}, order_by: {users_count: desc}, limit: \(limit)) { \(Self.bookFields) } }
-        """, ["g": genre]) {
-            let books = d["books"].array.compactMap(HCBook.from(book:))
-            if !books.isEmpty { return books }
+    enum Published: String, CaseIterable, Identifiable {
+        case any = "Any year", thisYear = "This year", lastFive = "Last 5 years",
+             twentyTens = "2010s", twoThousands = "2000s", twentieth = "20th century", older = "Before 1900"
+        var id: String { rawValue }
+
+        var range: (from: Int?, to: Int?)? {
+            let year = Calendar.current.component(.year, from: .now)
+            switch self {
+            case .any: return nil
+            case .thisYear: return (year, nil)
+            case .lastFive: return (year - 4, nil)
+            case .twentyTens: return (2010, 2020)
+            case .twoThousands: return (2000, 2010)
+            case .twentieth: return (1900, 2000)
+            case .older: return (nil, 1900)
+            }
         }
-        let d = try await query("""
-        query GenreCached($tags: jsonb!) { books(where: {cached_tags: {_contains: $tags}}, order_by: {users_count: desc}, limit: \(limit)) { \(Self.bookFields) } }
-        """, ["tags": ["Genre": [["tag": genre]]]])
-        return d["books"].array.compactMap(HCBook.from(book:))
+    }
+
+    enum Rating: String, CaseIterable, Identifiable {
+        case any = "Any rating", four = "4★ and up", fourHalf = "4.5★ and up"
+        var id: String { rawValue }
+        var minimum: Double? { self == .four ? 4 : self == .fourHalf ? 4.5 : nil }
+    }
+
+    var sort: Sort = .popular
+    var published: Published = .any
+    var rating: Rating = .any
+
+    var isDefault: Bool { self == FolioDiscoverFilters() }
+
+    /// Client-side version of the filters, for lists Hardcover can't filter (Trending).
+    func apply(_ books: [HCBook]) -> [HCBook] {
+        var out = books
+        if let range = published.range {
+            out = out.filter { book in
+                guard let y = book.year else { return false }
+                return (range.from.map { y >= $0 } ?? true) && (range.to.map { y < $0 } ?? true)
+            }
+        }
+        if let minimum = rating.minimum { out = out.filter { ($0.rating ?? 0) >= minimum } }
+        switch sort {
+        case .popular: break
+        case .rated: out.sort { ($0.rating ?? 0) > ($1.rating ?? 0) }
+        case .newest: out.sort { ($0.year ?? 0) > ($1.year ?? 0) }
+        case .oldest: out.sort { ($0.year ?? .max) < ($1.year ?? .max) }
+        }
+        return out
     }
 }
 
-/// The Discover tab's rows: one short title each, loaded in parallel. A row
-/// that fails or comes back empty is left out rather than shown broken.
+// MARK: - Hardcover queries
+
+extension HardcoverClient {
+    /// How Hardcover answered genre filters this session: the tag relation,
+    /// the cached tag list, or neither.
+    private enum GenreMode { case unknown, taggings, cachedTags, unsupported }
+    private static var genreMode: GenreMode = .unknown
+
+    /// One page of a Discover topic, with optional filters applied by Hardcover.
+    func discoverBooks(_ topic: FolioDiscoverTopic, filters: FolioDiscoverFilters = .init(),
+                       limit: Int = 24, offset: Int = 0) async throws -> [HCBook] {
+        if case .trending = topic.kind {
+            guard offset == 0 else { return [] }
+            return filters.apply(try await trending())
+        }
+
+        var conditions: [String] = []
+        var sort = filters.sort
+        let year = Calendar.current.component(.year, from: .now)
+
+        func years(_ from: Int?, _ to: Int?) {
+            if let from { conditions.append("{release_year: {_gte: \(from)}}") }
+            if let to { conditions.append("{release_year: {_lt: \(to)}}") }
+        }
+
+        switch topic.kind {
+        case .trending, .popular, .genre: break
+        case .newThisYear: years(year, nil)
+        case .acclaimed:
+            conditions.append("{ratings_count: {_gt: 2000}}")
+            if filters.sort == .popular { sort = .rated }
+        case .shortReads: conditions.append("{pages: {_gt: 60}}"); conditions.append("{pages: {_lt: 250}}")
+        case .longReads: conditions.append("{pages: {_gt: 600}}")
+        case .years(let from, let to): years(from, to)
+        }
+        if let range = filters.published.range { years(range.from, range.to) }
+        if let minimum = filters.rating.minimum {
+            conditions.append("{rating: {_gte: \(minimum)}}")
+            conditions.append("{ratings_count: {_gt: 25}}")
+        }
+        if sort == .rated && filters.rating.minimum == nil, topic.kind != .acclaimed {
+            // Top rated among books with a meaningful number of ratings.
+            conditions.append("{ratings_count: {_gt: 200}}")
+        }
+        if sort == .newest || sort == .oldest { conditions.append("{release_year: {_is_null: false}}") }
+
+        let order: String
+        switch sort {
+        case .popular: order = "{users_count: desc}"
+        case .rated: order = "[{rating: desc_nulls_last}, {users_count: desc}]"
+        case .newest: order = "[{release_year: desc}, {users_count: desc}]"
+        case .oldest: order = "[{release_year: asc}, {users_count: desc}]"
+        }
+
+        func run(extra: String?, declarations: String, variables: [String: Any]) async throws -> [HCBook] {
+            let all = conditions + (extra.map { [$0] } ?? [])
+            let whereClause = all.isEmpty ? "{}" : "{_and: [\(all.joined(separator: ", "))]}"
+            let header = declarations.isEmpty ? "query Discover" : "query Discover(\(declarations))"
+            let d = try await query("""
+            \(header) { books(where: \(whereClause), order_by: \(order), limit: \(limit), offset: \(offset)) { \(Self.bookFields) } }
+            """, variables)
+            return d["books"].array.compactMap(HCBook.from(book:))
+        }
+
+        guard case .genre(let genre) = topic.kind else {
+            return try await run(extra: nil, declarations: "", variables: [:])
+        }
+        let viaTaggings = { try await run(extra: "{taggings: {tag: {tag: {_eq: $g}}}}", declarations: "$g: String!", variables: ["g": genre]) }
+        let viaCache = { try await run(extra: "{cached_tags: {_contains: $tags}}", declarations: "$tags: jsonb!",
+                                       variables: ["tags": ["Genre": [["tag": genre]]]]) }
+        switch Self.genreMode {
+        case .taggings: return try await viaTaggings()
+        case .cachedTags: return try await viaCache()
+        case .unsupported: return []
+        case .unknown:
+            if let books = try? await viaTaggings(), !books.isEmpty {
+                Self.genreMode = .taggings
+                return books
+            }
+            if let books = try? await viaCache(), !books.isEmpty {
+                Self.genreMode = .cachedTags
+                return books
+            }
+            return []
+        }
+    }
+}
+
+// MARK: - Discover page feed
+
+/// The Discover page's rows. The last result is kept on disk, so the page
+/// opens fully laid out at once and refreshes in the background.
 @Observable
 @MainActor
 final class FolioMobileDiscoverFeed {
-    struct Row: Identifiable {
-        let id: String
-        let title: String
-        let books: [HCBook]
+    /// Books per topic id. A missing key means the row hasn't loaded yet.
+    private(set) var books: [String: [HCBook]] = [:]
+    private(set) var loading = false
+    private(set) var error: String?
+    private var lastRefresh: Date?
+
+    private static let freshFor: TimeInterval = 6 * 60 * 60
+
+    init() {
+        if let cache = Self.readCache() {
+            books = cache.books.mapValues { $0.map(\.value) }
+            lastRefresh = cache.savedAt
+        }
     }
 
-    static let genres = ["Fantasy", "Science Fiction", "Mystery", "Romance",
-                         "Historical Fiction", "Horror", "Nonfiction", "Classics"]
-
-    private(set) var rows: [Row] = []
-    private(set) var loading = false
-    private(set) var loaded = false
-    private(set) var error: String?
-
-    private enum Kind: Sendable {
-        case trending, newThisYear, acclaimed, allTime, genre(String)
+    /// Rows to draw: loaded rows with enough books, plus rows still loading.
+    var visibleTopics: [FolioDiscoverTopic] {
+        FolioDiscoverCatalog.rowTopics.filter { topic in
+            guard let list = books[topic.id] else { return loading || books.isEmpty }
+            return list.count >= 3
+        }
     }
 
     func load(from hardcover: HardcoverClient, force: Bool = false) async {
-        guard hardcover.isConnected else { rows = []; loaded = false; return }
-        if loaded && !force { return }
+        guard hardcover.isConnected else { return }
+        if !force, let lastRefresh, Date().timeIntervalSince(lastRefresh) < Self.freshFor, !books.isEmpty { return }
+        guard !loading else { return }
         loading = true
         defer { loading = false }
+        error = nil
 
-        let year = Calendar.current.component(.year, from: .now)
-        var plan: [(String, String, Kind)] = [
-            ("trending", "Trending now", .trending),
-            ("new", "New this year", .newThisYear),
-            ("acclaimed", "Acclaimed", .acclaimed),
-            ("alltime", "All-time favorites", .allTime)
-        ]
-        plan += Self.genres.map { ("genre-\($0)", $0, .genre($0)) }
-
-        var results: [String: [HCBook]] = [:]
+        var fresh: [String: [HCBook]] = [:]
         var firstError: String?
-        // Keep each book in one row only, in the order the rows appear, and
-        // show rows as soon as they arrive instead of after the slowest one.
-        func publish() {
-            var seen = Set<Int>()
-            rows = plan.compactMap { id, title, _ in
-                let books = (results[id] ?? []).filter { seen.insert($0.id).inserted }
-                return books.count >= 3 ? Row(id: id, title: title, books: Array(books.prefix(16))) : nil
+        let topics = FolioDiscoverCatalog.rowTopics
+        // A few requests at a time keeps well inside Hardcover's rate limit.
+        func add(_ topic: FolioDiscoverTopic, to group: inout TaskGroup<(String, Result<[HCBook], Error>)>) {
+            group.addTask { @MainActor in
+                do { return (topic.id, .success(try await hardcover.discoverBooks(topic, limit: 20))) }
+                catch { return (topic.id, .failure(error)) }
             }
         }
         await withTaskGroup(of: (String, Result<[HCBook], Error>).self) { group in
-            for (id, _, kind) in plan {
-                group.addTask { @MainActor in
-                    do {
-                        let books: [HCBook]
-                        switch kind {
-                        case .trending: books = try await hardcover.trending()
-                        case .newThisYear: books = try await hardcover.popularBooks(where: "release_year: {_eq: \(year)}")
-                        case .acclaimed: books = try await hardcover.acclaimedBooks()
-                        case .allTime: books = try await hardcover.popularBooks()
-                        case .genre(let name): books = try await hardcover.genreBooks(name)
-                        }
-                        return (id, .success(books))
-                    } catch {
-                        return (id, .failure(error))
-                    }
-                }
-            }
+            var queue = topics[...]
+            for _ in 0..<4 { if let topic = queue.popFirst() { add(topic, to: &group) } }
             for await (id, result) in group {
-                guard !Task.isCancelled else { continue }
                 switch result {
-                case .success(let books):
-                    results[id] = books
-                    publish()
+                case .success(let list):
+                    fresh[id] = list
+                    // Replace a row only when it has new books, so nothing flickers away.
+                    if list.count >= 3 || books[id] == nil { books[id] = list }
                 case .failure(let failure):
                     if firstError == nil { firstError = failure.localizedDescription }
+                    if books[id] == nil { books[id] = [] }
                 }
+                if let topic = queue.popFirst() { add(topic, to: &group) }
             }
         }
         guard !Task.isCancelled else { return }
-        publish()
-        error = rows.isEmpty ? (firstError ?? "Hardcover didn't return any books. Try again later.") : nil
-        loaded = true
+        if fresh.values.contains(where: { $0.count >= 3 }) {
+            lastRefresh = Date()
+            Self.writeCache(books: books, savedAt: lastRefresh!)
+        } else if visibleTopics.isEmpty {
+            error = firstError ?? "Hardcover didn't return any books. Try again later."
+        }
+    }
+
+    // MARK: Disk cache
+
+    private struct StoredBook: Codable {
+        var id: Int, title: String, authors: String, imageURL: URL?
+        var year: Int?, pages: Int?, rating: Double?, ratingsCount: Int?, slug: String?
+
+        init(_ b: HCBook) {
+            id = b.id; title = b.title; authors = b.authors; imageURL = b.imageURL; year = b.year
+            pages = b.pages; rating = b.rating; ratingsCount = b.ratingsCount; slug = b.slug
+        }
+
+        var value: HCBook {
+            HCBook(id: id, title: title, authors: authors, imageURL: imageURL, year: year, pages: pages,
+                   rating: rating, ratingsCount: ratingsCount, description: nil, slug: slug)
+        }
+    }
+
+    private struct Stored: Codable {
+        var savedAt: Date
+        var books: [String: [StoredBook]]
+    }
+
+    nonisolated private static var cacheURL: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("folio-discover-rows.json")
+    }
+
+    private static func readCache() -> Stored? {
+        guard let data = try? Data(contentsOf: cacheURL) else { return nil }
+        return try? JSONDecoder().decode(Stored.self, from: data)
+    }
+
+    private static func writeCache(books: [String: [HCBook]], savedAt: Date) {
+        let stored = Stored(savedAt: savedAt, books: books.mapValues { $0.map(StoredBook.init) })
+        Task.detached(priority: .utility) {
+            if let data = try? JSONEncoder().encode(stored) { try? data.write(to: cacheURL, options: .atomic) }
+        }
     }
 }
