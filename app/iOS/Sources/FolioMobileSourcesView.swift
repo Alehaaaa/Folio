@@ -17,108 +17,40 @@ struct FolioMobileSourcesView: View {
     @State private var lastEvent: String?
 
     var body: some View {
-        List {
-            Section {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 22) {
                 if extensions.enabled.isEmpty {
-                    ContentUnavailableView(
-                        "No Enabled Sources",
-                        systemImage: "square.stack.3d.up.slash",
-                        description: Text("Source extensions let you discover and import compatible books.")
-                    )
+                    ContentUnavailableView {
+                        Label("No Enabled Sources", systemImage: "square.stack.3d.up.slash")
+                    } description: {
+                        Text("Source extensions let you discover and import compatible books.")
+                    } actions: {
+                        NavigationLink {
+                            FolioMobileExtensionSettings()
+                        } label: { Label("Manage Sources", systemImage: "puzzlepiece.extension") }
+                        .folioGlassPill(prominent: true)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 300)
                 } else {
-                    Picker("Source", selection: $selectedSource) {
-                        ForEach(extensions.enabled) { source in
-                            Text(source.manifest.name).tag(source.id)
-                        }
-                    }
-                    TextField("Book title or author", text: $search)
-                        .submitLabel(.search)
-                        .onSubmit { Task { await searchBooks() } }
-                    Button {
-                        Task { await searchBooks() }
-                    } label: {
-                        HStack {
-                            Label(search.isEmpty ? "Browse Books" : "Search Books", systemImage: "magnifyingglass")
-                            Spacer()
-                            if searching { ProgressView() }
-                        }
-                    }
-                    .disabled(searching || selectedSource.isEmpty)
-                    .folioGlassPill(prominent: true)
-                    if let lastEvent, !lastEvent.isEmpty {
-                        Text(lastEvent).font(.caption).foregroundStyle(.secondary)
+                    searchBar
+                    if results.isEmpty {
+                        Text(searching ? "Looking through \(sourceName)…" : "Search \(sourceName) by title or author, or browse what it has.")
+                            .font(.callout)
+                            .foregroundStyle(FolioTheme.muted)
+                            .padding(.top, 6)
+                    } else {
+                        resultsList
                     }
                 }
             }
-            .folioRow()
-
-            if !results.isEmpty {
-                Section("Found \(results.count) Books") {
-                    ForEach(results) { result in
-                        HStack(alignment: .center, spacing: 12) {
-                            AsyncImage(url: result.cover) { image in
-                                image.resizable().scaledToFill()
-                            } placeholder: {
-                                Image(systemName: "book.closed.fill")
-                                    .foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                    .background(.quaternary)
-                            }
-                            .frame(width: 55, height: 75)
-                            .clipShape(RoundedRectangle(cornerRadius: 5))
-                            Button {
-                                selectedResult = result
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(result.title).font(.headline).lineLimit(2)
-                                    Text(result.author.isEmpty ? "Unknown Author" : result.author)
-                                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                    if let format = result.preferred?.format {
-                                        Text(format.uppercased())
-                                            .font(.caption2.weight(.semibold))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    if let count = result.downloadCount {
-                                        Text("\(count.formatted()) downloads (reported by source)")
-                                            .font(.caption2).foregroundStyle(.tertiary)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            Spacer(minLength: 0)
-                            if downloading.contains(result.id) {
-                                ProgressView()
-                            } else {
-                                Button {
-                                    Task { await download(result) }
-                                } label: {
-                                    Image(systemName: "plus.circle.fill")
-                                        .font(.title2)
-                                }
-                                .folioGlassPill()
-                                .disabled(result.preferred == nil)
-                                .accessibilityLabel("Add \(result.title) to Library")
-                            }
-                        }
-                        .padding(.vertical, 3)
-                    }
-                }
-                .folioRow()
-                Section {
-                    Button {
-                        Task { await loadMore() }
-                    } label: {
-                        if searching { ProgressView() }
-                        else { Label("Load More Results", systemImage: "arrow.down") }
-                    }
-                    .folioGlassPill()
-                    .disabled(searching || selectedSource.isEmpty)
-                }
-                .folioRow()
-            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 30)
+            // Lined up with the page title, not centered under it.
+            .frame(maxWidth: 1000, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .scrollDismissesKeyboard(.immediately)
         .navigationTitle("Sources")
         .folioScreen()
         .folioPageHeader("Sources") {
@@ -133,6 +65,8 @@ struct FolioMobileSourcesView: View {
                 } label: {
                     FolioHeaderIconLabel(symbol: "ellipsis")
                 }
+                .menuIndicator(.hidden)
+                .buttonStyle(.plain)
                 .foregroundStyle(FolioTheme.ink)
                 .accessibilityLabel("More")
         }
@@ -150,6 +84,149 @@ struct FolioMobileSourcesView: View {
         } message: {
             Text(message ?? "")
         }
+    }
+
+    private var sourceName: String {
+        extensions.enabled.first { $0.id == selectedSource }?.manifest.name ?? "this source"
+    }
+
+    /// The source to search, the field, and one button, on a single row.
+    private var searchBar: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                FolioSearchField(text: $search, prompt: "Title or author") {
+                    Task { await searchBooks() }
+                }
+                Button {
+                    Task { await searchBooks() }
+                } label: {
+                    if searching {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text(search.isEmpty ? "Browse" : "Search")
+                    }
+                }
+                .folioGlassPill(prominent: true)
+                .disabled(searching || selectedSource.isEmpty)
+            }
+            HStack(spacing: 8) {
+                Menu {
+                    Picker("Source", selection: $selectedSource) {
+                        ForEach(extensions.enabled) { source in
+                            Text(source.manifest.name).tag(source.id)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Label(sourceName, systemImage: "square.stack.3d.up")
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(FolioTheme.ink)
+                }
+                .menuIndicator(.visible)
+                .fixedSize()
+                .accessibilityLabel("Source")
+                if let lastEvent, !lastEvent.isEmpty {
+                    Text(lastEvent)
+                        .font(.caption)
+                        .foregroundStyle(FolioTheme.muted)
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    private var resultsList: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 9) {
+                Text("Results")
+                    .font(.folioDisplay(.title2, weight: .semibold))
+                    .foregroundStyle(FolioTheme.ink)
+                Text("\(results.count)")
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(FolioTheme.muted)
+            }
+            VStack(spacing: 0) {
+                ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
+                    if index > 0 {
+                        Rectangle().fill(FolioTheme.line.opacity(0.7)).frame(height: 0.5)
+                            .padding(.leading, 76)
+                    }
+                    resultRow(result)
+                }
+            }
+            .folioCard()
+            HStack {
+                Spacer()
+                Button {
+                    Task { await loadMore() }
+                } label: {
+                    if searching { ProgressView().controlSize(.small) }
+                    else { Label("More Results", systemImage: "arrow.down") }
+                }
+                .folioGlassPill()
+                .disabled(searching || selectedSource.isEmpty)
+                Spacer()
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private func resultRow(_ result: SourceResult) -> some View {
+        HStack(spacing: 14) {
+            AsyncImage(url: result.cover) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                Image(systemName: "book.closed.fill")
+                    .foregroundStyle(FolioTheme.muted)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(FolioTheme.line.opacity(0.4))
+            }
+            .frame(width: 44, height: 66)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            Button {
+                selectedResult = result
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(result.title)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(FolioTheme.ink)
+                        .lineLimit(2)
+                    Text(result.author.isEmpty ? "Unknown Author" : result.author)
+                        .font(.callout)
+                        .foregroundStyle(FolioTheme.muted)
+                        .lineLimit(1)
+                    HStack(spacing: 8) {
+                        if let format = result.preferred?.format {
+                            Text(format.uppercased()).font(.caption2.weight(.semibold))
+                        }
+                        if let count = result.downloadCount {
+                            Text("\(count.formatted()) downloads").font(.caption2)
+                        }
+                    }
+                    .foregroundStyle(FolioTheme.muted)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if downloading.contains(result.id) {
+                ProgressView().controlSize(.small)
+            } else {
+                Button {
+                    Task { await download(result) }
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(FolioTheme.olive)
+                }
+                .buttonStyle(.plain)
+                .disabled(result.preferred == nil)
+                .accessibilityLabel("Add \(result.title) to Library")
+                .help("Add to Library")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 
     private func selectDefaultSource() {

@@ -592,6 +592,8 @@ struct FolioMobileLibraryView: View {
                         } label: {
                             FolioHeaderIconLabel(symbol: "line.3.horizontal.decrease")
                         }
+                        .menuIndicator(.hidden)
+                        .buttonStyle(.plain)
                         .foregroundStyle(FolioTheme.ink)
                         .accessibilityLabel("Filter and Sort")
                     }
@@ -608,6 +610,7 @@ struct FolioMobileLibraryView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .labelsHidden()
                 .padding(.horizontal, 16)
                 .accessibilityIdentifier("folio.libraryScope")
 

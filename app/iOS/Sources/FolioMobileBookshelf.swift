@@ -14,6 +14,10 @@ struct FolioMobileBookshelf: View {
 
     @State private var nook = FolioNookStore.shared
     @State private var width: CGFloat = 340
+    /// Books are placed only once the bookcase knows its real width. Packing
+    /// first into a guessed width put the last book of a shelf on the next
+    /// one, and it slid back up every time Home opened.
+    @State private var measured = false
     /// The book being dragged. It leaves its place while it is in the hand,
     /// and the shelf makes room for it wherever it hovers.
     @State private var dragging: String?
@@ -62,7 +66,7 @@ struct FolioMobileBookshelf: View {
                 let leans = rowLeans[index]
                 let leanRoom = leans.values.reduce(CGFloat(0)) { $0 + $1.before + $1.after }
                 HStack(alignment: .bottom, spacing: spacing) {
-                    ForEach(row) { item in
+                    ForEach(measured ? row : []) { item in
                         let lean = leans[item.id] ?? FolioSpineLean()
                         let landed = landing?.id == item.id ? landing : nil
                         spine(item, lean: lean.angle)
@@ -127,7 +131,15 @@ struct FolioMobileBookshelf: View {
                 .strokeBorder(.black.opacity(0.08), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.10), radius: 16, y: 8)
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { newWidth in
+            guard newWidth != width || !measured else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                width = newWidth
+                measured = true
+            }
+        }
         .animation(.spring(response: 0.45, dampingFraction: 0.72), value: ordered.map(\.id))
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Bookshelf")

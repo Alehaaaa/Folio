@@ -50,33 +50,106 @@ struct FolioHeaderIconLabel: View {
     }
 }
 
-/// A rounded search field for tabs whose header replaces the navigation bar.
+/// The search field for tabs whose header replaces the navigation bar: the
+/// system's own field on the Mac, a Liquid Glass capsule like the system's
+/// search bar on iPhone and iPad.
 struct FolioSearchField: View {
     @Binding var text: String
     let prompt: String
+    /// Return in the field, for pages that search on demand.
+    var onSubmit: (() -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 8) {
+        #if os(macOS)
+        FolioNativeSearchField(text: $text, prompt: prompt, onSubmit: onSubmit)
+            .frame(height: 30)
+        #else
+        HStack(spacing: 7) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(FolioTheme.muted)
+                .font(.body.weight(.medium))
+                .foregroundStyle(.secondary)
             TextField(prompt, text: $text)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
+                .onSubmit { onSubmit?() }
             if !text.isEmpty {
                 Button { text = "" } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(FolioTheme.muted)
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Clear search")
             }
         }
+        .font(.body)
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(FolioTheme.surface, in: Capsule())
-        .overlay { Capsule().strokeBorder(FolioTheme.line, lineWidth: 0.8) }
+        .frame(minHeight: 44)
+        .modifier(FolioSearchGlass())
+        #endif
     }
 }
+
+#if os(macOS)
+import AppKit
+
+/// AppKit's search field: the native look, clear button and focus ring.
+struct FolioNativeSearchField: NSViewRepresentable {
+    @Binding var text: String
+    let prompt: String
+    var onSubmit: (() -> Void)?
+
+    func makeNSView(context: Context) -> NSSearchField {
+        let field = NSSearchField()
+        field.placeholderString = prompt
+        field.controlSize = .large
+        field.font = .systemFont(ofSize: NSFont.systemFontSize(for: .large))
+        field.sendsSearchStringImmediately = true
+        field.delegate = context.coordinator
+        field.target = context.coordinator
+        field.action = #selector(Coordinator.changed(_:))
+        return field
+    }
+
+    func updateNSView(_ field: NSSearchField, context: Context) {
+        context.coordinator.onSubmit = onSubmit
+        if field.stringValue != text { field.stringValue = text }
+        field.placeholderString = prompt
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(text: $text, onSubmit: onSubmit) }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var text: Binding<String>
+        var onSubmit: (() -> Void)?
+        init(text: Binding<String>, onSubmit: (() -> Void)?) {
+            self.text = text
+            self.onSubmit = onSubmit
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            guard selector == #selector(NSResponder.insertNewline(_:)), let onSubmit else { return false }
+            onSubmit()
+            return true
+        }
+
+        @objc func changed(_ sender: NSSearchField) { text.wrappedValue = sender.stringValue }
+        func controlTextDidChange(_ note: Notification) {
+            if let field = note.object as? NSSearchField { text.wrappedValue = field.stringValue }
+        }
+    }
+}
+#else
+/// Liquid Glass where the system has it, a soft fill before that.
+private struct FolioSearchGlass: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26.0, *) {
+            content.glassEffect(.regular.interactive(), in: Capsule())
+        } else {
+            content.background(.regularMaterial, in: Capsule())
+        }
+    }
+}
+#endif
 
 // MARK: - Pushed pages
 

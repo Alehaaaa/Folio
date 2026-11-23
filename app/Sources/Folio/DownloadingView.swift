@@ -38,23 +38,22 @@ struct DownloadingView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                FolioTabHeader(title: "Downloads") {
+            VStack(alignment: .leading, spacing: 26) {
+                HStack(spacing: 12) {
                     Text("\(activeJobs.count) active · \(attentionJobs.count) need attention")
                         .font(.callout.monospacedDigit())
                         .foregroundStyle(FolioTheme.muted)
-                }
-                HStack(spacing: 12) {
+                    Spacer(minLength: 8)
                     Label("Parallel downloads", systemImage: "arrow.down.circle.dotted")
-                        .font(.callout.weight(.medium))
+                        .font(.callout)
+                        .foregroundStyle(FolioTheme.muted)
                     Stepper(value: $downloads.maxConcurrentDownloads, in: 1...8) {
                         Text("\(downloads.maxConcurrentDownloads) at once")
-                            .font(.callout.monospacedDigit())
+                            .font(.callout.weight(.medium).monospacedDigit())
+                            .foregroundStyle(FolioTheme.ink)
                     }
                     .fixedSize()
-                    Spacer(minLength: 8)
-                    Text("Source limits still apply")
-                        .font(.caption).foregroundStyle(.tertiary)
+                    .help("Source limits still apply")
                 }
                 .accessibilityIdentifier("folio.downloads.concurrency")
 
@@ -64,206 +63,202 @@ struct DownloadingView: View {
                     } description: {
                         Text("Choose Find Source in a book's details to start a download.")
                     }
+                    .foregroundStyle(FolioTheme.muted)
                     .frame(maxWidth: .infinity, minHeight: 260)
                 } else {
                     downloadFilters
 
-                    if filter == .all || filter == .active { gridSection("In Progress", jobs: activeJobs) }
-                    if filter == .all || filter == .attention { gridSection("Needs Attention", jobs: attentionJobs) }
+                    if filter == .all || filter == .active { section("In Progress", jobs: activeJobs) }
+                    if filter == .all || filter == .attention { section("Needs Attention", jobs: attentionJobs) }
 
                     if filter == .all && activeJobs.isEmpty && attentionJobs.isEmpty {
-                        Label("All caught up — no downloads need attention.", systemImage: "checkmark.circle")
+                        Label("All caught up. No downloads need attention.", systemImage: "checkmark.circle")
                             .font(.callout)
-                            .foregroundStyle(.secondary)
-                            .padding(.vertical, 10)
+                            .foregroundStyle(FolioTheme.muted)
                     }
 
                     if filter == .all || filter == .history { historySection }
                 }
             }
-            .padding(.horizontal, 32)
-            .padding(.vertical, 28)
-            .frame(maxWidth: 1160, alignment: .leading)
-            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 20)
+            .padding(.top, 6)
+            .padding(.bottom, 32)
+            // Lined up with the page title, not centered under it.
+            .frame(maxWidth: 1000, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .scrollEdgeEffectStyle(.soft, for: .top)
-        .navigationTitle("Downloads")
-        .toolbar(.hidden, for: .windowToolbar)
+        .folioScreen()
+        .folioPageHeader("Downloads") {
+            if !historyJobs.isEmpty {
+                FolioHeaderIcon(symbol: "trash", label: "Clear History") {
+                    downloads.clearHistory()
+                }
+                .help("Clear finished and cancelled downloads")
+                .accessibilityIdentifier("folio.downloads.clearHistory")
+            }
+        }
         .sheet(item: $inspectedJob) { selection in
             downloadDetailSheet(for: selection.id)
         }
     }
 
-    /// Native macOS 26 glass buttons share a container so the active glass pill
-    /// transitions fluidly when a different download category is selected.
+    /// Quiet olive chips, like the sidebar, instead of system-blue buttons.
     private var downloadFilters: some View {
-        GlassEffectContainer(spacing: 8) {
-            HStack(spacing: 8) {
-                ForEach(DownloadFilter.allCases) { option in
-                    filterButton(option)
+        HStack(spacing: 6) {
+            ForEach(DownloadFilter.allCases) { option in
+                let selected = filter == option
+                Button {
+                    withAnimation(.smooth(duration: 0.25)) { filter = option }
+                } label: {
+                    Label(option.rawValue, systemImage: option.symbol)
+                        .font(.callout.weight(selected ? .semibold : .regular))
+                        .foregroundStyle(selected ? FolioTheme.ink : FolioTheme.muted)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background {
+                            if selected {
+                                Capsule().fill(FolioTheme.olive.opacity(0.22))
+                                    .matchedGeometryEffect(id: "filter", in: filterGlass)
+                            }
+                        }
+                        .contentShape(Capsule())
                 }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? [.isSelected] : [])
             }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Show downloads")
     }
 
-    @ViewBuilder
-    private func filterButton(_ option: DownloadFilter) -> some View {
-        let selected = filter == option
-        let button = Button {
-            withAnimation(.smooth(duration: 0.32)) { filter = option }
-        } label: {
-            filterLabel(option, selected: selected)
+    private func sectionTitle(_ title: String, count: Int) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 9) {
+            Text(title)
+                .font(.folioDisplay(.title2, weight: .semibold))
+                .foregroundStyle(FolioTheme.ink)
+            Text("\(count)")
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(FolioTheme.muted)
         }
-        .buttonBorderShape(.capsule)
-        .controlSize(.large)
-        .accessibilityAddTraits(selected ? [.isSelected] : [])
-
-        if selected {
-            button
-                .buttonStyle(.glassProminent)
-                .tint(.indigo)
-                .glassEffectID("download-filter-selection", in: filterGlass)
-        } else {
-            button.buttonStyle(.glass)
-        }
-    }
-
-    private func filterLabel(_ option: DownloadFilter, selected: Bool) -> some View {
-        Label(option.rawValue, systemImage: option.symbol)
-            .font(.callout.weight(selected ? .semibold : .medium))
-            .foregroundStyle(selected ? Color.white : Color(nsColor: .labelColor))
-            .padding(.horizontal, 6)
-            .frame(minHeight: 35)
-            .contentShape(Capsule())
     }
 
     @ViewBuilder
     private var historySection: some View {
         if !historyJobs.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
-                    Text("Download History").font(.title2.weight(.bold))
-                    Text("\(historyJobs.count)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline) {
+                    sectionTitle("History", count: historyJobs.count)
                     Spacer()
                     if filter == .all && historyJobs.count > 4 {
-                        Button("View All History") { filter = .history }
-                            .buttonStyle(.glass)
+                        Button("See all") { withAnimation(.smooth(duration: 0.25)) { filter = .history } }
+                            .folioGlassPill()
                     }
                 }
-                Text("Finished and cancelled jobs. Downloaded books are also in your Library.")
+                rows(filter == .history ? historyJobs : Array(historyJobs.prefix(4)))
+                Text("Downloaded books are also in your Library.")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 238), spacing: 16, alignment: .top)],
-                          alignment: .leading, spacing: 16) {
-                    ForEach(filter == .history ? historyJobs : Array(historyJobs.prefix(4))) { job in
-                        compactTile(job)
-                    }
-                }
+                    .foregroundStyle(FolioTheme.muted)
             }
-            .padding(.top, 6)
         } else if filter == .history {
             ContentUnavailableView("No Download History", systemImage: "clock.arrow.circlepath")
+                .foregroundStyle(FolioTheme.muted)
                 .frame(maxWidth: .infinity, minHeight: 220)
         }
     }
 
     @ViewBuilder
-    private func gridSection(_ title: String, jobs: [DownloadJob]) -> some View {
+    private func section(_ title: String, jobs: [DownloadJob]) -> some View {
         if !jobs.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 9) {
-                    Text(title).font(.title2.weight(.bold))
-                    Text("\(jobs.count)")
-                        .font(.caption.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 238), spacing: 16, alignment: .top)],
-                          alignment: .leading, spacing: 16) {
-                    ForEach(jobs) { job in compactTile(job) }
-                }
+                sectionTitle(title, count: jobs.count)
+                rows(jobs)
             }
         }
     }
 
-    private func compactTile(_ job: DownloadJob) -> some View {
-        GlassCard(padding: 14) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Spacer(minLength: 0)
-                    CoverArt(title: job.title, author: job.author, remote: job.cover, cornerRadius: 6)
-                        .frame(width: 86)
-                    Spacer(minLength: 0)
+    /// One cream card holding a row per download, with hairlines between.
+    private func rows(_ jobs: [DownloadJob]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(jobs.enumerated()), id: \.element.id) { index, job in
+                if index > 0 {
+                    Rectangle().fill(FolioTheme.line.opacity(0.7)).frame(height: 0.5)
+                        .padding(.leading, 76)
                 }
-                .frame(height: 133)
+                row(job)
+            }
+        }
+        .folioCard()
+    }
 
+    private func row(_ job: DownloadJob) -> some View {
+        HStack(spacing: 14) {
+            CoverArt(title: job.title, author: job.author, remote: job.cover, cornerRadius: 4)
+                .frame(width: 44, height: 66)
+            VStack(alignment: .leading, spacing: 3) {
                 Text(job.title)
-                    .font(.callout.weight(.semibold))
-                    .lineLimit(2)
-                    .frame(height: 40, alignment: .topLeading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                HStack(spacing: 6) {
-                    if job.stage.isActive { ProgressView().controlSize(.mini) }
-                    Image(systemName: stageSymbol(job.stage))
-                    Text(stageName(job.stage)).lineLimit(1)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(FolioTheme.ink)
+                    .lineLimit(1)
+                if !job.author.isEmpty {
+                    Text(job.author)
+                        .font(.callout)
+                        .foregroundStyle(FolioTheme.muted)
+                        .lineLimit(1)
+                }
+                HStack(spacing: 5) {
+                    if job.stage.isActive {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: stageSymbol(job.stage))
+                    }
+                    Text(job.stage.isActive && !job.statusText.isEmpty ? job.statusText : stageName(job.stage))
+                        .lineLimit(1)
                 }
                 .font(.caption.weight(.medium))
                 .foregroundStyle(stageColor(job.stage))
-
-                HStack(spacing: 8) {
-                    quickAction(job)
-                    Button { inspectedJob = job } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.callout.weight(.semibold))
-                            .frame(width: 30, height: 30)
-                    }
-                    .buttonStyle(BookSecondaryActionStyle())
-                    .accessibilityLabel("More options for \(job.title)")
-                    .help("Download details and options")
-                }
             }
+            Spacer(minLength: 12)
+            quickAction(job)
+            Button { inspectedJob = job } label: {
+                Image(systemName: "ellipsis")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(FolioTheme.muted)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("More options for \(job.title)")
+            .help("Download details and options")
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .contain)
     }
 
     @ViewBuilder
     private func quickAction(_ job: DownloadJob) -> some View {
         if job.stage == .completed, let id = job.importedBookID, store.book(id) != nil {
-            Button { openWindow(id: "reader", value: id) } label: {
-                Label("Read", systemImage: "book.fill")
-                    .font(.callout.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(BookPrimaryActionStyle())
+            Button("Read", systemImage: "book.fill") { openWindow(id: "reader", value: id) }
+                .folioGlassPill(prominent: true)
         } else if job.stage == .failed || job.stage == .cancelled {
-            Button { downloads.retry(job.id) } label: {
-                Label("Retry", systemImage: "arrow.clockwise")
-                    .font(.callout.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(BookPrimaryActionStyle())
-        } else {
-            Button { inspectedJob = job } label: {
-                Label(job.stage.isActive ? "Details" : "Find Copy", systemImage: "info.circle")
-                    .font(.callout.weight(.medium))
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(BookSecondaryActionStyle())
+            Button("Retry", systemImage: "arrow.clockwise") { downloads.retry(job.id) }
+                .folioGlassPill(prominent: job.stage == .failed)
+        } else if !job.stage.isActive {
+            Button("Find Copy", systemImage: "magnifyingglass") { inspectedJob = job }
+                .folioGlassPill()
         }
     }
 
     private func downloadDetailSheet(for id: UUID) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Download Details").font(.title2.weight(.bold))
+                Text("Download Details")
+                    .font(.folioDisplay(.title2, weight: .semibold))
+                    .foregroundStyle(FolioTheme.ink)
                 Spacer()
                 Button("Done") { inspectedJob = nil }
-                    .buttonStyle(.glass)
+                    .folioGlassPill()
             }
             .padding(.horizontal, 24)
             .padding(.top, 20)
@@ -279,10 +274,11 @@ struct DownloadingView: View {
             }
         }
         .frame(width: 590, height: 560)
+        .background(FolioTheme.paper)
     }
 
     private func detailedJob(_ job: DownloadJob) -> some View {
-        GlassCard(padding: 18) {
+        FolioDownloadCard {
             HStack(alignment: .top, spacing: 16) {
                 CoverArt(title: job.title, author: job.author, remote: job.cover, cornerRadius: 5)
                     .frame(width: 70)
@@ -311,7 +307,7 @@ struct DownloadingView: View {
 
                     if let error = job.error, !error.isEmpty {
                         Label(error, systemImage: "exclamationmark.triangle")
-                            .font(.callout).foregroundStyle(.red)
+                            .font(.callout).foregroundStyle(FolioTheme.caution)
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
@@ -465,10 +461,22 @@ struct DownloadingView: View {
 
     private func stageColor(_ stage: DownloadJob.Stage) -> Color {
         switch stage {
-        case .queued, .searching, .choosing, .downloading, .importing: .blue
-        case .completed: .green
-        case .failed: .red
-        case .cancelled: .secondary
+        case .queued, .searching, .choosing, .downloading, .importing: FolioTheme.olive
+        case .completed: FolioTheme.success
+        case .failed: FolioTheme.caution
+        case .cancelled: FolioTheme.muted
         }
+    }
+}
+
+/// The detail sheet's card in the nook's cream.
+private struct FolioDownloadCard<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .folioCard()
     }
 }
