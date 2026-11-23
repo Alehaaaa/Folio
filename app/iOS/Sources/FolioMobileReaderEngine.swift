@@ -252,6 +252,11 @@ final class FolioMobileReaderEngine {
             refreshHighlights()
             // A change made while the chapter was loading is applied now.
             webView.evaluateJavaScript("folio.restyle(\(lastConfig))", completionHandler: nil)
+            if !paginated, chapterFraction < 0.001 {
+                // Start below the status bar area; text then scrolls under it.
+                let scroll = webView.scrollView
+                scroll.setContentOffset(CGPoint(x: 0, y: -scroll.adjustedContentInset.top), animated: false)
+            }
             revealAfterLoad()
             onPositionChange?()
         case "nav":
@@ -416,6 +421,64 @@ document.addEventListener('click', ev => {
 """#
 }
 
+/// Holds the reader web view. Pages mode keeps the page inside the safe area
+/// so text never sits under the Dynamic Island or home indicator. Scroll mode
+/// runs the web view edge to edge and insets its content instead, so text
+/// scrolls smoothly under the status bar and home indicator without a hard
+/// cut-off line at the bottom of the screen.
+final class FolioMobileReaderContainer: UIView {
+    let web: FolioMobileReaderWebView
+    private var pagedConstraints: [NSLayoutConstraint] = []
+    private var scrollConstraints: [NSLayoutConstraint] = []
+
+    var paginated = true {
+        didSet { if oldValue != paginated { applyLayout() } }
+    }
+
+    init(web: FolioMobileReaderWebView) {
+        self.web = web
+        super.init(frame: .zero)
+        clipsToBounds = true
+        addSubview(web)
+        let guide = safeAreaLayoutGuide
+        NSLayoutConstraint.activate([
+            web.leadingAnchor.constraint(equalTo: guide.leadingAnchor),
+            web.trailingAnchor.constraint(equalTo: guide.trailingAnchor),
+        ])
+        pagedConstraints = [
+            web.topAnchor.constraint(equalTo: guide.topAnchor),
+            web.bottomAnchor.constraint(equalTo: guide.bottomAnchor),
+        ]
+        scrollConstraints = [
+            web.topAnchor.constraint(equalTo: topAnchor),
+            web.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ]
+        applyLayout()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        applyInsets()
+    }
+
+    private func applyLayout() {
+        NSLayoutConstraint.deactivate(paginated ? scrollConstraints : pagedConstraints)
+        NSLayoutConstraint.activate(paginated ? pagedConstraints : scrollConstraints)
+        applyInsets()
+    }
+
+    private func applyInsets() {
+        let scroll = web.scrollView
+        let insets = paginated ? UIEdgeInsets.zero
+            : UIEdgeInsets(top: safeAreaInsets.top, left: 0, bottom: safeAreaInsets.bottom, right: 0)
+        guard scroll.contentInset != insets else { return }
+        scroll.contentInset = insets
+        scroll.verticalScrollIndicatorInsets = insets
+    }
+}
+
 private final class FolioMobileWeakScriptHandler: NSObject, WKScriptMessageHandler {
     weak var target: WKScriptMessageHandler?
     init(_ target: WKScriptMessageHandler) { self.target = target }
@@ -436,7 +499,7 @@ struct FolioMobileEPUBPage: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(engine: engine) }
 
-    func makeUIView(context: Context) -> UIView {
+    func makeUIView(context: Context) -> FolioMobileReaderContainer {
         let controller = WKUserContentController()
         controller.addUserScript(WKUserScript(source: ReaderScript.source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         controller.addUserScript(WKUserScript(source: FolioMobileReaderBridge.source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
@@ -466,16 +529,10 @@ struct FolioMobileEPUBPage: UIViewRepresentable {
             context.coordinator.swipes.append(swipe)
         }
 
-        // A container lets page-turn snapshots sit above the web view.
-        let container = UIView()
-        container.clipsToBounds = true
-        container.addSubview(web)
-        NSLayoutConstraint.activate([
-            web.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            web.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            web.topAnchor.constraint(equalTo: container.topAnchor),
-            web.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
+        // A container lets page-turn snapshots sit above the web view and
+        // keeps the page inside the safe area (see FolioMobileReaderContainer).
+        let container = FolioMobileReaderContainer(web: web)
+        container.paginated = paginated
         context.coordinator.web = web
         apply(to: web, coordinator: context.coordinator)
         engine.webView = web
@@ -485,8 +542,9 @@ struct FolioMobileEPUBPage: UIViewRepresentable {
         return container
     }
 
-    func updateUIView(_ container: UIView, context: Context) {
+    func updateUIView(_ container: FolioMobileReaderContainer, context: Context) {
         guard let web = context.coordinator.web else { return }
+        if container.paginated != paginated { container.paginated = paginated }
         web.selectionAction = selectionAction
         if engine.paginated != paginated { engine.paginated = paginated }
         apply(to: web, coordinator: context.coordinator)
@@ -506,7 +564,7 @@ struct FolioMobileEPUBPage: UIViewRepresentable {
         coordinator.swipes.forEach { $0.isEnabled = paginated }
     }
 
-    static func dismantleUIView(_ container: UIView, coordinator: Coordinator) {
+    static func dismantleUIView(_ container: FolioMobileReaderContainer, coordinator: Coordinator) {
         coordinator.web?.configuration.userContentController.removeScriptMessageHandler(forName: "folio")
         coordinator.web?.scrollView.delegate = nil
     }
@@ -595,10 +653,11 @@ struct FolioMobileEPUBPage: UIViewRepresentable {
                                        targetContentOffset: UnsafeMutablePointer<CGPoint>) {
             guard !engine.paginated, engine.ready else { return }
             let pull: CGFloat = 72
-            let bottom = max(0, scrollView.contentSize.height - scrollView.bounds.height)
+            let inset = scrollView.adjustedContentInset
+            let bottom = max(-inset.top, scrollView.contentSize.height - scrollView.bounds.height + inset.bottom)
             if scrollView.contentOffset.y > bottom + pull, !engine.isLastChapter {
                 engine.load(engine.chapter + 1, target: .fraction(0))
-            } else if scrollView.contentOffset.y < -pull, !engine.isFirstChapter {
+            } else if scrollView.contentOffset.y < -inset.top - pull, !engine.isFirstChapter {
                 engine.load(engine.chapter - 1, target: .end)
             }
         }
