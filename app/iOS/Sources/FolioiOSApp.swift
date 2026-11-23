@@ -22,6 +22,7 @@ struct FolioIOSApp: App {
     var body: some Scene {
         WindowGroup {
             FolioMobileRootView()
+                .folioCoverPeekHost()
                 .tint(FolioTheme.accent)
                 .environment(library)
                 .environment(hardcover)

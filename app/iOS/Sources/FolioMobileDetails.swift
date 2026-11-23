@@ -263,15 +263,9 @@ struct FolioMobileBookDetail: View {
             .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             .shadow(color: .black.opacity(0.2), radius: 14, x: 3, y: 7)
             .contentShape(Rectangle())
-            .onTapGesture { inspectingCover = true }
             .accessibilityElement()
             .accessibilityLabel("Cover")
-            .accessibilityHint("Shows the cover full screen")
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction { inspectingCover = true }
-            .fullScreenCover(isPresented: $inspectingCover) {
-                FolioCoverViewer(fileURL: local.flatMap { library.coverURL($0) }, remoteURL: remoteCover, title: title)
-            }
+            .folioCoverPeek(fileURL: local.flatMap { library.coverURL($0) }, remoteURL: remoteCover)
             VStack(alignment: .leading, spacing: 10) {
                 Text(title)
                     .font(.system(size: sizeClass == .compact ? 26 : 34, weight: .regular, design: .serif))

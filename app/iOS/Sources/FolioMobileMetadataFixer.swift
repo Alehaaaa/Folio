@@ -284,6 +284,7 @@ struct FolioMobileEditDetails: View {
             }
             .task { await start() }
         }
+        .folioCoverPeekHost()
     }
 
     // MARK: Sections
@@ -315,6 +316,7 @@ struct FolioMobileEditDetails: View {
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                         .overlay { ring(cover == nil) }
                     }
+                    .folioCoverPeek(fileURL: localBook.flatMap { library.coverURL($0) }, remoteURL: currentCoverURL)
                     .buttonStyle(.plain)
                     .accessibilityLabel("Keep the current cover")
                     ForEach(coverOptions, id: \.self) { url in
@@ -323,6 +325,7 @@ struct FolioMobileEditDetails: View {
                                 .frame(width: 78, height: 114)
                                 .overlay { ring(cover == url) }
                         }
+                        .folioCoverPeek(fileURL: url.isFileURL ? url : nil, remoteURL: url.isFileURL ? nil : url)
                         .buttonStyle(.plain)
                         .accessibilityLabel(cover == url ? "Chosen cover" : "Use this cover")
                     }
@@ -373,6 +376,7 @@ struct FolioMobileEditDetails: View {
         HStack(alignment: .top, spacing: 12) {
             FolioMobileRemoteCover(url: c.coverURL, title: c.title ?? title)
                 .frame(width: 46, height: 68)
+                .folioCoverPeek(remoteURL: c.coverURL)
             VStack(alignment: .leading, spacing: 3) {
                 Text(c.title ?? "Untitled")
                     .font(.system(.subheadline, design: .serif).weight(.semibold))

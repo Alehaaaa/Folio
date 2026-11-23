@@ -166,3 +166,101 @@ final class FolioBookOverrides {
     }
 }
 
+
+// MARK: - Press-and-hold cover peek
+
+/// The cover being peeked at, shown enlarged over the screen while a finger stays down.
+@Observable
+@MainActor
+final class FolioCoverPeek {
+    static let shared = FolioCoverPeek()
+    private(set) var fileURL: URL?
+    private(set) var remoteURL: URL?
+    private(set) var image: UIImage?
+    private(set) var active = false
+    private var loadID = 0
+
+    func show(fileURL: URL?, remoteURL: URL?) {
+        loadID += 1
+        let id = loadID
+        self.fileURL = fileURL
+        self.remoteURL = remoteURL
+        image = fileURL.flatMap { UIImage(contentsOfFile: $0.path) } ?? remoteURL.flatMap { FolioImageCache.shared.cached($0) }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        withAnimation(.spring(duration: 0.28, bounce: 0.18)) { active = true }
+        // Swap in the full-resolution image when the list copy is downsized.
+        guard fileURL == nil, let remoteURL else { return }
+        Task {
+            if let (data, _) = try? await URLSession.shared.data(from: remoteURL), let full = UIImage(data: data),
+               id == loadID, active {
+                image = full
+            }
+        }
+    }
+
+    func hide() {
+        withAnimation(.spring(duration: 0.22)) { active = false }
+    }
+}
+
+/// Shows the peeked cover; put one at the root of each presentation (the app, each sheet).
+struct FolioCoverPeekHost: ViewModifier {
+    @State private var peek = FolioCoverPeek.shared
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if peek.active {
+                ZStack {
+                    Rectangle().fill(.ultraThinMaterial).ignoresSafeArea()
+                    Color.black.opacity(0.25).ignoresSafeArea()
+                    if let image = peek.image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .shadow(color: .black.opacity(0.35), radius: 30, y: 12)
+                            .padding(28)
+                    } else {
+                        ProgressView()
+                    }
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.4)))
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+        }
+    }
+}
+
+/// Press and hold a cover to see it large; letting go puts it back.
+struct FolioCoverPeekGesture: ViewModifier {
+    let fileURL: URL?
+    let remoteURL: URL?
+    @GestureState private var holding = false
+
+    func body(content: Content) -> some View {
+        content
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.3)
+                    .sequenced(before: DragGesture(minimumDistance: 0))
+                    .updating($holding) { value, state, _ in
+                        if case .second(true, _) = value { state = true }
+                    }
+            )
+            .onChange(of: holding) { _, isHolding in
+                if isHolding { FolioCoverPeek.shared.show(fileURL: fileURL, remoteURL: remoteURL) }
+                else { FolioCoverPeek.shared.hide() }
+            }
+            .accessibilityAction(named: "Show cover large") {
+                FolioCoverPeek.shared.show(fileURL: fileURL, remoteURL: remoteURL)
+                Task { try? await Task.sleep(for: .seconds(3)); FolioCoverPeek.shared.hide() }
+            }
+    }
+}
+
+extension View {
+    func folioCoverPeekHost() -> some View { modifier(FolioCoverPeekHost()) }
+    func folioCoverPeek(fileURL: URL? = nil, remoteURL: URL?) -> some View {
+        modifier(FolioCoverPeekGesture(fileURL: fileURL, remoteURL: remoteURL))
+    }
+}
