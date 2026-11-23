@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.61",
+          "buildVersion": "62",
+          "date": "2026-11-23",
+          "localizedDescription": "Sync with StoryGraph, Goodreads, Fable, Pagebound and LibraryThing, like ShelfSync (1.0.61)",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.61-62.ipa",
+          "size": 5058500,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.60",
           "buildVersion": "61",
           "date": "2026-11-23",
