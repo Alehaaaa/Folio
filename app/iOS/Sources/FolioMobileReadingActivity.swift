@@ -38,17 +38,20 @@ struct FolioReadingGoals {
     var yearFraction: Double { Double(booksThisYear) / Double(yearlyGoal) }
 }
 
-/// Ring colors: the validated blue, orange and aqua slots, stepped for each mode.
+/// Ring colors from the nook's cloth: rust, slate and forest, stepped for light and
+/// dark paper (checked for color-blind separation; each ring is also labeled).
 enum FolioRingColors {
-    static let minutes = Color(UIColor { $0.userInterfaceStyle == .dark
-        ? UIColor(red: 0xD9 / 255, green: 0x59 / 255, blue: 0x26 / 255, alpha: 1)
-        : UIColor(red: 0xEB / 255, green: 0x68 / 255, blue: 0x34 / 255, alpha: 1) })
-    static let week = Color(UIColor { $0.userInterfaceStyle == .dark
-        ? UIColor(red: 0x19 / 255, green: 0x9E / 255, blue: 0x70 / 255, alpha: 1)
-        : UIColor(red: 0x1B / 255, green: 0xAF / 255, blue: 0x7A / 255, alpha: 1) })
-    static let year = Color(UIColor { $0.userInterfaceStyle == .dark
-        ? UIColor(red: 0x39 / 255, green: 0x87 / 255, blue: 0xE5 / 255, alpha: 1)
-        : UIColor(red: 0x2A / 255, green: 0x78 / 255, blue: 0xD6 / 255, alpha: 1) })
+    static let minutes = tone(light: 0xA84E30, dark: 0xE0704F)
+    static let week = tone(light: 0x33678F, dark: 0x6596C4)
+    static let year = tone(light: 0x567F36, dark: 0x68A85A)
+
+    private static func tone(light: UInt32, dark: UInt32) -> Color {
+        Color(UIColor { traits in
+            let hex = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+                           blue: CGFloat(hex & 0xFF) / 255, alpha: 1)
+        })
+    }
 }
 
 /// One radial progress bar: a faint track and a rounded arc from the top.
@@ -58,10 +61,12 @@ struct FolioRadialBar: View {
     let color: Color
     var lineWidth: CGFloat
 
+    @State private var shown = 0.0
+
     var body: some View {
-        let value = max(0, fraction)
+        let value = max(0, shown)
         ZStack {
-            Circle().stroke(color.opacity(0.18), lineWidth: lineWidth)
+            Circle().stroke(color.opacity(0.16), lineWidth: lineWidth)
             Circle()
                 .trim(from: 0, to: min(1, value))
                 .stroke(color, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
@@ -76,6 +81,9 @@ struct FolioRadialBar: View {
         }
         .padding(lineWidth / 2)
         .accessibilityHidden(true)
+        // Rings fill from empty when they appear, and glide to new values.
+        .onAppear { withAnimation(.spring(duration: 0.9, bounce: 0.15).delay(0.1)) { shown = fraction } }
+        .onChange(of: fraction) { _, new in withAnimation(.spring(duration: 0.6)) { shown = new } }
     }
 }
 
@@ -229,7 +237,7 @@ struct FolioMobileReadingActivity: View {
 
     private func ringFigure(_ color: Color, _ value: String, _ label: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Circle().fill(color).frame(width: 9, height: 9).accessibilityHidden(true)
+            Circle().stroke(color, lineWidth: 3).frame(width: 10, height: 10).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(value)
                     .font(.system(.headline, design: .serif))
