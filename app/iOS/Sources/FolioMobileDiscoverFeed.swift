@@ -246,18 +246,19 @@ final class FolioMobileDiscoverFeed {
         var fresh: [String: [HCBook]] = [:]
         var firstError: String?
         let topics = FolioDiscoverCatalog.rowTopics
-        // A few requests at a time keeps well inside Hardcover's rate limit.
-        func add(_ topic: FolioDiscoverTopic, to group: inout TaskGroup<(String, Result<[HCBook], Error>)>) {
-            group.addTask { @MainActor in
-                do { return (topic.id, .success(try await hardcover.discoverBooks(topic, limit: 20))) }
-                catch { return (topic.id, .failure(error)) }
+        // A few requests at a time keeps well inside Hardcover's rate limit. Plain
+        // tasks, not a task group: on iOS 27 a group whose children run on the main
+        // actor ended early and its children then crashed the app ("Pure virtual
+        // function called"). These tasks inherit the main actor, like the client.
+        var start = 0
+        while start < topics.count, !Task.isCancelled {
+            let batch = Array(topics[start..<min(start + 4, topics.count)])
+            start += batch.count
+            let requests = batch.map { topic in
+                (topic.id, Task { try await hardcover.discoverBooks(topic, limit: 20) })
             }
-        }
-        await withTaskGroup(of: (String, Result<[HCBook], Error>).self) { group in
-            var queue = topics[...]
-            for _ in 0..<4 { if let topic = queue.popFirst() { add(topic, to: &group) } }
-            while let (id, result) = await group.next() {
-                switch result {
+            for (id, request) in requests {
+                switch await request.result {
                 case .success(let found):
                     // Rows are lazy stacks keyed by book id, and a repeated id crashes them.
                     let list = FolioMobileDiscoverySections.unique(found)
@@ -270,7 +271,6 @@ final class FolioMobileDiscoverFeed {
                     FolioLog.log("\(id) failed: \(failure.localizedDescription)", "discover")
                     if books[id] == nil { books[id] = [] }
                 }
-                if let topic = queue.popFirst() { add(topic, to: &group) }
             }
         }
         FolioLog.log("Rows done, cancelled: \(Task.isCancelled), memory \(FolioLog.footprintMB()) MB", "discover")
