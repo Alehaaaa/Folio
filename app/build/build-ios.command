@@ -35,7 +35,7 @@ build_macos() {
   mkdir -p "$contents/MacOS" "$contents/Resources" "$contents/PlugIns"
   ditto "$ROOT/.build/debug/Folio" "$contents/MacOS/Folio"
   ditto "$ROOT/Support/Info.plist" "$contents/Info.plist"
-  [[ ! -f "$ROOT/Support/Folio.icns" ]] || ditto "$ROOT/Support/Folio.icns" "$contents/Resources/Folio.icns"
+  "$ROOT/Support/compile-macos-icon.sh" "$contents/Resources" || fail "macOS icon"
   ditto "$widget_source" "$contents/PlugIns/FolioWidgets.appex"
   xattr -cr "$app"
   codesign --force --sign - --timestamp=none "$contents/PlugIns/FolioWidgets.appex"

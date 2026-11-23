@@ -31,7 +31,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/PlugIns"
 cp .build/release/Folio "$APP/Contents/MacOS/Folio"
 cp Support/Info.plist "$APP/Contents/Info.plist"
-cp Support/Folio.icns "$APP/Contents/Resources/Folio.icns"
+"$APP_DIR/Support/compile-macos-icon.sh" "$APP/Contents/Resources"
 for bundle in .build/release/*.bundle; do
   [ -e "$bundle" ] && ditto "$bundle" "$APP/Contents/Resources/$(basename "$bundle")"
 done

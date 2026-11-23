@@ -11,8 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PROJECT = ROOT / "FolioiOS.xcodeproj"
-APP_VERSION = "1.0.64"
-BUILD_VERSION = "65"
+APP_VERSION = "1.0.65"
+BUILD_VERSION = "66"
 SHARED = [
     "Models",
     "LibraryStore",
@@ -161,6 +161,11 @@ def create():
         ("lastKnownFileType", "folder.assetcatalog"),
         ("path", "Assets.xcassets"), ("sourceTree", '"<group>"'),
     ])
+    # The Icon Composer app icon, shared with macOS; actool compiles it as AppIcon.
+    icon_ref = add("appicon", "AppIcon.icon", "PBXFileReference", [
+        ("lastKnownFileType", "folder.iconcomposer.icon"),
+        ("path", "../Support/AppIcon.icon"), ("sourceTree", "SOURCE_ROOT"),
+    ])
     info_ref = add("info", "Info.plist", "PBXFileReference", [
         ("lastKnownFileType", "text.plist.xml"), ("path", "Info.plist"),
         ("sourceTree", '"<group>"'),
@@ -221,6 +226,9 @@ def create():
     asset_build = add("build.assets", "Assets.xcassets in Resources", "PBXBuildFile", [
         ("fileRef", catalog_ref),
     ])
+    icon_build = add("build.appicon", "AppIcon.icon in Resources", "PBXBuildFile", [
+        ("fileRef", icon_ref),
+    ])
     package_ref = add("package.zipfoundation", "XCRemoteSwiftPackageReference ZIPFoundation", "XCRemoteSwiftPackageReference", [
         ("repositoryURL", '"https://github.com/weichsel/ZIPFoundation.git"'),
         ("requirement", '{ kind = upToNextMajorVersion; minimumVersion = 0.9.18; }'),
@@ -243,7 +251,7 @@ def create():
     ])
     add("phase.resources", "Resources", "PBXResourcesBuildPhase", [
         ("buildActionMask", "2147483647"),
-        ("files", arr([asset_build] + js_builds)),
+        ("files", arr([asset_build, icon_build] + js_builds)),
         ("runOnlyForDeploymentPostprocessing", "0"),
     ])
     add("phase.widget.sources", "Widget Sources", "PBXSourcesBuildPhase", [
@@ -273,7 +281,7 @@ def create():
         ("path", "../Sources/Folio"), ("sourceTree", '"<group>"'),
     ])
     add(resource_group, "Resources", "PBXGroup", [
-        ("children", arr([info_ref, app_entitlements_ref, catalog_ref] + js_refs)),
+        ("children", arr([info_ref, app_entitlements_ref, catalog_ref, icon_ref] + js_refs)),
         ("path", "Resources"), ("sourceTree", '"<group>"'),
     ])
     widget_group = "group.widget"

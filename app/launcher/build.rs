@@ -32,9 +32,8 @@ fn main() {
     fs::create_dir_all(app.join("Resources")).unwrap();
     fs::copy(&bin, app.join("MacOS/Folio")).expect("copy Folio binary");
     fs::copy(root.join("Support/Info.plist"), app.join("Info.plist")).expect("copy Info.plist");
-    if root.join("Support/Folio.icns").exists() {
-        fs::copy(root.join("Support/Folio.icns"), app.join("Resources/Folio.icns")).unwrap();
-    }
+    // Compiles Support/AppIcon.icon into Assets.car + AppIcon.icns.
+    run(Command::new(root.join("Support/compile-macos-icon.sh")).arg(app.join("Resources")), "compile AppIcon");
 
     let built_widget = root.join(".build/widget-derived/Build/Products/Release/FolioWidgets.appex");
     assert!(built_widget.is_dir(), "Xcode did not produce FolioWidgets.appex");

@@ -86,13 +86,8 @@ To regenerate the project after adding iOS-only files:
 python3 generate_project.py
 ```
 
-**App icon:** The iOS asset retains the same orange gradient and white book
-mark as the macOS Folio.icns, but is regenerated as an opaque, full-bleed
-1024x1024 image. The macOS original has transparent padding and a
-pre-rounded square, which creates a dark border when iOS masks it again.
-After changing the macOS artwork, regenerate the iOS asset by running:
-
-    cd /books/app/iOS
-    swift make_app_icon.swift
-
-The script updates Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png.
+**App icon:** The icon is the Icon Composer file `../Support/AppIcon.icon`,
+shared with macOS. The generated project adds it to the app target's
+resources and Xcode compiles it as `AppIcon`
+(`ASSETCATALOG_COMPILER_APPICON_NAME`). Edit it in Icon Composer; there is
+no separate iOS artwork to regenerate.
