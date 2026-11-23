@@ -158,7 +158,7 @@ struct FolioMobileSpine: View {
         .overlay {
             UnevenRoundedRectangle(topLeadingRadius: 3, bottomLeadingRadius: 1,
                                    bottomTrailingRadius: 1, topTrailingRadius: 3)
-                .strokeBorder(.black.opacity(0.14), lineWidth: 0.6)
+                .stroke(.black.opacity(0.14), lineWidth: 0.6)
         }
         .shadow(color: .black.opacity(0.16), radius: 2, x: 1, y: 1)
     }
