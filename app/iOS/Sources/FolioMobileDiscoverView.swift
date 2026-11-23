@@ -40,7 +40,7 @@ struct FolioMobileDiscoverView: View {
                     ForEach(feed.visibleTopics) { topic in
                         row(topic)
                     }
-                    FolioMobileDiscoverIndex()
+                    FolioMobileDiscoverIndex(yourGenres: feed.yourGenres)
                 }
             }
             .padding(.horizontal, 20)
@@ -68,6 +68,7 @@ struct FolioMobileDiscoverView: View {
             } else if !isSearching {
                 loading = false
                 await FolioReadBooks.shared.refresh(from: hardcover)
+                await feed.loadYourGenres(from: hardcover)
                 await feed.load(from: hardcover)
             } else {
                 loading = true
@@ -207,10 +208,14 @@ struct FolioMobileBookSkeleton: View {
 
 /// Every theme, grouped and tappable, at the end of Discover.
 struct FolioMobileDiscoverIndex: View {
+    var yourGenres: [String] = []
     private let columns = [GridItem(.adaptive(minimum: 150), spacing: 10)]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
+            if !yourGenres.isEmpty {
+                yourGenresSection
+            }
             Text("Browse by theme")
                 .font(.folioDisplay(.title2))
                 .foregroundStyle(FolioTheme.ink)
@@ -245,6 +250,39 @@ struct FolioMobileDiscoverIndex: View {
             }
         }
         .padding(.top, 6)
+    }
+
+    /// The genres this reader reads most, set apart on a sage panel above the full index.
+    private var yourGenresSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Your genres")
+                .font(.folioDisplay(.title2))
+                .foregroundStyle(FolioTheme.ink)
+                .accessibilityAddTraits(.isHeader)
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+                ForEach(yourGenres, id: \.self) { name in
+                    NavigationLink(value: FolioDiscoverTopic(kind: .genre(name), title: name)) {
+                        HStack {
+                            Text(name)
+                                .font(.system(.body, design: .serif).weight(.medium))
+                                .foregroundStyle(FolioTheme.ink)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                            Spacer(minLength: 4)
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(FolioTheme.olive)
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(minHeight: 48)
+                        .folioCard(cornerRadius: 14)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(16)
+        .background(FolioTheme.sage, in: RoundedRectangle(cornerRadius: FolioTheme.cardRadius, style: .continuous))
     }
 }
 

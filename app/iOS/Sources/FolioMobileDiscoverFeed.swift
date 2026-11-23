@@ -294,6 +294,49 @@ final class FolioMobileDiscoverFeed {
         }
     }
 
+    // MARK: Your genres
+
+    /// The genres the person reads most, from their Read and Currently Reading
+    /// shelves. Saved, so the section shows on the first frame.
+    private(set) var yourGenres: [String] = UserDefaults.standard.stringArray(forKey: "folio.discover.yourGenres") ?? []
+    private var genresLoadedFor: String?
+
+    /// Too broad to be useful as a pick.
+    private static let broadGenres: Set<String> = ["fiction", "nonfiction", "non-fiction", "adult", "general"]
+
+    func loadYourGenres(from hardcover: HardcoverClient) async {
+        guard let user = hardcover.user else { return }
+        let marker = "\(user.id)-\(hardcover.revision)"
+        guard genresLoadedFor != marker else { return }
+        genresLoadedFor = marker
+        do {
+            let d = try await hardcover.query("""
+            query YourGenres($uid: Int!) {
+              user_books(where: {user_id: {_eq: $uid}, status_id: {_in: [2, 3]}}, order_by: {updated_at: desc}, limit: 300) { book { cached_tags } }
+            }
+            """, ["uid": user.id])
+            var counts: [String: Int] = [:]
+            var firstSeen: [String: Int] = [:]
+            for (index, entry) in d["user_books"].array.enumerated() {
+                // A book's first few genres describe it; the long tail is noise.
+                for name in HardcoverClient.genreNames(entry["book"]["cached_tags"]).prefix(4)
+                where !Self.broadGenres.contains(name.lowercased()) {
+                    counts[name, default: 0] += 1
+                    if firstSeen[name] == nil { firstSeen[name] = index }
+                }
+            }
+            let top = counts.filter { $0.value >= 2 }
+                .sorted { $0.value != $1.value ? $0.value > $1.value : firstSeen[$0.key, default: 0] < firstSeen[$1.key, default: 0] }
+                .prefix(8).map(\.key)
+            yourGenres = top
+            UserDefaults.standard.set(top, forKey: "folio.discover.yourGenres")
+            FolioLog.log("Your genres: \(top.joined(separator: ", "))", "discover")
+        } catch {
+            genresLoadedFor = nil
+            FolioLog.log("Your genres failed: \(error.localizedDescription)", "discover")
+        }
+    }
+
     // MARK: Disk cache
 
     private struct StoredBook: Codable {
