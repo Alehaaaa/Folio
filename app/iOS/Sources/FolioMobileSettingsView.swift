@@ -137,6 +137,7 @@ struct FolioMobileSettingsView: View {
             .folioRow()
         }
         .navigationTitle("Settings")
+        .folioPageHeader("Settings")
         .folioScreen()
     }
 }

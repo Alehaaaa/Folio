@@ -145,6 +145,7 @@ struct FolioMobileGoodreadsSettings: View {
             .folioRow()
         }
         .navigationTitle("Goodreads")
+        .folioPageHeader("Goodreads")
         .folioScreen()
         .fileImporter(isPresented: $importing, allowedContentTypes: [.commaSeparatedText, .plainText]) { result in
             if case .success(let file) = result {
@@ -266,6 +267,7 @@ struct FolioMobileCollectionsSettings: View {
             .folioRow()
         }
         .navigationTitle("Collections")
+        .folioPageHeader("Collections")
         .folioScreen()
         .alert("Rename Collection", isPresented: Binding(
             get: { editing != nil }, set: { if !$0 { editing = nil } }
@@ -331,6 +333,7 @@ struct FolioMobileReminderSettings: View {
             .folioRow()
         }
         .navigationTitle("Reading Reminders")
+        .folioPageHeader("Reading Reminders")
         .folioScreen()
         .task { await reminders.refreshAuthorization() }
     }
@@ -417,6 +420,7 @@ struct FolioMobileReaderAdvancedSettings: View {
             .folioRow()
         }
         .navigationTitle("Typography & Layout")
+        .folioPageHeader("Typography & Layout")
         .folioScreen()
     }
 }
@@ -478,6 +482,7 @@ struct FolioMobileExtensionSettings: View {
             .folioRow()
         }
         .navigationTitle("Source Extensions")
+        .folioPageHeader("Source Extensions")
         .folioScreen()
         .fileImporter(isPresented: $importing, allowedContentTypes: [.javaScript, UTType(filenameExtension: "js") ?? .javaScript]) { result in
             if case .success(let url) = result { Task { await extensions.install(from: url) } }
@@ -570,6 +575,7 @@ struct FolioMobileNookSettings: View {
             .folioRow()
         }
         .navigationTitle("Home Nook")
+        .folioPageHeader("Home Nook")
         .folioScreen()
         .confirmationDialog("Reset the order of your nook?", isPresented: $resetting, titleVisibility: .visible) {
             Button("Reset Order", role: .destructive) { nook.resetOrder() }

@@ -42,6 +42,10 @@ struct FolioMobileRootView: View {
                 Tab("More", systemImage: "ellipsis.circle", value: .settings) {
                     NavigationStack(path: $navigation.morePath) {
                         List {
+                            FolioTabHeader(title: "More") { EmptyView() }
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 4, trailing: 20))
                             Group {
                                 NavigationLink(value: FolioMobileMoreRoute.downloads) {
                                     Label("Downloads", systemImage: "arrow.down.circle")
@@ -56,6 +60,7 @@ struct FolioMobileRootView: View {
                             .folioRow()
                         }
                         .navigationTitle("More")
+                        .toolbar(.hidden, for: .navigationBar)
                         .folioScreen()
                         .folioDetailDestinations()
                         .navigationDestination(for: FolioMobileMoreRoute.self) { route in
@@ -402,9 +407,8 @@ struct FolioMobileHomeView: View {
                     .accessibilityLabel("Folio")
                     .accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
-                FolioMobileGoalRingsButton { showingGoals = true }
                 iconButton("plus", label: "Import books", action: showImporter)
-                iconButton("gearshape", label: "Settings") { navigation.openSettings() }
+                FolioMobileGoalRingsButton { showingGoals = true }
             }
             Text(store.books.isEmpty ? "A little room for every story." : "A little room for your next chapter.")
                 .font(.folioDisplay(.title))
@@ -560,10 +564,42 @@ struct FolioMobileLibraryView: View {
 
     private var showingShelves: Bool { navigation.libraryScope == .shelves }
 
+    private var title: String {
+        showingShelves ? "Library"
+            : collection.flatMap { id in store.data.collections.first { $0.id == id }?.name } ?? "Library"
+    }
+
     var body: some View {
         @Bindable var navigation = navigation
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                FolioTabHeader(title: title) {
+                    if !showingShelves {
+                        Menu {
+                            Picker("Sort", selection: $sorting) {
+                                ForEach(FolioMobileSort.allCases) { option in
+                                    Text(option.label).tag(option)
+                                }
+                            }
+                            Divider()
+                            Button("All Books") { collection = nil }
+                            ForEach(store.data.collections) { c in
+                                Button(c.name) { collection = c.id }
+                            }
+                            Button("New Collection", systemImage: "plus") { addingCollection = true }
+                        } label: {
+                            FolioHeaderIconLabel(symbol: "line.3.horizontal.decrease")
+                        }
+                        .foregroundStyle(FolioTheme.ink)
+                        .accessibilityLabel("Filter and Sort")
+                    }
+                    FolioHeaderIcon(symbol: "plus", label: "Import books", action: showImporter)
+                }
+                .padding(.horizontal, 20)
+
+                FolioSearchField(text: $search, prompt: showingShelves ? "Search your shelves" : "Title or author")
+                    .padding(.horizontal, 16)
+
                 Picker("Show", selection: $navigation.libraryScope) {
                     ForEach(FolioMobileLibraryScope.allCases) { scope in
                         Text(scope.rawValue).tag(scope)
@@ -579,37 +615,13 @@ struct FolioMobileLibraryView: View {
                     booksContent
                 }
             }
-            .padding(.vertical, 12)
+            .padding(.top, 12)
+            .padding(.bottom, 12)
         }
+        .scrollDismissesKeyboard(.immediately)
         .folioScreen()
-        .searchable(text: $search, prompt: showingShelves ? "Search your shelves" : "Title or author")
-        .navigationTitle(showingShelves ? "Library"
-                         : collection.flatMap { id in store.data.collections.first { $0.id == id }?.name } ?? "Library")
-        .toolbar {
-            if !showingShelves {
-                ToolbarItem(placement: .topBarLeading) {
-                    Menu {
-                        Picker("Sort", selection: $sorting) {
-                            ForEach(FolioMobileSort.allCases) { option in
-                                Text(option.label).tag(option)
-                            }
-                        }
-                        Divider()
-                        Button("All Books") { collection = nil }
-                        ForEach(store.data.collections) { c in
-                            Button(c.name) { collection = c.id }
-                        }
-                        Button("New Collection", systemImage: "plus") { addingCollection = true }
-                    } label: {
-                        Label("Filter and Sort", systemImage: "line.3.horizontal.decrease")
-                    }
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(action: showImporter) { Label("Import", systemImage: "plus") }
-                    .folioGlassPill()
-            }
-        }
+        .navigationTitle(title)
+        .toolbar(.hidden, for: .navigationBar)
         .alert("New Collection", isPresented: $addingCollection) {
             TextField("Collection name", text: $newCollection)
             Button("Cancel", role: .cancel) { newCollection = "" }

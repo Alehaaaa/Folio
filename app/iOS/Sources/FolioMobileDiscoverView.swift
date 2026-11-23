@@ -345,7 +345,7 @@ struct FolioMobileDiscoverTopicPage: View {
             .frame(maxWidth: .infinity)
         }
         .navigationTitle(topic.title)
-        .navigationBarTitleDisplayMode(.large)
+        .folioPageHeader(topic.title)
         .folioScreen()
         .task {
             guard !started else { return }
