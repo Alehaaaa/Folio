@@ -109,12 +109,20 @@ final class DownloadQueue {
             guard (response as? HTTPURLResponse)?.statusCode == 200, bytes.count <= 240_000,
                   let data = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
                   let works = data["docs"] as? [[String: Any]] else { return nil }
+            var verifiedWorkKeys: [String] = []
             for work in works {
                 guard let original = work["title"] as? String,
                       BookAutoMatch.sameTitle(title, original),
                       let authors = work["author_name"] as? [String],
-                      authors.contains(where: { BookAutoMatch.sameEditionAuthor(author, $0) }),
-                      let editions = work["editions"] as? [String: Any],
+                      authors.contains(where: { BookAutoMatch.sameEditionAuthor(author, $0) }) else { continue }
+                // Only an exact-title, exact-author work may be consulted for
+                // more editions. Never follow an arbitrary catalogue key/host.
+                if let key = work["key"] as? String,
+                   key.range(of: #"^/works/OL[0-9]+W$"#, options: .regularExpression) != nil,
+                   !verifiedWorkKeys.contains(key) {
+                    verifiedWorkKeys.append(key)
+                }
+                guard let editions = work["editions"] as? [String: Any],
                       let entries = editions["docs"] as? [[String: Any]] else { continue }
                 for edition in entries {
                     guard let languages = edition["language"] as? [String],
@@ -124,6 +132,40 @@ final class DownloadQueue {
                     // Open Library sometimes writes a bilingual catalogue
                     // title such as "Aleación de Ley / The Alloy of Law".
                     // Only split it if its other half is precisely this work.
+                    let parts = candidate.components(separatedBy: " / ")
+                    if parts.count == 2 {
+                        guard BookAutoMatch.sameTitle(title, parts[1]) else { continue }
+                        candidate = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                    } else if parts.count > 2 { continue }
+                    guard Self.isStandaloneEditionTitle(candidate),
+                          !BookAutoMatch.sameTitle(title, candidate) else { continue }
+                    resolved = candidate
+                    return resolved
+                }
+            }
+            // Some Open Library search responses report editions.numFound
+            // without any editions.docs. Look up the independently verified
+            // work's edition metadata instead of falsely declaring its
+            // translated title unavailable. No book content is requested.
+            for key in verifiedWorkKeys.prefix(2) {
+                guard let url = URL(string: "https://openlibrary.org\(key)/editions.json?limit=100") else { continue }
+                var detailRequest = URLRequest(url: url)
+                detailRequest.timeoutInterval = 5
+                detailRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+                guard let (detailBytes, detailResponse) = try? await URLSession.shared.data(for: detailRequest),
+                      (detailResponse as? HTTPURLResponse)?.statusCode == 200,
+                      detailBytes.count <= 240_000,
+                      let detail = try? JSONSerialization.jsonObject(with: detailBytes) as? [String: Any],
+                      let entries = detail["entries"] as? [[String: Any]] else { continue }
+                for edition in entries {
+                    guard let references = edition["languages"] as? [[String: Any]],
+                          references.contains(where: { value in
+                              guard let key = value["key"] as? String,
+                                    key.hasPrefix("/languages/") else { return false }
+                              return BookLanguage.code(String(key.dropFirst("/languages/".count))) == language
+                          }),
+                          let rawTitle = edition["title"] as? String else { continue }
+                    var candidate = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
                     let parts = candidate.components(separatedBy: " / ")
                     if parts.count == 2 {
                         guard BookAutoMatch.sameTitle(title, parts[1]) else { continue }
