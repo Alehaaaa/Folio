@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.72",
+          "buildVersion": "73",
+          "date": "2026-11-24",
+          "localizedDescription": "Release Folio 1.0.72: verify localized titles through canonical work editions",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.72-73.ipa",
+          "size": 5663589,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.71",
           "buildVersion": "72",
           "date": "2026-11-24",
