@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.71",
+          "buildVersion": "72",
+          "date": "2026-11-24",
+          "localizedDescription": "Release Folio 1.0.71 with coordinated Hardcover 429 cooldown and native iOS E2E coverage",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.71-72.ipa",
+          "size": 5659620,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.70",
           "buildVersion": "71",
           "date": "2026-11-24",
