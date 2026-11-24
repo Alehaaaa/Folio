@@ -157,9 +157,24 @@ final class FolioBookOverrides {
     }
 
     /// The book as the reader edited it.
+    /// The book as you have it: your library copy's own title and cover when
+    /// you own it (often a translated edition, "Nacidos de la bruma"), then
+    /// your own edits on top. Ratings and other work-wide numbers stay the
+    /// work's. Like a bookstore app, the edition you own is the one you see.
     func apply(_ book: HCBook) -> HCBook {
-        guard let o = items[book.id] else { return book }
         var out = book
+        let library = LibraryStore.shared
+        if let local = library.books.first(where: { $0.hardcoverBookID == book.id }) {
+            let title = local.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !title.isEmpty, !BookAutoMatch.sameTitle(title, book.title) {
+                out.title = title
+                out.editionTitle = title
+            }
+            if let cover = library.coverURL(local), FileManager.default.fileExists(atPath: cover.path) {
+                out.imageURL = cover
+            }
+        }
+        guard let o = items[book.id] else { return out }
         if let title = o.title { out.title = title }
         if let authors = o.authors { out.authors = authors }
         if let summary = o.summary { out.description = summary }

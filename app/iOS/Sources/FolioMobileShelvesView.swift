@@ -10,6 +10,9 @@ struct FolioMobileShelfEntry: Identifiable {
     var hardcover: HCUserBook?
     var goodreads: TrackedBook?
 
+    /// Entries show your own edition (your library copy's title and cover,
+    /// your edits) while matching between services uses the work's title.
+    @MainActor
     static func merge(hardcover hcItems: [HCUserBook], goodreads tracked: [TrackedBook]) -> [FolioMobileShelfEntry] {
         var books: [FolioMobileShelfEntry] = []
         var index: [String: Int] = [:]
@@ -18,8 +21,9 @@ struct FolioMobileShelfEntry: Identifiable {
             let key = BookMatch.key(author: item.book.authors, title: item.book.title)
             index[key] = books.count
             byHardcoverID[item.book.id] = books.count
-            books.append(.init(id: "hc-\(item.id)", title: item.book.title, author: item.book.authors,
-                               cover: item.book.imageURL, hardcover: item, goodreads: nil))
+            let shown = FolioBookOverrides.shared.apply(item.book)
+            books.append(.init(id: "hc-\(item.id)", title: shown.title, author: shown.authors,
+                               cover: shown.imageURL, hardcover: item, goodreads: nil))
         }
         for book in tracked {
             let key = BookMatch.key(author: book.author, title: book.title)

@@ -512,7 +512,7 @@ struct FolioMobileAuthorView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
             }
             ForEach(Array(covers.enumerated().reversed()), id: \.element.id) { index, book in
-                FolioMobileRemoteCover(url: book.imageURL, title: book.title)
+                FolioMobileRemoteCover(url: FolioBookOverrides.shared.apply(book).imageURL, title: book.title)
                     .frame(width: 40, height: 58)
                     .shadow(color: .black.opacity(0.15), radius: 2, x: 1, y: 1)
                     .offset(x: CGFloat(index) * 9)
@@ -744,10 +744,12 @@ struct FolioMobileSeriesView: View {
                 .foregroundStyle(FolioTheme.olive)
                 .frame(minWidth: 30)
                 .monospacedDigit()
-            FolioMobileRemoteCover(url: entry.book.imageURL, title: entry.book.title)
+            // Your edition when you own it, as everywhere else.
+            let shown = FolioBookOverrides.shared.apply(entry.book)
+            FolioMobileRemoteCover(url: shown.imageURL, title: shown.title)
                 .frame(width: 46, height: 68)
             VStack(alignment: .leading, spacing: 5) {
-                Text(entry.book.title)
+                Text(shown.title)
                     .font(.system(.body, design: .serif))
                     .foregroundStyle(FolioTheme.ink)
                     .lineLimit(3)

@@ -873,15 +873,16 @@ struct FolioMobileBookDetail: View {
 
     private func seriesTile(_ entry: HCSeriesBook) -> some View {
         let isCurrent = entry.book.id == linkedID
+        let shown = FolioBookOverrides.shared.apply(entry.book)
         return NavigationLink(value: entry.book) {
             VStack(alignment: .leading, spacing: 6) {
-                FolioMobileRemoteCover(url: entry.book.imageURL, title: entry.book.title)
+                FolioMobileRemoteCover(url: shown.imageURL, title: shown.title)
                     .frame(width: 92, height: 134)
                     .overlay {
                         RoundedRectangle(cornerRadius: 7)
                             .strokeBorder(isCurrent ? FolioTheme.olive : .clear, lineWidth: 2.5)
                     }
-                Text(entry.position.map { "Book \($0.formatted())" } ?? entry.book.title)
+                Text(entry.position.map { "Book \($0.formatted())" } ?? shown.title)
                     .font(.caption.weight(isCurrent ? .semibold : .regular))
                     .foregroundStyle(isCurrent ? FolioTheme.olive : .secondary)
                     .lineLimit(1)
