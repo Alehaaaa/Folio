@@ -7,7 +7,7 @@ var source = {
   kind: "metadata",
   name: "Hardcover",
   description: "The work and its editions in the book's language: titles, covers, publishers, pages, ISBNs and series.",
-  version: "1.0.1",
+  version: "1.0.2",
   languages: ["*"],
   allowedHosts: [],
   settings: [],
@@ -96,12 +96,20 @@ var source = {
                             { id: book.hardcoverEditionID });
       (linked && linked.editions || []).forEach(function (e) { seen[e.id] = true; out.push(self.record(e, work, book, null)); });
     }
-    var filter = "";
     var name = String(book.languageName || "").replace(/[^A-Za-z ]/g, "");
-    if (name) filter = ', language: {language: {_ilike: "' + name + '%"}}';
-    var editions = this.ask("query E($id: Int!) { editions(where: {book_id: {_eq: $id}" + filter + "}, order_by: {users_count: desc}, limit: 12) { " +
+    // Hardcover refuses text-pattern filters (HTTP 403), so the language is
+    // matched here among the book's most-read editions.
+    var editions = this.ask("query E($id: Int!) { editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 60) { " +
                             this.editionFields + " } }", { id: id });
-    (editions && editions.editions || []).forEach(function (e) {
+    var list = (editions && editions.editions) || [];
+    if (name) {
+      var wanted = name.toLowerCase();
+      list = list.filter(function (e) {
+        var lang = String((e.language && e.language.language) || "").toLowerCase();
+        return lang.indexOf(wanted) === 0;
+      });
+    }
+    list.slice(0, 12).forEach(function (e) {
       if (seen[e.id]) return;
       seen[e.id] = true;
       out.push(self.record(e, work, book, name ? book.language : null));

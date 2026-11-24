@@ -33,9 +33,9 @@
     },
     {
       "id": "metadata-hardcover",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/metadata-hardcover.js",
-      "sha256": "04c7d80e861808d6826a919982355777f3309ecf7bd55dc0f7a33b8e2e9aac6e"
+      "sha256": "16cc928fa64d7a433e4bfde5a130ef983f2bbddb92125c441563c72dff5bc2eb"
     },
     {
       "id": "metadata-open-library",

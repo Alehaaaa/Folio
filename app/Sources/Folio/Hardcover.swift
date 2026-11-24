@@ -1018,11 +1018,13 @@ final class HardcoverClient {
     /// The most-read edition of a book in a language ("es"), preferring one whose
     /// title matches the file's.
     func edition(bookID: Int, language code: String, title: String? = nil) async throws -> HCEdition? {
-        guard let filter = BookLanguage.hardcoverFilter(code) else { return nil }
+        guard let wanted = BookLanguage.code(code) else { return nil }
+        // Filtered here: Hardcover refuses text-pattern filters with HTTP 403.
         let d = try await query("""
-        query LanguageEditions($id: Int!) { editions(where: {book_id: {_eq: $id}, \(filter)}, order_by: {users_count: desc}, limit: 20) { \(Self.editionFields) } }
+        query LanguageEditions($id: Int!) { editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 100) { \(Self.editionFields) } }
         """, ["id": bookID])
         let editions = d["editions"].array.map(Self.edition(from:))
+            .filter { BookLanguage.code($0.language) == wanted }
         if let title, let titled = editions.first(where: { BookAutoMatch.sameTitle(title, $0.title ?? "") }) { return titled }
         return editions.first
     }
@@ -1089,8 +1091,12 @@ final class HardcoverClient {
         // show the reader's language edition when Hardcover has one, else the most-read.
         let mostRead = "editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 1)"
         var editions = editionID.map { "editions(where: {id: {_eq: \($0)}}, limit: 1)" } ?? mostRead
-        if editionID == nil, let language, language != "en", let filter = BookLanguage.hardcoverFilter(language) {
-            editions = "editions(where: {book_id: {_eq: $id}, \(filter)}, order_by: {users_count: desc}, limit: 1) { \(Self.editionFields) } fallbackEdition: \(mostRead)"
+        // Hardcover refuses text-pattern filters (HTTP 403), so the language
+        // edition is picked here from the book's most-read editions.
+        var pickLanguage: String?
+        if editionID == nil, let language, language != "en", let code = BookLanguage.code(language) {
+            editions = "editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 60)"
+            pickLanguage = code
         }
         // Opened from a search for an edition title: that edition, else the usual one.
         var variables: [String: Any] = ["id": id, "uid": uid]
@@ -1116,7 +1122,9 @@ final class HardcoverClient {
                 stats: HCBookStats(rating: b["rating"].double, ratingsCount: b["ratings_count"].int,
                                    reviewsCount: b["reviews_count"].int, readersCount: b["users_count"].int,
                                    readCount: b["users_read_count"].int, releaseDate: b["release_date"].string),
-                edition: (d["editions"].array.first ?? d["fallbackEdition"].array.first).map(Self.edition(from:)),
+                edition: (pickLanguage.flatMap { code in
+                    d["editions"].array.first { BookLanguage.code($0["language"]["language"].string) == code }
+                } ?? d["editions"].array.first ?? d["fallbackEdition"].array.first).map(Self.edition(from:)),
                 series: Self.dedupeSeries(d["book_series"].array),
                 genres: Self.genreNames(b["cached_tags"])
             )
