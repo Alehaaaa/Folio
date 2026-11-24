@@ -103,7 +103,7 @@ struct FolioMobileFindSourceView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                         if !extensions.enabled.isEmpty {
-                            Text("Enabled sources: \(extensions.enabled.map { $0.manifest.name }.joined(separator: ", "))")
+                            Text("Enabled sources: \(extensions.enabled.map { $0.manifest.nameWithLanguages }.joined(separator: ", "))")
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
@@ -264,7 +264,8 @@ struct FolioMobileFindSourceView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 8) {
-                    Label(copy.sourceName, systemImage: "square.stack.3d.up")
+                    Label(extensions.installed.first { $0.id == copy.sourceID }?.manifest.nameWithLanguages
+                          ?? copy.sourceName, systemImage: "square.stack.3d.up")
                     if let preferred = copy.result.preferred {
                         Text(preferred.format.uppercased())
                             .fontWeight(.semibold)

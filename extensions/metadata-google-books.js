@@ -8,7 +8,8 @@ var source = {
   kind: "metadata",
   name: "Google Books",
   description: "Descriptions, covers, publishers and categories in the book's language.",
-  version: "1.0.0",
+  version: "1.0.1",
+  languages: ["*"],
   allowedHosts: ["https://www.googleapis.com"],
   settings: [],
 

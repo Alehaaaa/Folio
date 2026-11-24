@@ -11,6 +11,7 @@ var source = {
   name: "Project Gutenberg",
   description: "Over 70,000 free public-domain books from Project Gutenberg, one of the stores Calibre's Get Books searches.",
   version: "1.1.0",
+  languages: ["*"],
   // gutenberg.pglaf.org is Project Gutenberg's own mirror; www.gutenberg.org often answers 503 (busy).
   allowedHosts: ["https://gutendex.com", "https://gutenberg.pglaf.org", "https://www.gutenberg.org"],
   mirror: "https://gutenberg.pglaf.org/cache/epub/",
@@ -72,6 +73,7 @@ var source = {
   name: "Calibre Libraries",
   description: "Browse and add books from Calibre content servers, like demeter does. Only add libraries you own or are allowed to use.",
   version: "1.0.0",
+  languages: ["*"],
   syncIntervalHours: 12,
   settings: [
     { key: "hosts", label: "Calibre server addresses", kind: "list", placeholder: "http://192.168.1.20:8080" }

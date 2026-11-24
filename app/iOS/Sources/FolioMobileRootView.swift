@@ -248,23 +248,26 @@ struct FolioMobileRootView: View {
 #endif
 
 extension FolioMobileNavigation {
-    func openSettings() {
-        selectedTab = .settings
-        morePath = NavigationPath([FolioMobileMoreRoute.settings])
-    }
+    func openSettings() { showInMore(.settings) }
 
-    func openSources() {
-        selectedTab = .settings
-        morePath = NavigationPath([FolioMobileMoreRoute.sources])
-    }
+    func openSources() { showInMore(.sources) }
 
     func openDownloads() {
         if compactTabs {
-            selectedTab = .settings
-            morePath = NavigationPath([FolioMobileMoreRoute.downloads])
+            showInMore(.downloads)
         } else {
             selectedTab = .downloads
         }
+    }
+
+    /// Opens a page of the More tab from anywhere. Pages that Settings pushes with a
+    /// destination link (Source Extensions, Sync…) are not in `morePath`, so assigning
+    /// the same path left them on screen. Popping to the root first and pushing on the
+    /// next turn always lands on the requested page.
+    private func showInMore(_ route: FolioMobileMoreRoute) {
+        selectedTab = .settings
+        morePath = NavigationPath()
+        Task { @MainActor in self.morePath.append(route) }
     }
 }
 

@@ -113,7 +113,7 @@ struct FolioMobileSourcesView: View {
                 Menu {
                     Picker("Source", selection: $selectedSource) {
                         ForEach(extensions.enabled) { source in
-                            Text(source.manifest.name).tag(source.id)
+                            Text(source.manifest.nameWithLanguages).tag(source.id)
                         }
                     }
                     .pickerStyle(.inline)

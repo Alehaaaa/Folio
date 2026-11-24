@@ -7,7 +7,8 @@ var source = {
   id: "annas-archive-free",
   name: "Anna's Archive — Free",
   description: "Free EPUB search and published Slow Partner file delivery after a normal background countdown. No paid API or keys.",
-  version: "1.3.8",
+  version: "1.3.9",
+  languages: ["*"],
   allowedHosts: [
     "https://raw.githubusercontent.com",
     "https://annas-archive.gl",

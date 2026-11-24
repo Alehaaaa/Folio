@@ -7,7 +7,8 @@ var source = {
   kind: "metadata",
   name: "Hardcover",
   description: "The work and its editions in the book's language: titles, covers, publishers, pages, ISBNs and series.",
-  version: "1.0.0",
+  version: "1.0.1",
+  languages: ["*"],
   allowedHosts: [],
   settings: [],
 

@@ -5,7 +5,8 @@ var source = {
   kind: "metadata",
   name: "Apple Books",
   description: "Large covers, descriptions and genres from the Apple Books store for the book's language.",
-  version: "1.0.0",
+  version: "1.0.1",
+  languages: ["*"],
   allowedHosts: ["https://itunes.apple.com"],
   settings: [],
 

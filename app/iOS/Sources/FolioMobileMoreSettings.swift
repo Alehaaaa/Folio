@@ -445,7 +445,8 @@ struct FolioMobileExtensionSettings: View {
                                 .foregroundStyle(FolioTheme.olive)
                             VStack(alignment: .leading) {
                                 Text(ext.manifest.name).font(.headline)
-                                Text("Version \(ext.manifest.version)")
+                                // One caption line: the languages follow the version, no icon column.
+                                Text("Version \(ext.manifest.version) · \(ext.manifest.languageLabel)")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()

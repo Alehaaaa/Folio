@@ -1,4 +1,8 @@
-# Anna's Archive (Free) for Folio
+# Folio book source extensions
+
+Source extensions declare their supported language codes (`languages: ["es"]` for a Spanish-only source, `languages: ["*"]` for multilingual sources). Folio shows the languages of single-language sources in the source picker and installed extension settings, and skips them during automatic searches for other languages. Individual EPUB languages are still independently verified at import.
+
+## Anna's Archive (Free)
 
 Install **`annas-archive.js`** in Folio with **Settings → Sources → Add Extension from File…**. The script is an independent JavaScript source; it does not bundle Calibre/Python code, Anna's Archive source, credentials, paid API calls, or third-party book providers.
 

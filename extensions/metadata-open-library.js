@@ -4,7 +4,8 @@ var source = {
   kind: "metadata",
   name: "Open Library",
   description: "Editions and covers in the book's language, subjects and page counts.",
-  version: "1.0.0",
+  version: "1.0.1",
+  languages: ["*"],
   allowedHosts: ["https://openlibrary.org"],
   settings: [],
 

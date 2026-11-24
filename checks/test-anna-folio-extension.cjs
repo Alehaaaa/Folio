@@ -36,7 +36,7 @@ function harness(fetch, browser, withStatus = true) {
   vm.runInContext(script, context, {timeout: 5000});
   assert.equal(context.source.name, "Anna's Archive — Free");
   assert.equal(context.source.id, 'annas-archive-free');
-  assert.equal(context.source.version, '1.3.8');
+  assert.equal(context.source.version, '1.3.9');
   assert.equal(context.source.allowedHosts.length, 5);
   return {source: context.source, requested, statuses, logs};
 }
@@ -730,4 +730,4 @@ const legacy = harness(url => url.includes('raw.githubusercontent.com') ? github
 assert.equal(legacy.source.search('Pride and Prejudice', 0).length, 1, 'older Folio versions work without status');
 assert.ok(legacy.logs.length > 0, 'older Folio versions still receive diagnostics');
 
-console.log('PASS: Folio extension v1.3.8, bounded transient transport retry, runtime-local mirror cooldown, source availability diagnostics, Want subtitle matches, language safeguards, and free countdown without verified-query resets.');
+console.log('PASS: Folio extension v1.3.9, bounded transient transport retry, runtime-local mirror cooldown, source availability diagnostics, Want subtitle matches, language safeguards, and free countdown without verified-query resets.');

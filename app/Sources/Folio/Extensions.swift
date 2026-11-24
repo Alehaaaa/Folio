@@ -78,10 +78,33 @@ struct SourceManifest: Hashable {
     var canPrepareDownload: Bool = false
     /// Servers the source always needs (declared as `allowedHosts`), shown to the person.
     var fixedHosts: [String] = []
+    /// ISO 639-1 codes supplied by the source. Empty or ["*"] means any language.
+    var languages: [String] = []
     /// "source" finds books to download; "metadata" answers Edit Details with book records.
     var kind: String = "source"
 
     var isMetadata: Bool { kind == "metadata" }
+
+    func supportsLanguage(_ requested: String?) -> Bool {
+        guard let code = BookLanguage.code(requested), !languages.isEmpty,
+              !languages.contains("*") else { return true }
+        return languages.contains(code)
+    }
+
+    var languageLabel: String {
+        let codes = languages.filter { $0 != "*" }
+        return codes.isEmpty ? "All languages" : codes.map(BookLanguage.displayName).joined(separator: ", ")
+    }
+
+    /// The languages to show beside the source's name, or nil when it takes any language.
+    var restrictedLanguageLabel: String? {
+        languages.contains(where: { $0 != "*" }) && !languages.contains("*") ? languageLabel : nil
+    }
+
+    /// The source's name, followed by its languages when it is limited to some.
+    var nameWithLanguages: String {
+        restrictedLanguageLabel.map { "\(name) · \($0)" } ?? name
+    }
 }
 
 struct ExtensionError: LocalizedError {
@@ -341,12 +364,15 @@ final class SourceRuntime: @unchecked Sendable {
             func str(_ k: String) -> String? { let v = s.objectForKeyedSubscript(k); return (v?.isString ?? false) ? v?.toString() : nil }
             func isFn(_ k: String) -> Bool { s.objectForKeyedSubscript(k).map { $0.isObject && !$0.isUndefined } ?? false }
             let fixed = (s.objectForKeyedSubscript("allowedHosts")?.toArray() as? [String]) ?? []
+            let languages = ((s.objectForKeyedSubscript("languages")?.toArray() as? [String]) ?? [])
+                .compactMap { $0 == "*" ? "*" : BookLanguage.code($0) }
             guard let id = str("id"), let name = str("name") else { throw ExtensionError(message: "The extension needs an id and a name.") }
             return SourceManifest(
                 id: id, name: name, description: str("description") ?? "", version: str("version") ?? "1",
                 syncIntervalHours: s.objectForKeyedSubscript("syncIntervalHours")?.toNumber()?.doubleValue ?? 12,
                 settings: settings, canSearch: isFn("search"), canSync: isFn("sync"),
                 canPrepareDownload: isFn("prepareDownload"), fixedHosts: fixed,
+                languages: Array(Set(languages)).sorted(),
                 kind: str("kind") ?? "source"
             )
         }
@@ -769,6 +795,7 @@ final class ExtensionStore {
                 using jobSession: JobSession? = nil,
                 onEvent: @escaping (SourceEvent) -> Void = { _ in }) async throws -> [SourceResult] {
         guard let e = jobSession == nil ? ext(id) : jobSession?.source(id) else { return [] }
+        guard e.manifest.supportsLanguage(expectedLanguage) else { return [] }
         let r = try await e.runtime.invoke(query.isEmpty ? "recent" : "search",
                                            query.isEmpty ? [page] : [query, page, expectedLanguage ?? "",
                                                                         expectedTitle ?? "", expectedAuthor ?? ""], onEvent: onEvent)
@@ -879,6 +906,10 @@ final class ExtensionStore {
         let wantedTitle = Self.simpleTitle(title)
         let lastName = Names.split(author).first?.split(separator: " ").last.map { String($0).lowercased() } ?? ""
         for e in jobSession?.sources ?? enabled {
+            guard e.manifest.supportsLanguage(expectedLanguage) else {
+                onEvent(e.manifest.name, .log("Skipped: source languages \(e.manifest.languageLabel) do not include \(expectedLanguage ?? "unknown")."))
+                continue
+            }
             if e.manifest.settings.contains(where: { $0.kind == "list" }) && SourceRuntime.allowed(from: e.saved.config).isEmpty { continue }
             progress(e.manifest.name)
             do {
