@@ -541,7 +541,8 @@ struct FolioMobileDownloadsView: View {
             "Book: \(job.title) — \(job.author)",
             "Job ID: \(job.id.uuidString)",
             "Stage: \(job.stage.rawValue)",
-            "Required EPUB language: \(BookLanguage.code(job.expectedLanguage) ?? "unverified")",
+            "Current required EPUB language: \(BookLanguage.code(job.expectedLanguage) ?? "unverified")",
+            "Earlier attempts can have different requested languages; see each attempt in Source activity below.",
             "Status: \(job.statusText)",
             "Failure: \(job.error ?? "none")",
             "Source activity:"

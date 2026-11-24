@@ -48,6 +48,70 @@ struct DownloadJob: Identifiable, Codable {
 final class DownloadQueue {
     static let shared = DownloadQueue()
 
+    // Cache only validated translated work titles, never guessed equivalents.
+    // Repeated retries should not trigger another metadata lookup during a
+    // provider outage or Hardcover rate-limit window.
+    private var localizedTitleCache: [String: (title: String?, expires: Date)] = [:]
+
+    private func openLibraryEditionTitle(title: String, author: String, language: String) async -> String? {
+        let key = "\(language)|\(BookAutoMatch.words(title).joined(separator: " "))|\(BookAutoMatch.words(author).joined(separator: " "))"
+        if let cached = localizedTitleCache[key], cached.expires > Date() { return cached.title }
+        var resolved: String?
+        defer { localizedTitleCache[key] = (resolved, Date().addingTimeInterval(resolved == nil ? 30 : 600)) }
+        guard language == "es", !title.isEmpty, !author.isEmpty else { return nil }
+        var requestURL = URLComponents()
+        requestURL.scheme = "https"
+        requestURL.host = "openlibrary.org"
+        requestURL.path = "/search.json"
+        requestURL.queryItems = [
+            URLQueryItem(name: "title", value: title),
+            URLQueryItem(name: "author", value: author),
+            URLQueryItem(name: "language", value: "spa"),
+            URLQueryItem(name: "limit", value: "3"),
+            URLQueryItem(name: "fields", value: "key,title,author_name,editions,editions.title,editions.language")
+        ]
+        guard let url = requestURL.url else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 6
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        do {
+            let (bytes, response) = try await URLSession.shared.data(for: request)
+            guard (response as? HTTPURLResponse)?.statusCode == 200, bytes.count <= 240_000,
+                  let data = try JSONSerialization.jsonObject(with: bytes) as? [String: Any],
+                  let works = data["docs"] as? [[String: Any]] else { return nil }
+            for work in works {
+                guard let original = work["title"] as? String,
+                      BookAutoMatch.sameTitle(title, original),
+                      let authors = work["author_name"] as? [String],
+                      authors.contains(where: { BookAutoMatch.sameEditionAuthor(author, $0) }),
+                      let editions = work["editions"] as? [String: Any],
+                      let entries = editions["docs"] as? [[String: Any]] else { continue }
+                for edition in entries {
+                    guard let languages = edition["language"] as? [String],
+                          languages.contains(where: { BookLanguage.code($0) == language }),
+                          let rawTitle = edition["title"] as? String else { continue }
+                    var candidate = rawTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                    // Open Library sometimes writes a bilingual catalogue
+                    // title such as "Aleación de Ley / The Alloy of Law".
+                    // Only split it if its other half is precisely this work.
+                    let parts = candidate.components(separatedBy: " / ")
+                    if parts.count == 2 {
+                        guard BookAutoMatch.sameTitle(title, parts[1]) else { continue }
+                        candidate = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                    } else if parts.count > 2 { continue }
+                    guard !candidate.isEmpty, candidate.count <= 180,
+                          !BookAutoMatch.sameTitle(title, candidate) else { continue }
+                    resolved = candidate
+                    return resolved
+                }
+            }
+        } catch {
+            // Metadata provider failure is not proof that a translation is
+            // absent; retain the original work title as the safe fallback.
+        }
+        return nil
+    }
+
     private(set) var jobs: [DownloadJob] = []
     /// Each job owns its cancellation token and source session. A cancelled
     /// book must not interrupt another book or consume its source state.
@@ -278,10 +342,20 @@ final class DownloadQueue {
         // is "Duna" in Catalan). Search with Hardcover's edition title for the
         // chosen language too, and accept a copy under either title.
         var titles = [job.title]
-        if let hcID = job.hardcoverBookID,
-           let edition = try? await HardcoverClient.shared.edition(bookID: hcID, language: language),
-           let editionTitle = edition.title?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !editionTitle.isEmpty, !AutomaticEPUBChoice.sameTitle(job.title, editionTitle) {
+        var editionTitle: String?
+        if let hcID = job.hardcoverBookID {
+            editionTitle = (try? await HardcoverClient.shared.edition(bookID: hcID, language: language))?
+                .title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if (editionTitle?.isEmpty ?? true) || BookAutoMatch.sameTitle(job.title, editionTitle ?? "") {
+            if let translated = await openLibraryEditionTitle(title: job.title, author: job.author,
+                                                             language: language) {
+                editionTitle = translated
+                append(id, "Verified translated title from Open Library metadata: \(translated)")
+            }
+        }
+        if let editionTitle, !editionTitle.isEmpty,
+           !AutomaticEPUBChoice.sameTitle(job.title, editionTitle) {
             titles.insert(editionTitle, at: 0)
             append(id, "Edition title in \(language): \(editionTitle) · searching with it first")
         }
@@ -317,6 +391,19 @@ final class DownloadQueue {
             let seen = Set(names.copies.map(\.id))
             names.copies += found.copies.filter { !seen.contains($0.id) }
             names.problems += found.problems.filter { !names.problems.contains($0) }
+            // An exact EPUB under the requested edition's own language is
+            // sufficient. Do not run another potentially 30-second catalogue
+            // search using the unrelated English work title. Fall back to the
+            // original title only if the translated title found no exact copy.
+            if title != job.title && names.copies.contains(where: {
+                $0.result.preferred?.format == "epub" &&
+                BookAutoMatch.sameTitle(title, $0.result.title) &&
+                AutomaticEPUBChoice.sameAuthor(job.author, $0.result.author) &&
+                BookLanguage.matches($0.result.language, expected: language) != false
+            }) {
+                append(id, "Exact EPUB found under edition title \(title); skipping unrelated original-title search")
+                break
+            }
         }
         guard !Task.isCancelled,
               jobs.first(where: { $0.id == id })?.stage.isActive == true else { return }

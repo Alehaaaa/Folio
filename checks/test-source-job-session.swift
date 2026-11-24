@@ -147,5 +147,76 @@ struct JobSessionChecks {
         await second.close()
         await third.close()
         print("PASS all ephemeral job sessions clean up without launching WebKit")
+
+        // A single job can ask more than one independent provider. Two JS
+        // heaps each perform ~1.2s of synthetic CPU work; the discovery
+        // wall time must be close to one search, rather than their sum.
+        // This is deliberately network-free to isolate scheduler behavior.
+        store.update("session-fixture") { $0.enabled = false }
+        for id in ["parallel-a", "parallel-b"] {
+            let source = """
+            var source = {
+              id: '\(id)', name: '\(id)', version: '1', languages: ['es'],
+              allowedHosts: ['https://approved.fixture.invalid'], settings: [],
+              search: function(query, page, language, title, author) {
+                var start = Date.now(); while (Date.now() - start < 1200) {}
+                return [{id:'\(id)',title:title,authors:[author],language:'es',
+                  downloads:[{format:'epub',url:'https://approved.fixture.invalid/book.epub'}]}];
+              }
+            };
+            """
+            let file = root.appendingPathComponent("\(id).js")
+            try source.write(to: file, atomically: true, encoding: .utf8)
+            await store.install(from: file)
+            guard store.ext(id) != nil else { fatalError("Provider fixture did not install: \(id)") }
+        }
+        let multiSource = store.makeJobSession()
+        let start = ContinuousClock.now
+        let parallel = await multiSource.findCopies(title: "Don Quijote de la Mancha",
+                                                    author: "Miguel de Cervantes", expectedLanguage: "es")
+        let elapsed = start.duration(to: ContinuousClock.now)
+        guard parallel.problems.isEmpty, parallel.copies.count == 2,
+              elapsed < .seconds(2.1) else {
+            fatalError("Independent providers ran serially or failed: \(elapsed), \(parallel.problems)")
+        }
+        print("PASS two 1.2-second source searches overlap within the same job: \(elapsed)")
+        await multiSource.close()
+
+        // Approved partner origins do not inherit browser cookies, credentials
+        // or the referring page from a different host.
+        let firstURL = URL(string: "https://approved.fixture.invalid/partner")!
+        let secondURL = URL(string: "https://other-approved.fixture.invalid/file.epub")!
+        let redirectGuard = RedirectGuard { url in
+            ["https://approved.fixture.invalid", "https://other-approved.fixture.invalid"]
+                .contains("\(url.scheme ?? "")://\(url.host ?? "")")
+        }
+        let testingSession = URLSession(configuration: .ephemeral)
+        defer { testingSession.invalidateAndCancel() }
+        let task = testingSession.dataTask(with: firstURL)
+        let response = HTTPURLResponse(url: firstURL, statusCode: 302,
+                                       httpVersion: "HTTP/1.1", headerFields: nil)!
+        var target = URLRequest(url: secondURL)
+        for name in ["Cookie", "Authorization", "Proxy-Authorization", "Referer", "Origin"] {
+            target.setValue("session-sensitive-value", forHTTPHeaderField: name)
+        }
+        target.setValue("Folio", forHTTPHeaderField: "User-Agent")
+        var accepted: URLRequest?
+        redirectGuard.urlSession(testingSession, task: task,
+                                 willPerformHTTPRedirection: response,
+                                 newRequest: target) { accepted = $0 }
+        guard let accepted, accepted.value(forHTTPHeaderField: "User-Agent") == "Folio" else {
+            fatalError("Approved HTTPS partner redirect was unexpectedly blocked")
+        }
+        for name in ["Cookie", "Authorization", "Proxy-Authorization", "Referer", "Origin"] {
+            guard accepted.value(forHTTPHeaderField: name) == nil else {
+                fatalError("Cross-origin redirect leaked \(name)")
+            }
+        }
+        var rejected: URLRequest?
+        redirectGuard.urlSession(testingSession, task: task,
+                                 willPerformHTTPRedirection: response,
+                                 newRequest: URLRequest(url: URL(string: "https://unapproved.fixture.invalid/book.epub")!)) { rejected = $0 }
+        guard rejected == nil else { fatalError("Unapproved cross-server redirect was followed") }
+        print("PASS approved cross-origin redirect strips browser headers; unapproved origin blocked")
     }
 }

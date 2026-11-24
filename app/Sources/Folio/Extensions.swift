@@ -485,9 +485,14 @@ final class RedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable
         }
         var next = request
         if let previous = response.url, SourceRuntime.hostKey(previous) != SourceRuntime.hostKey(url) {
-            // Never send WebKit session cookies to another allowed host.
+            // A source may explicitly allow more than one HTTPS origin for
+            // its catalogue and partner pages. Never transfer browser-state
+            // or referring-page data across those separate origins.
             next.setValue(nil, forHTTPHeaderField: "Cookie")
             next.setValue(nil, forHTTPHeaderField: "Authorization")
+            next.setValue(nil, forHTTPHeaderField: "Proxy-Authorization")
+            next.setValue(nil, forHTTPHeaderField: "Referer")
+            next.setValue(nil, forHTTPHeaderField: "Origin")
         }
         completionHandler(next)
     }
@@ -815,6 +820,16 @@ final class ExtensionStore {
         var exact: Bool
     }
 
+    /// Source runtimes are isolated per provider/job, and their immutable
+    /// search results can return in any order without sharing mutable JS state.
+    private struct SourceSearchBatch: @unchecked Sendable {
+        let index: Int
+        let sourceID: String
+        let sourceName: String
+        let results: [SourceResult]
+        let failure: String?
+    }
+
     /// One download job's independent source environment. Every enabled extension
     /// has its own JavaScript heap, serial execution queue, URLSession and private
     /// WebKit browser *for this job only*. Retain this object across findCopies
@@ -905,32 +920,60 @@ final class ExtensionStore {
         let wanted = BookMatch.key(author: author, title: title)
         let wantedTitle = Self.simpleTitle(title)
         let lastName = Names.split(author).first?.split(separator: " ").last.map { String($0).lowercased() } ?? ""
-        for e in jobSession?.sources ?? enabled {
+        let sources = jobSession?.sources ?? enabled
+        var eligible: [(Int, String, String)] = []
+        for (index, e) in sources.enumerated() {
             guard e.manifest.supportsLanguage(expectedLanguage) else {
                 onEvent(e.manifest.name, .log("Skipped: source languages \(e.manifest.languageLabel) do not include \(expectedLanguage ?? "unknown")."))
                 continue
             }
             if e.manifest.settings.contains(where: { $0.kind == "list" }) && SourceRuntime.allowed(from: e.saved.config).isEmpty { continue }
-            progress(e.manifest.name)
-            do {
-                let shortTitle = title.components(separatedBy: ":").first ?? title
-                let results = try await search(e.id, query: "\(shortTitle) \(lastName)".trimmingCharacters(in: .whitespaces),
-                                               expectedLanguage: expectedLanguage, expectedTitle: title,
-                                               expectedAuthor: author,
-                                               using: jobSession,
-                                               onEvent: { event in onEvent(e.manifest.name, event) })
-                for r in results where r.preferred != nil {
-                    let exact = BookMatch.key(author: r.author, title: r.title) == wanted
-                    let close = Self.simpleTitle(r.title).hasPrefix(wantedTitle) || wantedTitle.hasPrefix(Self.simpleTitle(r.title))
-                    let authorOK = lastName.isEmpty || r.author.lowercased().contains(lastName)
-                    if exact || (close && authorOK) {
-                        copies.append(Copy(sourceID: e.id, sourceName: e.manifest.name, result: r, exact: exact))
+            eligible.append((index, e.id, e.manifest.name))
+        }
+
+        // Each source has its own JS heap, URLSession and WebKit instance. A
+        // stalled Gutenberg request must not delay starting Lectulandia's
+        // search. Gather all outcomes before ranking to retain fallbacks if
+        // the first edition's final file transfer fails.
+        let shortTitle = title.components(separatedBy: ":").first ?? title
+        let query = "\(shortTitle) \(lastName)".trimmingCharacters(in: .whitespaces)
+        var batches: [SourceSearchBatch] = []
+        await withTaskGroup(of: SourceSearchBatch.self) { group in
+            for (index, id, name) in eligible {
+                group.addTask { [self] in
+                    await MainActor.run { progress(name) }
+                    do {
+                        let results = try await self.search(id, query: query,
+                                                            expectedLanguage: expectedLanguage,
+                                                            expectedTitle: title, expectedAuthor: author,
+                                                            using: jobSession,
+                                                            onEvent: { event in onEvent(name, event) })
+                        return SourceSearchBatch(index: index, sourceID: id, sourceName: name,
+                                                 results: results, failure: nil)
+                    } catch {
+                        return SourceSearchBatch(index: index, sourceID: id, sourceName: name,
+                                                 results: [], failure: error.localizedDescription)
                     }
                 }
-            } catch {
-                let message = "\(e.manifest.name): \(error.localizedDescription)"
-                problems.append(message)
-                onEvent(e.manifest.name, .log("Search failed: \(error.localizedDescription)"))
+            }
+            for await batch in group { batches.append(batch) }
+        }
+        // Deterministic catalog ordering regardless of network completion
+        // order; the existing edition ranking still decides which EPUB wins.
+        for batch in batches.sorted(by: { $0.index < $1.index }) {
+            if let failure = batch.failure {
+                problems.append("\(batch.sourceName): \(failure)")
+                onEvent(batch.sourceName, .log("Search failed: \(failure)"))
+                continue
+            }
+            for r in batch.results where r.preferred != nil {
+                let exact = BookMatch.key(author: r.author, title: r.title) == wanted
+                let close = Self.simpleTitle(r.title).hasPrefix(wantedTitle) || wantedTitle.hasPrefix(Self.simpleTitle(r.title))
+                let authorOK = lastName.isEmpty || r.author.lowercased().contains(lastName)
+                if exact || (close && authorOK) {
+                    copies.append(Copy(sourceID: batch.sourceID, sourceName: batch.sourceName,
+                                       result: r, exact: exact))
+                }
             }
         }
         let rank = ["epub": 0, "pdf": 1, "cbz": 2, "txt": 3]

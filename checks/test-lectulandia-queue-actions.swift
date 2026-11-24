@@ -16,6 +16,25 @@ enum BookLanguage {
 enum BookMatch {
     static func key(author: String, title: String) -> String { author.lowercased() + "|" + title.lowercased() }
 }
+enum BookAutoMatch {
+    static func words(_ value: String) -> [String] {
+        value.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+    }
+    static func sameTitle(_ expected: String, _ actual: String) -> Bool {
+        expected.localizedCaseInsensitiveCompare(actual) == .orderedSame
+    }
+    static func sameEditionAuthor(_ expected: String, _ actual: String) -> Bool {
+        expected.localizedCaseInsensitiveCompare(actual) == .orderedSame
+    }
+}
+
+@MainActor final class HardcoverClient {
+    static let shared = HardcoverClient()
+    struct Edition { let title: String? }
+    func edition(bookID: Int, language code: String) async throws -> Edition? {
+        code == "es" && bookID == 42 ? Edition(title: "Aleación de ley") : nil
+    }
+}
 
 enum AutomaticEPUBChoice {
     static func sameTitle(_ a: String, _ b: String) -> Bool { a == b }
@@ -80,6 +99,7 @@ struct EPUBPackage {
         let sourceID: String
         let sourceName: String
         let result: SourceResult
+        var id: String { sourceID + "|" + result.id }
     }
     var servedURL: URL!
     func loadAll() async {}
@@ -94,6 +114,9 @@ struct EPUBPackage {
                         onEvent: @escaping (String, SourceEvent) -> Void = { _,_ in }) async
                         -> (copies: [Copy], problems: [String]) {
             progress("Local test fixture")
+            // The Spanish edition is only discoverable by its localized title;
+            // searching the original English title must produce no matches.
+            if title == "The Alloy of Law" { return ([], []) }
             let result = SourceResult(id: title, title: title, author: author, language: "es",
                                       downloadCount: nil, preferred: SourceDownload(format: "epub", url: owner.servedURL))
             return ([Copy(sourceID: "local", sourceName: "Local test fixture", result: result)], [])
@@ -155,10 +178,20 @@ struct EPUBPackage {
         }
         let retried = queue.jobs.first { $0.id == failed }!
         guard retried.detailLog.contains(where: { $0.contains("Retry requested") }) else { fatalError("Retry was not logged") }
+        let translated = queue.enqueue(title: "The Alloy of Law", author: "Brandon Sanderson",
+                                       hardcoverBookID: 42, expectedLanguage: "es")
+        try await wait(queue: queue, id: translated, stage: .completed, timeout: 12)
+        let translatedLog = queue.jobs.first { $0.id == translated }!.detailLog.joined(separator: "\n")
+        guard translatedLog.contains("Edition title in es: Aleación de ley"),
+              translatedLog.contains("skipping unrelated original-title search"),
+              LibraryStore.shared.books.contains(where: { $0.title == "Aleación de ley" }) else {
+            fatalError("Translated target title was not searched or imported")
+        }
         let elapsed = Date().timeIntervalSince(cancelStart)
         print("PASS: cancelled real in-flight localhost HTTP transfer; no import; stage stayed cancelled")
         print("PASS: first HTTP 503 failed; retry() requeued and HTTP 200 completed verified import")
-        print("PASS: 1 successful import, 0 cancelled imports; retry log persisted")
+        print("PASS: translated Spanish edition found with its localized title, English-title search intentionally empty")
+        print("PASS: 2 successful imports, 0 cancelled imports; retry log persisted")
         print(String(format: "METRIC: cancellation through successful retry and validation %.2fs", elapsed))
     }
     @MainActor static func wait(queue: DownloadQueue, id: UUID, stage: DownloadJob.Stage, timeout: TimeInterval) async throws {
