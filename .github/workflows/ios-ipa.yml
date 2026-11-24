@@ -38,6 +38,7 @@ jobs:
           node checks/test-lectulandia-extension.cjs
           node checks/test-lectulandia-source-behavior.cjs
           python3 checks/check-extension-versions.py
+          zsh checks/test-hardcover-rate-gate.sh
           swiftc -swift-version 5 app/Sources/Folio/BookAutoMatch.swift app/Sources/Folio/BookFlow/AutomaticEPUBChoice.swift checks/test-automatic-epub-ranking.swift -o /tmp/folio-automatic-epub-ranking
           /tmp/folio-automatic-epub-ranking
 

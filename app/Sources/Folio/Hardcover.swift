@@ -378,18 +378,37 @@ struct HCError: LocalizedError {
 actor HCRateGate {
     static let shared = HCRateGate()
     private var stamps: [Date] = []
+    private var blockedUntil = Date.distantPast
+    private var lastRequest = Date.distantPast
 
-    func wait() async {
+    /// A 429 applies to the entire Hardcover account, not just one view.
+    /// Fail subsequent requests promptly while the service asks us to stop;
+    /// otherwise Home, Search and Downloads each amplify the same outage.
+    func noteRateLimit(retryAfter: String?) {
+        let seconds = retryAfter.flatMap(Double.init) ?? 20
+        let delay = min(90, max(5, seconds))
+        blockedUntil = max(blockedUntil, Date().addingTimeInterval(delay))
+    }
+
+    func wait() async throws {
         while true {
+            try Task.checkCancellation()
             let now = Date()
+            guard now >= blockedUntil else {
+                throw HCError(message: "Hardcover is rate-limiting requests. Retry shortly; cached book data remains available.", rateLimited: true)
+            }
             stamps.removeAll { now.timeIntervalSince($0) > 60 }
             let lastSecond = stamps.filter { now.timeIntervalSince($0) < 1 }.count
-            if stamps.count < 55 && lastSecond < 8 {
+            if stamps.count < 45 && lastSecond < 5 && now.timeIntervalSince(lastRequest) >= 0.2 {
                 stamps.append(now)
+                lastRequest = now
                 return
             }
-            let delay = stamps.count >= 55 ? max(0.1, 60.05 - now.timeIntervalSince(stamps[0])) : 0.25
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            let perMinute = stamps.count >= 45 ? max(0.1, 60.05 - now.timeIntervalSince(stamps[0])) : 0
+            let perSecond = lastSecond >= 5 ? 0.25 : 0
+            let spacing = max(0, 0.2 - now.timeIntervalSince(lastRequest))
+            let delay = max(0.05, perMinute, perSecond, spacing)
+            try await Task.sleep(for: .seconds(delay))
         }
     }
 }
@@ -498,41 +517,32 @@ final class HardcoverClient {
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("Folio/1.0 (macOS)", forHTTPHeaderField: "User-Agent")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["query": q, "variables": variables])
-        var attempt = 0
-        while true {
-            let queued = Date()
-            await HCRateGate.shared.wait()
-            let sent = Date()
-            let (data, resp) = try await URLSession.shared.data(for: req)
-            let http = resp as? HTTPURLResponse
-            #if os(iOS)
-            Self.logTiming(q, status: http?.statusCode, waited: sent.timeIntervalSince(queued),
-                           took: Date().timeIntervalSince(sent), bytes: data.count)
-            #endif
-            let head = String(decoding: data.prefix(300), as: UTF8.self)
-            if http?.statusCode == 429 || head.localizedCaseInsensitiveContains("too many requests") {
-                // Wait as long as Hardcover asks, then try again, a couple of times at most.
-                guard attempt < 2 else {
-                    throw HCError(message: "Hardcover is busy right now. Try again in a minute.", rateLimited: true)
-                }
-                let asked = http?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init) ?? Double(2 << attempt)
-                try await Task.sleep(nanoseconds: UInt64(min(max(asked, 1), 15) * 1_000_000_000))
-                attempt += 1
-                continue
-            }
-            if let http, http.statusCode >= 500 {
-                throw HCError(message: "Hardcover is having trouble right now. Try again in a minute.", transient: true)
-            }
-            guard let json = try? JSONDecoder().decode(JSON.self, from: data) else {
-                throw HCError(message: "Hardcover sent an unexpected answer. Try again in a minute.", transient: true)
-            }
-            if let msg = json["errors"].array.first?["message"].string { throw HCError(message: msg) }
-            if let msg = json["error"].string ?? json["message"].string { throw HCError(message: msg) }
-            if let http, http.statusCode >= 400 {
-                throw HCError(message: "Hardcover answered with error \(http.statusCode).")
-            }
-            return json["data"]
+        let queued = Date()
+        try await HCRateGate.shared.wait()
+        let sent = Date()
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let http = resp as? HTTPURLResponse
+        #if os(iOS)
+        Self.logTiming(q, status: http?.statusCode, waited: sent.timeIntervalSince(queued),
+                       took: Date().timeIntervalSince(sent), bytes: data.count)
+        #endif
+        let head = String(decoding: data.prefix(300), as: UTF8.self)
+        if http?.statusCode == 429 || head.localizedCaseInsensitiveContains("too many requests") {
+            await HCRateGate.shared.noteRateLimit(retryAfter: http?.value(forHTTPHeaderField: "Retry-After"))
+            throw HCError(message: "Hardcover is busy right now. Try again shortly.", rateLimited: true)
         }
+        if let http, http.statusCode >= 500 {
+            throw HCError(message: "Hardcover is having trouble right now. Try again in a minute.", transient: true)
+        }
+        guard let json = try? JSONDecoder().decode(JSON.self, from: data) else {
+            throw HCError(message: "Hardcover sent an unexpected answer. Try again in a minute.", transient: true)
+        }
+        if let msg = json["errors"].array.first?["message"].string { throw HCError(message: msg) }
+        if let msg = json["error"].string ?? json["message"].string { throw HCError(message: msg) }
+        if let http, http.statusCode >= 400 {
+            throw HCError(message: "Hardcover answered with error \(http.statusCode).")
+        }
+        return json["data"]
     }
 
     #if os(iOS)

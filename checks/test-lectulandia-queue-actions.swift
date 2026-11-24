@@ -7,6 +7,7 @@ enum SourceEvent { case status(String), log(String) }
 enum BookLanguage {
     static func code(_ raw: String?) -> String? { raw?.lowercased() == "es" ? "es" : nil }
     static var preferred: String { "es" }
+    static var reading: String { preferred }
     static func matches(_ raw: String?, expected: String) -> Bool? {
         guard let raw else { return nil }
         return raw == expected
