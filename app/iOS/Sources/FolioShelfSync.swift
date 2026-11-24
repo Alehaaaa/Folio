@@ -62,6 +62,9 @@ final class FolioShelfSync {
         providers[s] = nil
         errors[s] = nil
         ShelfKeychain.write(account, for: s)
+        if s == .goodreads {
+            GoodreadsClient.shared.userID = account.userID ?? ""
+        }
     }
 
     func signIn(_ s: ShelfService, login: String, password: String) async {
@@ -84,6 +87,7 @@ final class FolioShelfSync {
     }
 
     func signOut(_ s: ShelfService) {
+        if s == .goodreads { GoodreadsClient.shared.userID = "" }
         accounts[s] = nil
         providers[s] = nil
         errors[s] = nil

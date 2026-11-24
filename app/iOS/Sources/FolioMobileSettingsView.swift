@@ -24,6 +24,8 @@ struct FolioMobileSettingsView: View {
 
             FolioMobileHardcoverAccountSection()
 
+            FolioCloudSyncSection()
+
             Section {
                 Picker("Book Language", selection: $bookLanguage) {
                     Text("Automatic (\(BookLanguage.displayName(BookLanguage.preferred)))").tag("")

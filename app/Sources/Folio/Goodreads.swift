@@ -168,27 +168,19 @@ enum GRShelf: String, CaseIterable, Identifiable {
 final class GoodreadsClient {
     static let shared = GoodreadsClient()
 
-    var userID: String {
-        didSet { UserDefaults.standard.set(userID, forKey: "goodreadsUserID") }
-    }
+    /// Authoritative Goodreads identity comes from the authenticated Sync
+    /// account, never from a manually entered or legacy saved profile number.
+    var userID: String
     var loading: Set<GRShelf> = []
     var lastError: String?
     var lastSync: Date?
 
     private init() {
-        userID = UserDefaults.standard.string(forKey: "goodreadsUserID") ?? ""
+        userID = FolioShelfSync.shared.accounts[.goodreads]?.userID ?? ""
+        UserDefaults.standard.removeObject(forKey: "goodreadsUserID")
     }
 
     var isLinked: Bool { !userID.isEmpty }
-
-    /// Accepts a bare id or a profile link such as https://www.goodreads.com/user/show/12345-name.
-    static func normalize(_ raw: String) -> String {
-        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let r = t.range(of: "/(user/show|review/list)/([0-9]+)", options: .regularExpression) {
-            return t[r].components(separatedBy: "/").last?.filter(\.isNumber) ?? t
-        }
-        return t.prefix { $0.isNumber }.isEmpty ? t : String(t.prefix { $0.isNumber })
-    }
 
     func fetch(_ shelf: GRShelf) async throws -> [TrackedBook] {
         guard isLinked, let uid = userID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return [] }

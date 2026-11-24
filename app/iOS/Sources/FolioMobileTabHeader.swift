@@ -170,6 +170,7 @@ struct FolioPageHeaderBar<Trailing: View>: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 2) {
+            #if os(iOS)
             if isPresented && !tabRoot {
                 Button { dismiss() } label: {
                     Image(systemName: "chevron.left")
@@ -181,6 +182,7 @@ struct FolioPageHeaderBar<Trailing: View>: View {
                 .foregroundStyle(FolioTheme.ink)
                 .accessibilityLabel("Back")
             }
+            #endif
             Text(title)
                 .font(.system(size: 46, weight: .regular, design: .serif))
                 .tracking(-1.5)
@@ -192,7 +194,13 @@ struct FolioPageHeaderBar<Trailing: View>: View {
             trailing()
         }
         .frame(minHeight: 56)
-        .padding(.leading, isPresented ? 8 : 20)
+        .padding(.leading, {
+            #if os(iOS)
+            return isPresented && !tabRoot ? 8 : 20
+            #else
+            return 20
+            #endif
+        }())
         .padding(.trailing, 20)
         .padding(.top, 12)
         .padding(.bottom, 4)

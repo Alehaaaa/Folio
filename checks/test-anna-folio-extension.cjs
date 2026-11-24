@@ -34,9 +34,9 @@ function harness(fetch, browser, withStatus = true) {
   if (browser) context.folio.browser = browser;
   vm.createContext(context);
   vm.runInContext(script, context, {timeout: 5000});
-  assert.equal(context.source.name, "Anna's Archive — Free");
+  assert.equal(context.source.name, "Anna's Archive");
   assert.equal(context.source.id, 'annas-archive-free');
-  assert.equal(context.source.version, '1.3.9');
+  assert.equal(context.source.version, '1.3.11');
   assert.equal(context.source.allowedHosts.length, 5);
   return {source: context.source, requested, statuses, logs};
 }
@@ -640,6 +640,39 @@ assert.equal(transient.source.mirrorCooldowns['annas-archive.gl'], undefined,
 assert.ok(transient.logs.some(s => /retrying direct request once/i.test(s)),
   'the recovery attempt should remain visible in diagnostics');
 
+// A timeout/certificate problem is not fixed by immediately making the same
+// blocking request again through URLSession or WebKit. Move to another official
+// mirror instead; only DNS/connection-loss cases receive one direct retry.
+for (const [reason, expectedAttempts] of [
+  ['The request timed out.', 1],
+  ['An SSL error has occurred and a secure connection to the server cannot be made.', 1],
+  ['A server with the specified hostname could not be found.', 2]
+]) {
+  let networkCalls = 0;
+  let browserCalls = 0;
+  const failure = harness(() => { networkCalls++; throw new Error(reason); }, {
+    open() { browserCalls++; throw new Error('WebKit should not run for a failed transport'); }
+  });
+  assert.throws(() => failure.source.fetchPage('https://annas-archive.gl/search?q=test'));
+  assert.equal(networkCalls, expectedAttempts, reason + ': bounded direct attempts');
+  assert.equal(browserCalls, 0, reason + ': no redundant WebKit attempt');
+}
+
+// Valid modern table with zero EPUB records is an empty result. Never pick
+// an unrelated legacy-format /md5 link from the page's sidebars or marquee.
+const nonEpubTable = `<html><body>
+  <a href="/md5/${hash}">Unrelated sidebar novel</a>
+  <table class="text-sm w-full h-fit"><tbody>
+  <tr><td></td><td><a href="/md5/${germanHash}">PDF book</a></td>
+  <td>Author</td><td>Publisher</td><td>2020</td><td>book.pdf</td>
+  <td>source</td><td>en</td><td>Book</td><td>pdf</td></tr>
+  </tbody></table></body></html>`;
+assert.equal(harness(() => githubConfig).source.searchCards(nonEpubTable).length, 0,
+  'a modern table without EPUB rows must not fall back to the unrelated sidebar');
+assert.equal(harness(() => githubConfig).source.searchCards(
+  nonEpubTable.replace('class="text-sm w-full h-fit"', 'class="h-fit another-class w-full text-sm"')).length, 0,
+  'modern table recognition must not depend on CSS class ordering');
+
 // Mirror membership comes only from the published official declaration, while
 // transient host transport failures are runtime-local, not permanent removals.
 const unavailableReasons = {
@@ -730,4 +763,4 @@ const legacy = harness(url => url.includes('raw.githubusercontent.com') ? github
 assert.equal(legacy.source.search('Pride and Prejudice', 0).length, 1, 'older Folio versions work without status');
 assert.ok(legacy.logs.length > 0, 'older Folio versions still receive diagnostics');
 
-console.log('PASS: Folio extension v1.3.9, bounded transient transport retry, runtime-local mirror cooldown, source availability diagnostics, Want subtitle matches, language safeguards, and free countdown without verified-query resets.');
+console.log('PASS: Folio extension v1.3.11, bounded transient transport retry, runtime-local mirror cooldown, source availability diagnostics, Want subtitle matches, language safeguards, and free countdown without verified-query resets.');

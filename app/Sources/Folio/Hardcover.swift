@@ -510,6 +510,30 @@ actor HCRateGate {
     }
 }
 
+/// Prevents a status batch and a bulk import from editing the same account's
+/// shelves at once. The rate gate meters tokens; this gate preserves write order.
+actor HCStatusWriteGate {
+    static let shared = HCStatusWriteGate()
+    private var occupied = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func enter() async {
+        if !occupied {
+            occupied = true
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func leave() {
+        if waiters.isEmpty {
+            occupied = false
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+}
+
 @Observable
 @MainActor
 final class HardcoverClient {
@@ -526,6 +550,15 @@ final class HardcoverClient {
 
     private var token: String?
     private let endpoint = URL(string: "https://api.hardcover.app/v1/graphql")!
+    /// Rapid shelf taps and bulk calls are coalesced by book and sent together.
+    /// Hardcover charges GraphQL top-level fields, so batches remain small.
+    private struct StatusRequest {
+        var status: HCStatus
+        var editionID: Int?
+        var completions: [CheckedContinuation<HCUserBook?, Never>]
+    }
+    private var pendingStatuses: [Int: StatusRequest] = [:]
+    private var statusFlushTask: Task<Void, Never>?
 
     var isConnected: Bool { user != nil }
     var hasToken: Bool { token != nil }
@@ -1333,66 +1366,153 @@ final class HardcoverClient {
 
     @discardableResult
     func setStatus(bookID: Int, status: HCStatus, editionID: Int? = nil) async -> HCUserBook? {
-        do {
-            if let existing = try await userBook(bookID: bookID) {
-                if let editionID, existing.editionID == nil {
-                    // Record which edition is being read (e.g. the Spanish one).
-                    try await query("""
-                    mutation StatusEdition($id: Int!, $status: Int!, $e: Int!) { update_user_book(id: $id, object: {status_id: $status, edition_id: $e}) { id error } }
-                    """, ["id": existing.id, "status": status.rawValue, "e": editionID])
-                } else {
-                    try await query("""
-                    mutation Status($id: Int!, $status: Int!) { update_user_book(id: $id, object: {status_id: $status}) { id error } }
-                    """, ["id": existing.id, "status": status.rawValue])
-                }
-                if status == .read, let rid = existing.readID {
-                    _ = try? await query("""
-                    mutation Done($id: Int!, $d: date) { update_user_book_read(id: $id, object: {finished_at: $d}) { id error } }
-                    """, ["id": rid, "d": Date().isoDay])
-                }
+        await withCheckedContinuation { completion in
+            if var request = pendingStatuses[bookID] {
+                request.status = status       // the last user choice wins
+                if let editionID { request.editionID = editionID }
+                request.completions.append(completion)
+                pendingStatuses[bookID] = request
             } else {
-                if let editionID {
-                    try await query("""
-                    mutation AddEdition($bid: Int!, $status: Int!, $e: Int!) { insert_user_book(object: {book_id: $bid, status_id: $status, edition_id: $e}) { id error } }
-                    """, ["bid": bookID, "status": status.rawValue, "e": editionID])
-                } else {
-                    try await query("""
-                    mutation Add($bid: Int!, $status: Int!) { insert_user_book(object: {book_id: $bid, status_id: $status}) { id error } }
-                    """, ["bid": bookID, "status": status.rawValue])
+                pendingStatuses[bookID] = StatusRequest(status: status, editionID: editionID,
+                                                        completions: [completion])
+            }
+            if statusFlushTask == nil {
+                statusFlushTask = Task { await drainStatusRequests() }
+            }
+        }
+    }
+
+    private func drainStatusRequests() async {
+        while !pendingStatuses.isEmpty {
+            // Debounce rapid taps and accumulate changes to different books.
+            try? await Task.sleep(for: .milliseconds(350))
+            let ids = pendingStatuses.keys.sorted().prefix(3)
+            let batch = ids.compactMap { id -> (Int, StatusRequest)? in
+                pendingStatuses.removeValue(forKey: id).map { (id, $0) }
+            }
+            guard !batch.isEmpty else { continue }
+            do {
+                let results = try await sendStatusBatch(batch)
+                lastError = nil
+                for (id, request) in batch {
+                    for completion in request.completions { completion.resume(returning: results[id]) }
+                }
+            } catch {
+                lastError = error.localizedDescription
+                for (_, request) in batch {
+                    for completion in request.completions { completion.resume(returning: nil) }
                 }
             }
-            revision += 1
-            lastError = nil
-            return try await userBook(bookID: bookID)
-        } catch {
-            lastError = error.localizedDescription
-            return nil
         }
+        statusFlushTask = nil
+    }
+
+    /// One account-scoped lookup, one multi-field mutation and one refresh for
+    /// up to three books; repeated updates to one book collapse to its latest
+    /// requested status before the network request begins.
+    private func sendStatusBatch(_ batch: [(Int, StatusRequest)]) async throws -> [Int: HCUserBook] {
+        await HCStatusWriteGate.shared.enter()
+        defer { Task { await HCStatusWriteGate.shared.leave() } }
+        guard let user else { throw HCError(message: "Connect Hardcover in Settings first.") }
+        let ids = batch.map(\.0)
+        let idsJSON = ids.map(String.init).joined(separator: ",")
+        let original = try await query("""
+        query StatusBefore { user_books(where: {user_id: {_eq: \(user.id)}, book_id: {_in: [\(idsJSON)]}}, limit: \(ids.count)) { \(Self.userBookFields) } }
+        """)
+        let before = Dictionary(uniqueKeysWithValues: original["user_books"].array
+            .compactMap(HCUserBook.from).map { ($0.book.id, $0) })
+        var fields: [String] = []
+        var statusAliases = Set<Int>()
+        var finishAliases = Set<Int>()
+        let day = Date().isoDay
+        for (index, item) in batch.enumerated() {
+            let (id, request) = item
+            if let existing = before[id] {
+                let attachEdition = request.editionID != nil && existing.editionID == nil
+                let needsStatus = existing.status != request.status || attachEdition
+                let finishRead = request.status == .read && existing.readID != nil &&
+                    (existing.status != .read || existing.finishedAt == nil)
+                if !needsStatus && !finishRead { continue }
+                if needsStatus {
+                    var object = "status_id: \(request.status.rawValue)"
+                    if attachEdition, let editionID = request.editionID { object += ", edition_id: \(editionID)" }
+                    fields.append("s\(index): update_user_book(id: \(existing.id), object: {\(object)}) { id error }")
+                    statusAliases.insert(index)
+                }
+                if finishRead, let readID = existing.readID {
+                    fields.append("d\(index): update_user_book_read(id: \(readID), object: {finished_at: \"\(day)\"}) { id error }")
+                    finishAliases.insert(index)
+                }
+            } else {
+                var object = "book_id: \(id), status_id: \(request.status.rawValue)"
+                if let editionID = request.editionID { object += ", edition_id: \(editionID)" }
+                fields.append("s\(index): insert_user_book(object: {\(object)}) { id error }")
+                statusAliases.insert(index)
+            }
+        }
+        if fields.isEmpty { return before }
+        let mutation = try await query("mutation StatusBatch { \(fields.joined(separator: " ")) }")
+        for index in statusAliases {
+            let result = mutation["s\(index)"]
+            if result["id"].int == nil || !result["error"].isNull {
+                throw HCError(message: result["error"].string ?? "Hardcover did not confirm status update.")
+            }
+        }
+        for index in finishAliases {
+            let result = mutation["d\(index)"]
+            if result["id"].int == nil || !result["error"].isNull {
+                throw HCError(message: result["error"].string ?? "Hardcover did not confirm the finish date.")
+            }
+        }
+        revision += 1
+        let updated = try await query("""
+        query StatusAfter { user_books(where: {user_id: {_eq: \(user.id)}, book_id: {_in: [\(idsJSON)]}}, limit: \(ids.count)) { \(Self.userBookFields) } }
+        """)
+        return Dictionary(uniqueKeysWithValues: updated["user_books"].array
+            .compactMap(HCUserBook.from).map { ($0.book.id, $0) })
     }
 
     /// Puts a book on a shelf (and rates it) in one request, without reloading shelves:
     /// used by bulk copies, which refresh once at the end.
     func writeShelf(bookID: Int, existing userBookID: Int?, status: HCStatus, rating: Double?) async -> Bool {
-        var object = "status_id: $status"
-        var variables: [String: Any] = ["status": status.rawValue]
-        var types = "$status: Int!"
-        if let rating {
-            object += ", rating: $r"
-            variables["r"] = rating
-            types += ", $r: numeric"
+        await writeShelves([(bookID: bookID, existing: userBookID, status: status, rating: rating)]).first ?? false
+    }
+
+    /// Combines up to four different shelf changes into one HTTP connection.
+    /// The rate gate still accounts for EACH top-level GraphQL mutation field.
+    /// Results correspond to inputs; failed/unconfirmed items remain pending.
+    func writeShelves(_ writes: [(bookID: Int, existing: Int?, status: HCStatus, rating: Double?)]) async -> [Bool] {
+        guard !writes.isEmpty else { return [] }
+        if writes.count > 4 {
+            var results: [Bool] = []
+            for start in stride(from: 0, to: writes.count, by: 4) {
+                results += await writeShelves(Array(writes[start..<min(start + 4, writes.count)]))
+            }
+            return results
+        }
+        await HCStatusWriteGate.shared.enter()
+        defer { Task { await HCStatusWriteGate.shared.leave() } }
+        var fields: [String] = []
+        for (i, item) in writes.enumerated() {
+            var object = "status_id: \(item.status.rawValue)"
+            if let rating = item.rating, rating.isFinite, (0...5).contains(rating) {
+                object += ", rating: \(rating)"
+            }
+            if let existing = item.existing {
+                fields.append("w\(i): update_user_book(id: \(existing), object: {\(object)}) { id error }")
+            } else {
+                fields.append("w\(i): insert_user_book(object: {book_id: \(item.bookID), \(object)}) { id error }")
+            }
         }
         do {
-            if let userBookID {
-                variables["id"] = userBookID
-                try await query("mutation Shelf($id: Int!, \(types)) { update_user_book(id: $id, object: {\(object)}) { id error } }", variables)
-            } else {
-                variables["bid"] = bookID
-                try await query("mutation Add($bid: Int!, \(types)) { insert_user_book(object: {book_id: $bid, \(object)}) { id error } }", variables)
+            let response = try await query("mutation BulkShelves { \(fields.joined(separator: " ")) }")
+            return writes.indices.map { i in
+                let result = response["w\(i)"]
+                return result["id"].int != nil && result["error"].isNull
             }
-            return true
         } catch {
             lastError = error.localizedDescription
-            return false
+            return Array(repeating: false, count: writes.count)
         }
     }
 

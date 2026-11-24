@@ -81,7 +81,10 @@ struct FolioMacRootView: View {
                     .environment(\.folioTabRoot, true)
                     .folioDetailDestinations()
             }
-            .id(navigation.selectedTab)
+            // Each sidebar visit gets a fresh navigation stack. Without this,
+            // macOS can keep a pushed Settings submenu visible after switching
+            // to another sidebar section and back.
+            .id(navigation.navigationRootID)
         }
         // Each screen draws its own title row, so the window toolbar only
         // carries the window buttons and floats clear over the content.

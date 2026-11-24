@@ -30,12 +30,14 @@ struct FolioMobileRootView: View {
                     FolioMobileHomeView(showImporter: { importing = true })
                         .folioDetailDestinations()
                 }
+                .id(navigation.navigationRootID)
             }
             Tab("Library", systemImage: "books.vertical.fill", value: .library) {
                 NavigationStack {
                     FolioMobileLibraryView(showImporter: { importing = true })
                         .folioDetailDestinations()
                 }
+                .id(navigation.navigationRootID)
             }
             // Before the size class is known it is nil: lay out the iPhone tabs, not
             // tabs that UIKit folds into its own More list and then rebuilds. iPad keeps
@@ -44,6 +46,7 @@ struct FolioMobileRootView: View {
             if sizeClass == .regular {
                 Tab("Downloads", systemImage: "arrow.down.circle", value: .downloads) {
                     NavigationStack { FolioMobileDownloadsView() }
+                        .id(navigation.navigationRootID)
                 }
             }
             Tab("More", systemImage: "ellipsis.circle", value: .settings) {
@@ -55,6 +58,7 @@ struct FolioMobileRootView: View {
                     FolioMobileDiscoverView()
                         .folioDetailDestinations()
                 }
+                .id(navigation.navigationRootID)
             }
         }
         .onAppear { navigation.compactTabs = sizeClass != .regular }
@@ -80,6 +84,7 @@ struct FolioMobileRootView: View {
         }
         .fullScreenCover(item: $navigation.reading) { route in
             NavigationStack { FolioMobileReaderView(bookID: route.id) }
+                .folioSyncReader(route.id)
                 .environment(store)
                 // The reader has its own themes; keep the app palette out of it.
                 .tint(Color.accentColor)
@@ -243,6 +248,7 @@ struct FolioMobileRootView: View {
                 }
             }
         }
+        .id(navigation.navigationRootID)
     }
 }
 #endif

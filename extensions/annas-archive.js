@@ -5,9 +5,9 @@
 
 var source = {
   id: "annas-archive-free",
-  name: "Anna's Archive — Free",
+  name: "Anna's Archive",
   description: "Free EPUB search and published Slow Partner file delivery after a normal background countdown. No paid API or keys.",
-  version: "1.3.9",
+  version: "1.3.11",
   languages: ["*"],
   allowedHosts: [
     "https://raw.githubusercontent.com",
@@ -51,14 +51,25 @@ var source = {
       // resolver or interface is changing, even though the same host works a
       // moment later. Give that transport request one fresh chance before
       // involving WebKit or condemning the mirror for this source session.
-      // HTTP errors, verification pages and parsing failures are not retried.
-      if (this.transportFailure(error)) {
+      // Retry only potentially transient DNS/connection failures. Repeating a
+      // timeout or a certificate/TLS failure delays the whole search and
+      // usually cannot succeed without a change to the network or server.
+      // HTTP errors and browser challenges still use normal WebKit fallback.
+      var problem = this.transportFailure(error);
+      if (problem === "DNS resolution" || problem === "network connection") {
         this.diagnostic("Transient connection failure; retrying direct request once for " + url + ": " + error);
         try { return folio.fetchText(url); }
         catch (retryError) {
           this.diagnostic("Direct retry unavailable for " + url + ": " + retryError);
           error = retryError;
         }
+      }
+      // WebKit does not solve a failed transport handshake/timeout. Avoid a
+      // third blocking attempt per host and move to the next official mirror.
+      // Preserve WebKit for HTTP denials and anti-bot pages, which may render.
+      if (this.transportFailure(error)) {
+        this.diagnostic("Network transport unavailable; skipping redundant browser attempt for " + url + ": " + error);
+        throw error;
       }
       if (!folio.browser || typeof folio.browser.open !== "function") {
         this.diagnostic("Direct request unavailable, with no background browser: " + url + ": " + error);
@@ -172,7 +183,7 @@ var source = {
   // must never be used as a fallback for an unlabelled edition.
   normalizedLanguage: function (value) {
     var raw = String(value || "").trim().toLowerCase();
-    if (!raw || /^(?:unknown|undefined|none|null|n\/a|not specified|unspecified|[-–—?])$/.test(raw))
+    if (!raw || /^(?:unknown|undefined|none|null|n\/a|not specified|unspecified|[-–\u2014?])$/.test(raw))
       return null;
     // Recognize only explicit, unambiguous language names/codes. For example,
     // "French" is not an unknown-language fallback when English was requested.
@@ -351,7 +362,20 @@ var source = {
     // columns: cover, title, author, publisher, year, filename, origins,
     // language, type, FORMAT, size. Ignore the unrelated 'recent downloads'
     // marquee preceding the actual results table.
-    var modernTable = html.match(/<table\b[^>]*class=["'][^"']*\btext-sm\b[^"']*\bw-full\b[^"']*\bh-fit\b[^"']*["'][^>]*>/i);
+    // CSS class order is not stable across site builds; recognize the same
+    // results table regardless of the order of its three class tokens.
+    var modernTable = null;
+    var tables = /<table\b[^>]*>/gi, opening;
+    while ((opening = tables.exec(html)) !== null) {
+      var classAttr = opening[0].match(/\bclass\s*=\s*["']([^"']*)["']/i);
+      if (!classAttr) continue;
+      var classes = " " + classAttr[1].replace(/\s+/g, " ") + " ";
+      if (classes.indexOf(" text-sm ") >= 0 && classes.indexOf(" w-full ") >= 0 &&
+          classes.indexOf(" h-fit ") >= 0) {
+        modernTable = opening;
+        break;
+      }
+    }
     if (modernTable) {
       var begin = html.indexOf(modernTable[0]) + modernTable[0].length;
       var end = html.indexOf("</table>", begin);
@@ -376,7 +400,10 @@ var source = {
           language: this.normalizedLanguage(cells[7])
         });
       }
-      if (result.length) return result;
+      // A recognized modern results table is authoritative. Falling back to
+      // legacy page-wide anchors can include unrelated marquee/sidebar books
+      // when none of the actual result rows is an EPUB.
+      return result;
     }
     var links = [];
     var pattern = /<a\b[^>]*href\s*=\s*["'](?:https?:\/\/[^\/"']+)?\/md5\/([0-9a-f]{32})["'][^>]*>/gi;
@@ -384,16 +411,21 @@ var source = {
     while ((match = pattern.exec(html)) !== null) {
       links.push({hash: match[1].toLowerCase(), at: match.index});
     }
+    // Resolve each link's next distinct record in one backward pass, rather
+    // than scanning all later anchors for every duplicate hash (quadratic on
+    // large result pages with repeated title/cover/download anchors).
+    var nextDistinct = new Array(links.length);
+    for (var k = links.length - 1; k >= 0; k--) {
+      nextDistinct[k] = k + 1 >= links.length ? html.length :
+        (links[k + 1].hash !== links[k].hash ? links[k + 1].at : nextDistinct[k + 1]);
+    }
     var records = [];
     var seen = {};
     for (var i = 0; i < links.length; i++) {
       var id = links[i].hash;
       if (seen[id]) continue;
       seen[id] = true;
-      var next = html.length;
-      for (var j = i + 1; j < links.length; j++) {
-        if (links[j].hash !== id) { next = links[j].at; break; }
-      }
+      var next = nextDistinct[i];
       var block = html.slice(links[i].at, Math.min(next, links[i].at + 20000));
       var title = "";
       var anchorPattern = /<a\b([^>]*)>([\s\S]*?)<\/a>/gi;

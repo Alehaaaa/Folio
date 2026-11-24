@@ -109,7 +109,7 @@ struct FolioMobileFindSourceView: View {
                         }
                         if let anna = extensions.installed.first(where: { $0.id == "annas-archive-free" }),
                            !anna.saved.enabled {
-                            Label("Anna's Archive — Free is disabled. Enable it under Sources before searching.",
+                            Label("Anna's Archive is disabled. Enable it under Sources before searching.",
                                   systemImage: "exclamationmark.triangle")
                                 .font(.footnote)
                                 .foregroundStyle(.orange)
@@ -356,7 +356,7 @@ struct FolioMobileFindSourceView: View {
         problems = result.problems
         for problem in result.problems { appendMessage("SOURCE ERROR: \(problem)") }
         if copies.isEmpty && result.problems.isEmpty {
-            appendMessage("No matching downloadable editions returned for \(wantedTitle) — \(wantedAuthor) (language: \(selectedLanguage.isEmpty ? "any" : selectedLanguage))")
+            appendMessage("No matching downloadable editions returned for \(wantedTitle) - \(wantedAuthor) (language: \(selectedLanguage.isEmpty ? "any" : selectedLanguage))")
         }
     }
 
@@ -419,7 +419,7 @@ struct FolioMobileFindSourceView: View {
     private func copyDiagnostics() {
         let report = ([
             "Folio iOS · Find Source diagnostics",
-            "Book: \(queryTitle) — \(queryAuthor)",
+            "Book: \(queryTitle) - \(queryAuthor)",
             "Edition language filter: \(selectedLanguage.isEmpty ? "any" : selectedLanguage)",
             "Enabled sources: \(extensions.enabled.map(\.id).joined(separator: ", "))",
             "Search results: \(copies.count)",

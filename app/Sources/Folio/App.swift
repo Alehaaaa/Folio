@@ -155,6 +155,7 @@ struct FolioApp: App {
                 .environment(popups)
                 .environment(navigation)
                 .folioLogsLifecycle()
+                .folioCloudSync()
                 .task {
                     await exts.checkForExtensionUpdates()
                     // Restore persisted jobs on every launch, even when Downloads
@@ -179,6 +180,7 @@ struct FolioApp: App {
         WindowGroup("Reader", id: "reader", for: UUID.self) { $id in
             if let id {
                 ReaderWindow(bookID: id)
+                    .folioSyncReader(id)
                     .environment(store)
                     .environment(hc)
                     .environment(gr)

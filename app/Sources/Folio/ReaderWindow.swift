@@ -475,7 +475,7 @@ struct ReaderWindow: View {
         let author = book?.author ?? ""
         let title = book?.title ?? ""
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("“\(text)” — \(author), \(title)", forType: .string)
+        NSPasteboard.general.setString("“\(text)” - \(author), \(title)", forType: .string)
     }
 
     private func lookUp(_ selection: ReaderSelection) {

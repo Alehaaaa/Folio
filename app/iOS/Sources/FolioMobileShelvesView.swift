@@ -66,7 +66,6 @@ struct FolioMobileShelvesView: View {
     @State private var hcItems: [HCUserBook] = []
     @State private var loadedStatus: HCStatus?
     @State private var loading = false
-    @State private var copying = false
     @State private var notice: String?
 
     private var selectedStatus: HCStatus { navigation.shelfStatus }
@@ -130,27 +129,6 @@ struct FolioMobileShelvesView: View {
                     }
                     .folioGlassPill()
                     .disabled(loading || !goodreads.loading.isEmpty)
-                    if hardcover.isConnected, grStatus != nil, !library.data.tracked.isEmpty {
-                        Menu {
-                            Button {
-                                Task { await copyGoodreads() }
-                            } label: {
-                                Label(library.hardcoverCopy.map { "Copying \($0.done) of \($0.total) to Hardcover…" }
-                                        ?? "Copy Goodreads to Hardcover", systemImage: "arrow.up.forward.app")
-                            }
-                            .disabled(copying || library.hardcoverCopy != nil)
-                            NavigationLink {
-                                FolioMobileGoodreadsSettings()
-                            } label: {
-                                Label("Import & Export CSV", systemImage: "square.and.arrow.up.on.square")
-                            }
-                        } label: {
-                            Label("Shelf Options", systemImage: "ellipsis")
-                                .labelStyle(.iconOnly)
-                                .frame(minWidth: 30, minHeight: 30)
-                        }
-                        .folioGlassPill()
-                    }
                 }
                 .padding(.horizontal, 18)
             }
@@ -249,14 +227,6 @@ struct FolioMobileShelvesView: View {
         }
     }
 
-    private func copyGoodreads() async {
-        guard !copying else { return }
-        copying = true
-        let results = await library.sendTrackedToHardcover(hardcover, shelf: grStatus)
-        notice = "Copied \(results.sent) books; \(results.missed) could not be matched."
-        copying = false
-        await refresh(includeGoodreads: false)
-    }
 }
 
 private enum FolioMobileShelfSource: String, CaseIterable, Identifiable {

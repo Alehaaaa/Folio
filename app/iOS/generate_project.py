@@ -11,8 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PROJECT = ROOT / "FolioiOS.xcodeproj"
-APP_VERSION = "1.0.73"
-BUILD_VERSION = "74"
+APP_VERSION = "1.0.74"
+BUILD_VERSION = "75"
 SHARED = [
     "Models",
     "LibraryStore",
@@ -33,6 +33,8 @@ SHARED = [
     "WidgetShared",
     "WidgetBridge",
     "ReadingReminders",
+    "CloudSyncCore",
+    "CloudSync",
 ]
 
 IOS = sorted(p.stem for p in (ROOT / "Sources").glob("*.swift"))

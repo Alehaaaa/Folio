@@ -56,12 +56,15 @@ struct FolioMobileShelfServiceView: View {
     @State private var password = ""
     @State private var signingIn = false
     @State private var webSignIn = false
+    @State private var resolvingGoodreadsName = false
 
     var body: some View {
         Form {
             Section("Account") {
                 if let account = sync.accounts[service] {
-                    Label(account.name ?? "Signed In", systemImage: "checkmark.circle.fill")
+                    Label(service == .goodreads
+                          ? GoodreadsProfileName.display(account.name)
+                          : (account.name ?? "Signed In"), systemImage: "checkmark.circle.fill")
                         .foregroundStyle(FolioTheme.success)
                     Button("Sign Out", role: .destructive) { sync.signOut(service) }
                 } else if service.signIn == .web {
@@ -128,12 +131,33 @@ struct FolioMobileShelfServiceView: View {
         .navigationTitle(service.name)
         .folioPageHeader(service.name)
         .folioScreen()
+        .task(id: sync.accounts[service]?.userID) {
+            guard service == .goodreads,
+                  let account = sync.accounts[.goodreads],
+                  !GoodreadsProfileName.isPersonName(account.name),
+                  !resolvingGoodreadsName else { return }
+            resolvingGoodreadsName = true
+            defer { resolvingGoodreadsName = false }
+            if let name = await GoodreadsProfileName.fetch(account: account),
+               sync.accounts[.goodreads]?.userID == account.userID {
+                var updated = account
+                updated.name = name
+                sync.connect(.goodreads, account: updated)
+            }
+        }
         .sheet(isPresented: $webSignIn) {
             FolioShelfWebSignIn(service: service) { account in
                 webSignIn = false
                 sync.connect(service, account: account)
-                Task { await sync.syncLibrary(service) }
+                if service != .goodreads {
+                    Task { await sync.syncLibrary(service) }
+                }
             }
+            #if os(macOS)
+            .frame(minWidth: 850, minHeight: 660)
+            #else
+            .presentationDetents([.large])
+            #endif
         }
     }
 }
@@ -144,15 +168,47 @@ struct FolioShelfWebSignIn: View {
     let service: ShelfService
     let done: (ShelfAccount) -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var webError: String?
+    @State private var loading = true
+    @State private var reloadID = 0
 
     var body: some View {
         NavigationStack {
-            FolioShelfWebView(service: service, done: done)
-                .ignoresSafeArea(edges: .bottom)
+            VStack(spacing: 0) {
+                if loading {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("Loading \(service.name) sign-in…")
+                            .font(.callout)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(10)
+                }
+                if let webError {
+                    Text(webError)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .padding(8)
+                }
+                FolioShelfWebView(service: service, done: done,
+                                  loaded: { loading = false },
+                                  failed: { webError = $0; loading = false })
+                    .id(reloadID)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+                .frame(minHeight: 520)
+                .background(Color.white)
                 .navigationTitle(service.name)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                    ToolbarItem(placement: .automatic) {
+                        Button("Reload") {
+                            webError = nil
+                            loading = true
+                            reloadID += 1
+                        }
+                    }
                 }
         }
     }
@@ -161,10 +217,12 @@ struct FolioShelfWebSignIn: View {
 private struct FolioShelfWebView: UIViewRepresentable {
     let service: ShelfService
     let done: (ShelfAccount) -> Void
+    let loaded: () -> Void
+    let failed: (String) -> Void
 
     var start: URL {
         switch service {
-        case .goodreads: URL(string: "https://www.goodreads.com/user/sign_in")!
+        case .goodreads: URL(string: "https://www.goodreads.com/")!
         default: URL(string: "https://app.thestorygraph.com/users/sign_in")!
         }
     }
@@ -175,9 +233,12 @@ private struct FolioShelfWebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
-        config.websiteDataStore = .nonPersistent()
+        // Goodreads Home is the working sign-in entrypoint in Goodreads Lab.
+        // A persistent web store also keeps its Amazon/Goodreads redirect flow.
+        config.websiteDataStore = service == .goodreads ? .default() : .nonPersistent()
         let web = WKWebView(frame: .zero, configuration: config)
         web.navigationDelegate = context.coordinator
+        web.uiDelegate = context.coordinator
         web.load(URLRequest(url: start))
         return web
     }
@@ -185,14 +246,32 @@ private struct FolioShelfWebView: UIViewRepresentable {
     func updateUIView(_ web: WKWebView, context: Context) {}
 
     @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         let parent: FolioShelfWebView
         private var finished = false
 
         init(_ parent: FolioShelfWebView) { self.parent = parent }
 
         func webView(_ web: WKWebView, didFinish navigation: WKNavigation!) {
+            parent.loaded()
             Task { await check(web) }
+        }
+
+        func webView(_ web: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            parent.failed("Could not load the sign-in page: \(error.localizedDescription)")
+        }
+
+        func webView(_ web: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            parent.failed("Goodreads navigation failed: \(error.localizedDescription)")
+        }
+
+        func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                     for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+            // Some Goodreads sign-in links use target=_blank/window.open.
+            if navigationAction.targetFrame == nil, let url = navigationAction.request.url {
+                webView.load(URLRequest(url: url))
+            }
+            return nil
         }
 
         private func check(_ web: WKWebView) async {
@@ -209,10 +288,38 @@ private struct FolioShelfWebView: UIViewRepresentable {
                     "(document.querySelector('a[href^=\"/profile/\"]')||{}).getAttribute ? document.querySelector('a[href^=\"/profile/\"]').getAttribute('href').split('/').pop() : ''"
                 ) as? String
             case .goodreads:
-                let id = (try? await web.evaluateJavaScript(
-                    "(document.documentElement.innerHTML.match(/\\/user\\/show\\/(\\d+)/)||[])[1]||''"
-                ) as? String) ?? ""
+                let identity = (try? await web.evaluateJavaScript(
+                    #"""
+                    (() => {
+                      for (const selector of [
+                        '.siteHeader__personal a[href*="/user/show/"]',
+                        'nav a[href*="/user/show/"]',
+                        '[data-testid="header-personal-nav"] a[href*="/user/show/"]'
+                      ]) {
+                        const link = document.querySelector(selector);
+                        const id = link?.getAttribute('href')?.match(/\/user\/show\/(\d+)/)?.[1];
+                        if (id) {
+                          const label = (link.getAttribute('title') ||
+                            link.getAttribute('aria-label') || link.textContent || '').trim();
+                          return {id, name: label};
+                        }
+                      }
+                      return {id: '', name: ''};
+                    })()
+                    """#
+                ) as? [String: String]) ?? [:]
+                let id = identity["id"] ?? ""
                 guard !id.isEmpty else { return }
+                let headerName = identity["name"]
+                let agent = (try? await web.evaluateJavaScript("navigator.userAgent") as? String) ?? ShelfWeb.fallbackAgent
+                var account = ShelfAccount(name: headerName, userID: id,
+                                           cookies: cookies.map { ShelfCookie($0) }, userAgent: agent)
+                if !GoodreadsProfileName.isPersonName(account.name) {
+                    account.name = await GoodreadsProfileName.fetch(account: account)
+                }
+                finished = true
+                parent.done(account)
+                return
             default:
                 return
             }
@@ -222,6 +329,91 @@ private struct FolioShelfWebView: UIViewRepresentable {
                                        cookies: cookies.map { ShelfCookie($0) }, userAgent: agent)
             parent.done(account)
         }
+    }
+}
+
+/// Identifies the signed-in Goodreads reader once, then caches the resulting
+/// display name in the existing Keychain-backed ShelfAccount. This is not a
+/// second login, a profile link field, or a recurring shelf request.
+@MainActor
+private enum GoodreadsProfileName {
+    /// Avoid repeated profile lookups when a page is reopened or the server
+    /// rejects profile access. Logging in again is not required to retry.
+    private static var attempted: Set<String> = []
+
+    static func display(_ name: String?) -> String {
+        isPersonName(name) ? name!.trimmingCharacters(in: .whitespacesAndNewlines) : "Connected to Goodreads"
+    }
+
+    static func isPersonName(_ raw: String?) -> Bool {
+        guard let name = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { return false }
+        let lower = name.lowercased()
+        return !lower.hasPrefix("goodreads #") && lower != "goodreads" &&
+            lower != "my profile" && lower != "profile" && lower != "account" &&
+            lower != "user" && lower != "me" && lower != "my books" &&
+            lower != "account settings" && lower != "settings" &&
+            !name.allSatisfy(\.isNumber)
+    }
+
+    static func fetch(account: ShelfAccount) async -> String? {
+        guard let id = account.userID, !id.isEmpty, id.allSatisfy(\.isNumber),
+              let url = URL(string: "https://www.goodreads.com/user/show/\(id)") else { return nil }
+        guard attempted.insert(id).inserted else { return nil }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 12
+        request.setValue(account.userAgent ?? ShelfWeb.fallbackAgent, forHTTPHeaderField: "User-Agent")
+        let cookies = (account.cookies ?? []).filter { cookie in
+            let host = cookie.domain.lowercased()
+            return host == "goodreads.com" || host.hasSuffix(".goodreads.com")
+        }
+        if !cookies.isEmpty {
+            request.setValue(cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; "), forHTTPHeaderField: "Cookie")
+        }
+        let session = URLSession(configuration: .ephemeral, delegate: GoodreadsRedirectGuard(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        guard let (data, response) = try? await session.data(for: request),
+              let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              http.url?.host == "www.goodreads.com",
+              data.count < 2_000_000,
+              let html = String(data: data, encoding: .utf8) else { return nil }
+
+        func capture(_ pattern: String) -> String? {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators]),
+                  let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                  match.numberOfRanges > 1,
+                  let range = Range(match.range(at: 1), in: html) else { return nil }
+            return String(html[range])
+        }
+
+        let candidates: [String?] = [
+            capture(#"<meta\b[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["']"#),
+            capture(#"<meta\b[^>]*content=["']([^"']+)["'][^>]*property=["']og:title["']"#),
+            capture(#"<h1\b[^>]*>(.*?)</h1>"#),
+            capture(#"<title[^>]*>(.*?)</title>"#),
+        ]
+        for candidate in candidates.compactMap({ $0 }) {
+            var text = candidate.replacingOccurrences(of: #"<[^>]+>"#, with: " ", options: .regularExpression)
+            for (entity, value) in [("&amp;", "&"), ("&quot;", "\""), ("&#39;", "'"), ("&apos;", "'"),
+                                    ("&lt;", "<"), ("&gt;", ">"), ("&nbsp;", " ")] {
+                text = text.replacingOccurrences(of: entity, with: value)
+            }
+            text = text.replacingOccurrences(of: #"\s*[-|–—]\s*Goodreads.*$"#,
+                                              with: "", options: [.regularExpression, .caseInsensitive])
+            text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if isPersonName(text), text.count < 100 { return text }
+        }
+        return nil
+    }
+}
+
+/// Do not forward a signed-in Goodreads cookie header to another host if a
+/// session has expired and Goodreads redirects toward an external login.
+private final class GoodreadsRedirectGuard: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(request.url?.host == "www.goodreads.com" ? request : nil)
     }
 }
 

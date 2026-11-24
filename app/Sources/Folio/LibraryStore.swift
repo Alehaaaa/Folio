@@ -42,8 +42,12 @@ final class LibraryStore {
     /// Bumped on every save, so derived indexes know when to rebuild without rescanning.
     @ObservationIgnored private(set) var changeCount = 0
 
+    /// Lets Folio Sync follow library changes.
+    static var didSave: (() -> Void)?
+
     func save() {
         changeCount &+= 1
+        Self.didSave?()
         let snapshot = data
         let url = dataURL
         Self.saveQueue.async {
@@ -821,23 +825,6 @@ final class LibraryStore {
 
     // MARK: Goodreads
 
-    func importGoodreads(_ url: URL) {
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        do {
-            let rows = try GoodreadsCSV.read(url)
-            let before = data.tracked.count
-            mergeTracked(rows)
-            let added = data.tracked.count - before
-            lastError = nil
-            goodreadsMessage = "Imported \(rows.count) books from Goodreads (\(added) new)."
-        } catch {
-            lastError = "Couldn't read that Goodreads file: \(error.localizedDescription)"
-        }
-    }
-
-    var goodreadsMessage: String?
-
     private static func key(_ t: TrackedBook) -> String {
         if let g = t.goodreadsID, !g.isEmpty { return "gr:" + g }
         return "t:" + t.title.lowercased().trimmingCharacters(in: .whitespaces) + "|" + t.author.lowercased()
@@ -876,82 +863,5 @@ final class LibraryStore {
         data.tracked.filter { GRShelf.from(csvShelf: $0.shelf) == shelf }
     }
 
-    /// Copies Goodreads books to Hardcover: finds each by ISBN, then by title and author, and sets its status and rating.
-    /// Where a Goodreads-to-Hardcover copy has got to, shown while it runs.
-    struct HardcoverCopyProgress: Equatable {
-        var stage: String
-        var done = 0
-        var total = 0
-        var sent = 0
-        var missed = 0
-    }
 
-    var hardcoverCopy: HardcoverCopyProgress?
-
-    /// Copies Goodreads shelves to Hardcover with as few requests as possible: the reader's
-    /// Hardcover shelves once, ISBNs a hundred at a time, a search only for what's left, and
-    /// one write per book (status and rating together), skipping books already there.
-    func sendTrackedToHardcover(_ hc: HardcoverClient, shelf: GRShelf? = nil) async -> (sent: Int, missed: Int) {
-        guard hardcoverCopy == nil else { return (0, 0) }
-        let ids = data.tracked.filter { !$0.sentToHardcover && (shelf == nil || GRShelf.from(csvShelf: $0.shelf) == shelf) }.map(\.id)
-        var progress = HardcoverCopyProgress(stage: "Reading your Hardcover shelves", total: ids.count)
-        hardcoverCopy = progress
-        defer {
-            hardcoverCopy = nil
-            hc.revision += 1
-            save()
-        }
-        guard !ids.isEmpty else { return (0, 0) }
-
-        // 1. What's already on Hardcover: one request.
-        var onHardcover: [Int: HCUserBook] = [:]
-        for item in (try? await hc.allUserBooks()) ?? [] { onHardcover[item.book.id] = item }
-
-        // 2. ISBNs in batches.
-        progress.stage = "Matching ISBNs"
-        hardcoverCopy = progress
-        var byISBN: [String: Int] = [:]
-        let isbns = Array(Set(ids.compactMap { id -> String? in
-            guard let t = data.tracked.first(where: { $0.id == id }), t.hardcoverBookID == nil else { return nil }
-            return t.isbn13 ?? t.isbn
-        }))
-        for start in stride(from: 0, to: isbns.count, by: 100) {
-            let chunk = Array(isbns[start..<min(start + 100, isbns.count)])
-            if let found = try? await hc.bookIDs(isbns: chunk) { byISBN.merge(found) { first, _ in first } }
-        }
-
-        // 3. One write per book.
-        progress.stage = "Copying"
-        hardcoverCopy = progress
-        for id in ids {
-            guard let t = data.tracked.first(where: { $0.id == id }), let status = t.status else {
-                progress.done += 1
-                hardcoverCopy = progress
-                continue
-            }
-            var bookID = t.hardcoverBookID ?? (t.isbn13 ?? t.isbn).flatMap { byISBN[$0] }
-            if bookID == nil {
-                let results = (try? await hc.search("\(t.title) \(t.author)")) ?? []
-                bookID = results.first(where: { BookAutoMatch.sameAuthor(t.author, $0.authors) })?.id ?? results.first?.id
-            }
-            var ok = false
-            if let bookID {
-                let rating = t.rating > 0 ? Double(t.rating) : nil
-                if let existing = onHardcover[bookID], existing.status == status, rating == nil || existing.rating == rating {
-                    ok = true
-                } else {
-                    ok = await hc.writeShelf(bookID: bookID, existing: onHardcover[bookID]?.id, status: status, rating: rating)
-                }
-            }
-            if let i = data.tracked.firstIndex(where: { $0.id == id }) {
-                if let bookID { data.tracked[i].hardcoverBookID = bookID }
-                data.tracked[i].sentToHardcover = ok
-            }
-            progress.done += 1
-            if ok { progress.sent += 1 } else { progress.missed += 1 }
-            hardcoverCopy = progress
-            if progress.done.isMultiple(of: 10) { save() }
-        }
-        return (progress.sent, progress.missed)
-    }
 }

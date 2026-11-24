@@ -30,6 +30,14 @@ func check(_ ok: Bool, _ what: String) { if !ok { fatalError(what) }; print("PAS
     check(HCRateGate.cost(of: bookPage) == 5, "book page costs its 5 top-level fields")
     check(HCRateGate.cost(of: "query { me { id username name image { url } } }") == 1, "me costs 1")
     check(HCRateGate.cost(of: "query T { a: me { id } b: me { name } __typename }") == 2, "aliases count, introspection is free")
+    let batchedStatuses = """
+    mutation StatusBatch {
+      s0: update_user_book(id: 15, object: {status_id: 2}) { id error }
+      s1: insert_user_book(object: {book_id: 23, status_id: 1}) { id error }
+      d0: update_user_book_read(id: 99, object: {finished_at: "2026-11-24"}) { id error }
+    }
+    """
+    check(HCRateGate.cost(of: batchedStatuses) == 3, "batched mutation charges each aliased write separately")
     check(HCRateGate.cost(of: "query S($q: String!) { search(query: $q, fields: \\"title,{x}\\") { results } }") == 1, "strings and arguments ignored")
 
     // A burst of book pages must stay inside the bucket (8 of Hardcover's 10).

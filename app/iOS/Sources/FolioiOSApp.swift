@@ -45,6 +45,7 @@ struct FolioIOSApp: App {
                 }
                 .folioUpdatePrompt()
                 .folioLogsLifecycle()
+                .folioCloudSync()
                 .task {
                     await extensions.checkForExtensionUpdates()
                     // Restore persisted jobs on every launch, even when Downloads
@@ -112,7 +113,16 @@ struct FolioMobileReading: Identifiable {
 @Observable
 @MainActor
 final class FolioMobileNavigation {
-    var selectedTab: FolioMobileTab = .home
+    /// Navigating to a top-level section starts it at its root rather than
+    /// retaining a nested Settings/Library/Discover screen from a previous tab.
+    /// This also covers programmatic routes and reselecting the current tab.
+    var selectedTab: FolioMobileTab = .home {
+        didSet {
+            navigationRootID = UUID()
+            if oldValue != selectedTab { morePath = NavigationPath() }
+        }
+    }
+    var navigationRootID = UUID()
     var reading: FolioMobileReading?
     /// A book to open once Home's Reading sheet has closed (a full-screen reader
     /// can't open over a sheet).

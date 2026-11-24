@@ -5,7 +5,7 @@
 
 var source = {
   id: "annas-archive-free",
-  name: "Anna's Archive — Free",
+  name: "Anna's Archive",
   description: "Anna's Archive EPUB search and free Slow Partner links, with official mirror fallback. No key, membership or paid API. Some mirrors require browser verification.",
   version: "1.0.0",
   allowedHosts: [

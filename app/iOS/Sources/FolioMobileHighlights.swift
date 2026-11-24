@@ -151,7 +151,7 @@ struct FolioMobileHighlightsView: View {
         .padding(.vertical, 4)
         .listRowBackground(FolioTheme.surface)
         .contextMenu {
-            ShareLink(item: "“\(text)”\n— \(book.title)\(book.author.isEmpty ? "" : ", \(book.author)")") {
+            ShareLink(item: "“\(text)”\n- \(book.title)\(book.author.isEmpty ? "" : ", \(book.author)")") {
                 Label("Share", systemImage: "square.and.arrow.up")
             }
             Button {
@@ -166,7 +166,7 @@ struct FolioMobileHighlightsView: View {
             }
         }
         .swipeActions {
-            ShareLink(item: "“\(text)”\n— \(book.title)") {
+            ShareLink(item: "“\(text)”\n- \(book.title)") {
                 Label("Share", systemImage: "square.and.arrow.up")
             }
             .tint(FolioTheme.olive)
