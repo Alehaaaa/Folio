@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.70",
+          "buildVersion": "71",
+          "date": "2026-11-24",
+          "localizedDescription": "Release Folio 1.0.70 (71): language picker on book pages, edition titles from Hardcover and Open Library",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.70-71.ipa",
+          "size": 5658832,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.69",
           "buildVersion": "70",
           "date": "2026-11-24",
