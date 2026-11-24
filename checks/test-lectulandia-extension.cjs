@@ -62,6 +62,7 @@ function runtime(options = {}) {
 
 const main = runtime();
 assert.equal(main.source.id, 'lectulandia');
+assert.equal(main.source.version, '1.0.1');
 assert.equal(JSON.stringify(main.source.languages), '["es"]');
 assert.equal(main.source.search('don quijote', 0, 'en').length, 0);
 assert.equal(main.requested.length, 0, 'Mismatched language should not access a site');

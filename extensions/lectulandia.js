@@ -4,7 +4,7 @@ var source = {
   id: "lectulandia",
   name: "Lectulandia",
   description: "Spanish-language books listed by Lectulandia, with its published EPUB and PDF links.",
-  version: "1.0.0",
+  version: "1.0.1",
   languages: ["es"],
   allowedHosts: [
     "https://ww3.lectulandia.com",

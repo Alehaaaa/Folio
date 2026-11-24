@@ -9,9 +9,9 @@
     },
     {
       "id": "lectulandia",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/lectulandia.js",
-      "sha256": "4b0f1d149d0965ef1a3a560298c75eff8a6565007b597705526e349a89762d05"
+      "sha256": "d684afb83dddc93cc8d8c3f36b5afa99a6476c1a6e5a44b5ff750ba0cb720212"
     },
     {
       "id": "metadata-amazon",
