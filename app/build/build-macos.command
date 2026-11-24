@@ -62,5 +62,11 @@ else
 fi
 codesign --verify --deep --strict "$APP"
 
+# Finder and the Dock cache icons per app path, so a rebuilt Folio.app kept
+# showing the previous icon. Touch the bundle and re-register it so macOS
+# reads the new icon from Assets.car / AppIcon.icns right away.
+touch "$APP" "$APP/Contents/Info.plist"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP" >/dev/null 2>&1 || true
+
 step "Done: $APP"
 open "$APP"

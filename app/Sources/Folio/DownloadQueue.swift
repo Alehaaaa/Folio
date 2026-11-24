@@ -240,6 +240,25 @@ final class DownloadQueue {
     }
 
     @discardableResult
+    /// The report Copy Log puts on the clipboard: what was asked for, how it
+    /// ended, and the activity log in the order it happened (newest last).
+    static func diagnostics(_ job: DownloadJob, platform: String) -> String {
+        var lines = [
+            "Folio \(platform) · Download Queue diagnostics",
+            "Book: \(job.title) — \(job.author)",
+        ]
+        if let edition = job.editionTitle { lines.append("Edition: \(edition)") }
+        lines += [
+            "Job ID: \(job.id.uuidString)",
+            "Stage: \(job.stage.rawValue)",
+            "Required EPUB language: \(BookLanguage.code(job.expectedLanguage) ?? "unverified")",
+            "Status: \(job.statusText)",
+            "Failure: \(job.error ?? "none")",
+            "Source activity (oldest first):"
+        ]
+        return (lines + job.detailLog).joined(separator: "\n")
+    }
+
     func enqueue(title: String, author: String, hardcoverBookID: Int? = nil,
                  hardcoverPages: Int? = nil, cover: URL? = nil,
                  expectedLanguage: String? = nil, editionTitle: String? = nil) -> UUID {
@@ -534,7 +553,7 @@ final class DownloadQueue {
         append(id, "Found \(names.copies.count) nearby records, \(identityMatches.count) exact identity EPUBs, \(ranked.count) language-eligible candidate(s) for \(language)")
         guard !ranked.isEmpty else {
             for choice in names.copies.prefix(8) {
-                append(id, "Nearby but not verified: \(choice.sourceName) record \(choice.result.id) · \(choice.result.title) — \(choice.result.author) · language \(choice.result.language ?? "unknown")")
+                append(id, "Nearby but not verified: \(choice.sourceName) record \(choice.result.id) · \(choice.result.title) - \(choice.result.author) · language \(choice.result.language ?? "unknown")")
             }
             let noLanguage = !identityMatches.isEmpty && identityMatches.allSatisfy {
                 BookLanguage.matches($0.result.language, expected: language) == false
@@ -583,7 +602,7 @@ final class DownloadQueue {
                   jobs.first(where: { $0.id == id })?.stage.isActive == true else { return }
             let detail = "Copy \(index + 1) of \(ranked.count) · \(choice.sourceName)"
             state(id, .downloading, "Downloading \(detail)…")
-            append(id, "Trying \(choice.sourceName) record \(choice.result.id): \(choice.result.title) — \(choice.result.author); listed language \(choice.result.language ?? "unknown"), required \(language)")
+            append(id, "Trying \(choice.sourceName) record \(choice.result.id): \(choice.result.title) - \(choice.result.author); listed language \(choice.result.language ?? "unknown"), required \(language)")
             if BookLanguage.matches(choice.result.language, expected: language) == nil {
                 append(id, "Source did not verify edition language; the EPUB's own package metadata must confirm \(language) after download")
             }
@@ -616,7 +635,7 @@ final class DownloadQueue {
                       knownTitle(package.title),
                       AutomaticEPUBChoice.sameAuthor(job.author, package.author) else {
                     store.remove(imported)
-                    let error = "Imported EPUB metadata did not match \(job.title) — \(job.author)"
+                    let error = "Imported EPUB metadata did not match \(job.title) - \(job.author)"
                     reasons.append(error)
                     append(id, "\(choice.sourceName): \(error)")
                     continue

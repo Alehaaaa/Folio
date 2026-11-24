@@ -14,6 +14,8 @@ struct FolioMobileDownloadsView: View {
     @State private var selectedJob: SelectedDownloadJob?
     @State private var historyExpanded = false
     @State private var expandedLogs: Set<UUID> = []
+    /// The job whose log was just copied, to confirm it on the button.
+    @State private var copiedJob: UUID?
 
     private struct DownloadedBookDetail: Identifiable {
         let id: UUID
@@ -342,10 +344,6 @@ struct FolioMobileDownloadsView: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
                     }
-                    Button { copyDiagnostics(job) } label: {
-                        Label("Copy Error Details", systemImage: "doc.on.doc")
-                    }
-                    .folioGlassPill()
                 }
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -353,6 +351,14 @@ struct FolioMobileDownloadsView: View {
             }
 
             if !job.detailLog.isEmpty {
+                // One copy button for the whole report: error, status and every log line.
+                Button { copyDiagnostics(job) } label: {
+                    Label(copiedJob == job.id ? "Copied" : "Copy Log",
+                          systemImage: copiedJob == job.id ? "checkmark" : "doc.on.doc")
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .folioGlassPill()
+                .accessibilityIdentifier("folio.downloads.copyLog")
                 DisclosureGroup("Activity Log (\(job.detailLog.count))", isExpanded: Binding(
                     get: { expandedLogs.contains(job.id) },
                     set: { open in
@@ -361,17 +367,14 @@ struct FolioMobileDownloadsView: View {
                     }
                 )) {
                     VStack(alignment: .leading, spacing: 8) {
-                        ForEach(Array(job.detailLog.enumerated()), id: \.offset) { _, entry in
+                        // Newest first, like a message feed.
+                        ForEach(Array(job.detailLog.enumerated().reversed()), id: \.offset) { _, entry in
                             Text(entry)
                                 .font(.caption.monospaced())
                                 .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        Button { copyDiagnostics(job) } label: {
-                            Label("Copy Full Log", systemImage: "doc.on.doc")
-                        }
-                        .folioGlassPill()
                     }
                     .padding(.top, 8)
                 }
@@ -536,18 +539,14 @@ struct FolioMobileDownloadsView: View {
     }
 
     private func copyDiagnostics(_ job: DownloadJob) {
-        UIPasteboard.general.string = ([
-            "Folio iOS · Download Queue diagnostics",
-            "Book: \(job.title) — \(job.author)",
-            "Job ID: \(job.id.uuidString)",
-            "Stage: \(job.stage.rawValue)",
-            "Current required EPUB language: \(BookLanguage.code(job.expectedLanguage) ?? "unverified")",
-            "Earlier attempts can have different requested languages; see each attempt in Source activity below.",
-            "Status: \(job.statusText)",
-            "Failure: \(job.error ?? "none")",
-            "Source activity:"
-        ] + job.detailLog).joined(separator: "\n")
+        UIPasteboard.general.string = DownloadQueue.diagnostics(job, platform: "iOS")
+        withAnimation(.snappy) { copiedJob = job.id }
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            if copiedJob == job.id { withAnimation(.snappy) { copiedJob = nil } }
+        }
     }
+
 }
 
 /// Simple source cover used where there is no local book or cached image yet.

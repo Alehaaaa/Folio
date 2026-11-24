@@ -7,6 +7,7 @@ struct DownloadingView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var filter: DownloadFilter = .all
     @State private var inspectedJob: DownloadJob?
+    @State private var copiedJob: UUID?
     @Namespace private var filterGlass
 
     private enum DownloadFilter: String, CaseIterable, Identifiable {
@@ -329,9 +330,23 @@ struct DownloadingView: View {
                     }
 
                     if !job.detailLog.isEmpty {
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(DownloadQueue.diagnostics(job, platform: "macOS"), forType: .string)
+                            withAnimation(.snappy) { copiedJob = job.id }
+                            Task {
+                                try? await Task.sleep(for: .seconds(2))
+                                if copiedJob == job.id { withAnimation(.snappy) { copiedJob = nil } }
+                            }
+                        } label: {
+                            Label(copiedJob == job.id ? "Copied" : "Copy Log",
+                                  systemImage: copiedJob == job.id ? "checkmark" : "doc.on.doc")
+                        }
+                        .folioGlassPill()
                         DisclosureGroup("Activity log (\(job.detailLog.count))") {
                             VStack(alignment: .leading, spacing: 5) {
-                                ForEach(Array(job.detailLog.enumerated()), id: \.offset) { _, entry in
+                                // Newest first, like a message feed.
+                                ForEach(Array(job.detailLog.enumerated().reversed()), id: \.offset) { _, entry in
                                     Text(entry)
                                         .font(.caption.monospaced())
                                         .foregroundStyle(.secondary)
