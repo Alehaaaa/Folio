@@ -32,6 +32,13 @@ jobs:
       - name: Reader script checks
         run: for f in app/checks/reader-*.js; do node "$f"; done
 
+      - name: Source regression and extension integrity checks
+        run: |
+          node checks/test-anna-folio-extension.cjs
+          node checks/test-lectulandia-extension.cjs
+          node checks/test-lectulandia-source-behavior.cjs
+          python3 checks/check-extension-versions.py
+
       - name: Build unsigned IPA
         run: app/iOS/build-ipa.sh
 
