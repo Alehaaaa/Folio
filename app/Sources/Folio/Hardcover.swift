@@ -1027,6 +1027,21 @@ final class HardcoverClient {
         return editions.first
     }
 
+    /// The languages a book has editions in, most-read first, each with the
+    /// title its most-read edition in that language carries.
+    func editionLanguages(bookID: Int) async throws -> [(code: String, title: String?)] {
+        let d = try await query("""
+        query EditionLanguages($id: Int!) { editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 120) { title language { language } } }
+        """, ["id": bookID])
+        var seen = Set<String>()
+        var result: [(code: String, title: String?)] = []
+        for e in d["editions"].array {
+            guard let code = BookLanguage.code(e["language"]["language"].string), seen.insert(code).inserted else { continue }
+            result.append((code, e["title"].string))
+        }
+        return result
+    }
+
     func edition(id: Int) async throws -> HCEdition? {
         let d = try await query("query EditionByID($id: Int!) { editions(where: {id: {_eq: $id}}, limit: 1) { \(Self.editionFields) } }", ["id": id])
         return d["editions"].array.first.map(Self.edition(from:))

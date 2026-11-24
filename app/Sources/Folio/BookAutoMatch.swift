@@ -156,6 +156,14 @@ enum BookLanguage {
     static let common = ["en", "es", "fr", "de", "it", "pt", "ca", "nl", "sv", "no", "da", "fi", "pl",
                          "cs", "ru", "uk", "tr", "el", "ja", "zh", "ko", "ar", "he", "hi"]
 
+    /// Languages offered for a download or a retry: your book language and
+    /// the current one first, then the common ones.
+    static func downloadChoices(current: String? = nil) -> [String] {
+        var list: [String] = []
+        for c in [code(current), reading].compactMap({ $0 }) + common where !list.contains(c) { list.append(c) }
+        return list
+    }
+
     /// "Spanish" for "es", in the reader's language.
     static func displayName(_ code: String) -> String {
         Locale.current.localizedString(forLanguageCode: code)?.capitalized(with: Locale.current) ?? code

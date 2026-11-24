@@ -169,7 +169,8 @@ final class DownloadQueue {
                  expectedLanguage: String? = nil) -> UUID {
         let cleanedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanedAuthor = author.trimmingCharacters(in: .whitespacesAndNewlines)
-        let language = BookLanguage.code(expectedLanguage) ?? BookLanguage.preferred
+        // Without a choice, the language set under Settings > Book Language.
+        let language = BookLanguage.code(expectedLanguage) ?? BookLanguage.reading
         let signature = BookMatch.key(author: cleanedAuthor, title: cleanedTitle)
         if let existing = jobs.first(where: {
             $0.stage.isActive && BookMatch.key(author: $0.author, title: $0.title) == signature &&
@@ -335,7 +336,7 @@ final class DownloadQueue {
         let store = LibraryStore.shared
         // Source session is retained from the scheduler through discovery,
         // partner wait and final download, and explicitly closed afterwards.
-        let language = BookLanguage.code(job.expectedLanguage) ?? BookLanguage.preferred
+        let language = BookLanguage.code(job.expectedLanguage) ?? BookLanguage.reading
         mutate(id) { $0.expectedLanguage = language }
         append(id, "Automatic EPUB language requirement: \(language) (edition metadata must agree)")
         // Editions in another language often carry their own title ("Dune"

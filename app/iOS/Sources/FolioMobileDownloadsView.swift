@@ -483,14 +483,14 @@ struct FolioMobileDownloadsView: View {
 
     private func retryLanguageMenu(for job: DownloadJob) -> some View {
         Menu {
-            ForEach(["en", "es", "fr", "de", "it", "pt"], id: \.self) { code in
+            ForEach(BookLanguage.downloadChoices(current: job.expectedLanguage), id: \.self) { code in
                 Button {
                     downloads.retry(job.id, expectedLanguage: code)
                 } label: {
                     if BookLanguage.code(job.expectedLanguage) == code {
-                        Label(displayLanguage(code), systemImage: "checkmark")
+                        Label(BookLanguage.displayName(code), systemImage: "checkmark")
                     } else {
-                        Text(displayLanguage(code))
+                        Text(BookLanguage.displayName(code))
                     }
                 }
             }

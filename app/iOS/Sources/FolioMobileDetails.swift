@@ -24,6 +24,10 @@ struct FolioMobileBookDetail: View {
     @State private var seriesEntries: [HCSeriesBook] = []
     @State private var stats: HCBookStats?
     @State private var edition: HCEdition?
+    /// Languages this book has editions in, from Hardcover, with each one's title.
+    @State private var editionLanguages: [(code: String, title: String?)] = []
+    /// The language chosen for downloading, when it isn't the default.
+    @State private var downloadLanguage: String?
     @State private var topReviews: [HCReview] = []
     @State private var moreByAuthor: [HCBook] = []
     @State private var similar: [HCBook] = []
@@ -393,6 +397,39 @@ struct FolioMobileBookDetail: View {
         }
     }
 
+    /// The language a download uses: your pick, else the edition this page
+    /// shows, else Settings > Book Language.
+    private var chosenLanguage: String {
+        downloadLanguage ?? BookLanguage.code(shownEdition?.language) ?? BookLanguage.reading
+    }
+
+    /// The book's edition languages, the chosen one and your book language first.
+    private var languageChoices: [(code: String, title: String?)] {
+        var list = editionLanguages
+        for code in [BookLanguage.reading, chosenLanguage].reversed() where !list.contains(where: { $0.code == code }) {
+            list.insert((code, nil), at: 0)
+        }
+        let front = Set([chosenLanguage, BookLanguage.reading])
+        return list.filter { front.contains($0.code) } + list.filter { !front.contains($0.code) }
+    }
+
+    private func languageLabel(_ choice: (code: String, title: String?)) -> String {
+        let name = BookLanguage.displayName(choice.code)
+        guard let edition = choice.title, !edition.isEmpty, !BookAutoMatch.sameTitle(edition, title) else { return name }
+        return "\(name) · \(edition)"
+    }
+
+    private func download(in language: String) {
+        FolioMobileDownloadNotice.enqueue(
+            title: title,
+            author: author,
+            hardcoverBookID: linkedID,
+            hardcoverPages: pages,
+            cover: remoteCover,
+            language: language
+        )
+    }
+
     private var primaryActions: some View {
         VStack(spacing: 10) {
             if let local {
@@ -402,16 +439,46 @@ struct FolioMobileBookDetail: View {
                 }
                 .accessibilityIdentifier("folio.readBook")
             } else {
-                FolioGlassButton(title: "Find Source", systemImage: "magnifyingglass", prominent: true, fullWidth: true) {
-                    FolioMobileDownloadNotice.enqueue(
-                        title: title,
-                        author: author,
-                        hardcoverBookID: linkedID,
-                        hardcoverPages: pages,
-                        cover: remoteCover
-                    )
+                // Like picking an edition in a bookstore: the button says which
+                // language you'll get, and the globe lists the others this book
+                // was published in, under the title each edition carries.
+                HStack(spacing: 8) {
+                    FolioGlassButton(title: "Get in \(BookLanguage.displayName(chosenLanguage))",
+                                     systemImage: "arrow.down.circle", prominent: true, fullWidth: true) {
+                        download(in: chosenLanguage)
+                    }
+                    .accessibilityIdentifier("folio.findSource")
+                    Menu {
+                        Section("Download in") {
+                            ForEach(languageChoices, id: \.code) { choice in
+                                Button {
+                                    downloadLanguage = choice.code
+                                    download(in: choice.code)
+                                } label: {
+                                    if choice.code == chosenLanguage {
+                                        Label(languageLabel(choice), systemImage: "checkmark")
+                                    } else {
+                                        Text(languageLabel(choice))
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "globe")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 44, height: 44)
+                            .contentShape(Circle())
+                    }
+                    .menuIndicator(.hidden)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(FolioTheme.ink)
+                    .folioCreamGlass(in: Circle())
+                    .accessibilityLabel("Choose the download language")
                 }
-                .accessibilityIdentifier("folio.findSource")
+                .task(id: linkedID) {
+                    guard let linkedID else { return }
+                    editionLanguages = (try? await hardcover.editionLanguages(bookID: linkedID)) ?? []
+                }
 
                 if let job = matchingDownload {
                     HStack(spacing: 9) {
