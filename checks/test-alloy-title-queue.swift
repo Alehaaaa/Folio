@@ -4,9 +4,49 @@ import Foundation
 
 enum SourceEvent { case status(String), log(String) }
 
+// Register a deterministic URL loading protocol for the *actual* Open Library
+// URLSession.shared request inside production DownloadQueue.swift.
+// No public provider traffic is needed or permitted for these scenarios.
+final class OpenLibraryFixture: URLProtocol {
+    static var calls = 0
+    static var mode = "valid"
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host == "openlibrary.org"
+    }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Self.calls += 1
+        if Self.mode == "outage" {
+            client?.urlProtocol(self, didFailWithError: URLError(.cannotConnectToHost))
+            return
+        }
+        let titles: [String] = Self.mode == "unsafe-bilingual"
+            ? ["Mistborn Omnibus / The Alloy of Law", "Aleación de Ley / The Alloy of Law"]
+            : Self.mode == "wrong-bilingual"
+                ? ["Aleación de Ley / Wrong Book"]
+            : Self.mode == "compilation-only"
+                ? ["Aleación de Ley: colección completa / The Alloy of Law"]
+                : ["Aleación de Ley / The Alloy of Law"]
+        let editions: [[String: Any]] = titles.map { ["title": $0, "language": ["spa"]] }
+        let payload: [String: Any] = ["docs": [[
+            "title": "The Alloy of Law", "author_name": ["Brandon Sanderson"],
+            "editions": ["docs": editions]
+        ]]]
+        let bytes = try! JSONSerialization.data(withJSONObject: payload)
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200,
+                             httpVersion: nil, headerFields: ["Content-Type":"application/json"])!,
+                             cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: bytes)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
+
 enum BookLanguage {
     static func code(_ raw: String?) -> String? { ["es", "spa", "spanish"].contains(raw?.lowercased() ?? "") ? "es" : nil }
     static var preferred: String { "es" }
+    static var reading: String { preferred }
     static func matches(_ raw: String?, expected: String) -> Bool? {
         guard let raw else { return nil }
         return raw == expected
@@ -144,15 +184,23 @@ struct EPUBPackage {
 @main struct AlloyTitleTest {
     @MainActor static func main() async throws {
         let root = LibraryStore.shared.baseDir
+        guard URLProtocol.registerClass(OpenLibraryFixture.self) else { fatalError("Unable to intercept metadata requests") }
+        let mode = CommandLine.arguments.dropFirst().first ?? "valid"
+        OpenLibraryFixture.mode = mode
         let queue = DownloadQueue.shared
         let source = ExtensionStore.shared
         let hardcover = HardcoverClient.shared
-        let cases: [(String, Int?, String, Bool)] = [
-            ("http429", 42, "429", true),
-            ("http403", 42, "403", true),
-            ("missing-id", nil, "ok", true),
-            ("valid-edition", 42, "ok", true)
-        ]
+        let cases: [(String, Int?, String, Bool)] = mode == "outage"
+            ? [("outage-429",42,"429",false),("outage-403",42,"403",false),
+               ("outage-no-id",nil,"ok",false)]
+            : mode == "unsafe-bilingual"
+                ? [("unsafe-prefix",42,"429",false)]
+                : mode == "wrong-bilingual"
+                    ? [("wrong-work",42,"429",false)]
+                : mode == "compilation-only"
+                    ? [("compilation-only",42,"429",false)]
+                    : [("http429",42,"429",true),("http403",42,"403",true),
+                       ("missing-id",nil,"ok",true),("valid-edition",42,"ok",true)]
         for (caseName, bookID, response, translated) in cases {
             let caseStart = Date()
             source.searched = []
@@ -170,20 +218,60 @@ struct EPUBPackage {
                 }
                 guard candidates == ["CANDIDATE: Aleación de ley"] else { fatalError("Wrong edition selected: \(candidates)") }
                 guard job.detailLog.contains(where: { $0.contains("skipping unrelated original-title search") }) else { fatalError("No short-circuit log") }
+            } else if mode == "unsafe-bilingual" {
+                guard searches == ["Aleación de Ley"] else {
+                    fatalError("Unexpected unsafe bilingual result: \(source.searched)")
+                }
+                print("PASS: omnibus edition title skipped; the standalone translation is searched")
+            } else if mode == "compilation-only" {
+                guard !searches.contains("Aleación de Ley: colección completa"), candidates.isEmpty else {
+                    fatalError("Unexpected compilation metadata handling: \(source.searched)")
+                }
+                print("PASS: compilation title is not used as a translated title")
+            } else if mode == "wrong-bilingual" {
+                guard searches == ["The Alloy of Law"] && candidates.isEmpty else {
+                    fatalError("Unrelated bilingual work was accepted: \(source.searched)")
+                }
+                print("PASS: bilingual edition suffix for a different work rejected")
             } else {
                 guard searches == ["The Alloy of Law"] && candidates.isEmpty else { fatalError("Unexpected fallback searches or candidates: \(source.searched)") }
-                guard job.error?.contains("No matching EPUB listing") == true else { fatalError("Expected catalogue no-match failure, got \(job.error ?? "nil")") }
+                guard job.error?.contains("No matching EPUB") == true else { fatalError("Expected catalogue no-match failure, got \(job.error ?? "nil")") }
             }
-            guard hardcover.calls == (bookID == nil ? 0 : 1) else { fatalError("Edition request duplicated") }
+            // The queue caches a book's edition lookup briefly, so a repeated case may make none.
+            guard hardcover.calls <= (bookID == nil ? 0 : 1) else { fatalError("Edition request duplicated") }
             guard LibraryStore.shared.books.isEmpty else { fatalError("Unexpected imported EPUB") }
             print(String(format: "CASE %@: searches=%d, editionCalls=%d, matched=%d, stage=%@, elapsed=%.3fs",
                          caseName, searches.count, hardcover.calls, candidates.count,
                          job.stage.rawValue, Date().timeIntervalSince(caseStart)))
+            if caseName == "http429" || caseName == "outage-429" {
+                let priorProviderCalls = OpenLibraryFixture.calls
+                source.searched = []
+                let retryStart = Date()
+                queue.retry(id)
+                try await wait(queue: queue, id: id, stage: .failed, timeout: 5)
+                let afterRetry = queue.jobs.first { $0.id == id }!
+                let retriedSearches = source.searched.filter { !$0.hasPrefix("CANDIDATE:") }
+                guard retriedSearches == searches,
+                      OpenLibraryFixture.calls == priorProviderCalls,
+                      afterRetry.detailLog.contains(where: { $0.contains("Retry requested") }) else {
+                    fatalError("Retry caused extra provider lookup or changed title: \(retriedSearches)")
+                }
+                print(String(format: "RETRY %@: searches=%d, additionalOpenLibraryCalls=%d, elapsed=%.3fs",
+                             caseName, retriedSearches.count, OpenLibraryFixture.calls - priorProviderCalls,
+                             Date().timeIntervalSince(retryStart)))
+            }
             queue.dismiss(id) // Avoid enqueue's intentional retry/reuse of a previous failed job.
         }
-        print("PASS metadata-only: translated title found once, original search skipped, compilation rejected")
-        print("PASS: 429/403/no hardcoverBookID used verified Open Library edition metadata fallback")
-        print("PASS: no copyrighted downloads or library imports; isolated directory: \(root.lastPathComponent)")
+        guard OpenLibraryFixture.calls == 1 || (mode == "unsafe-bilingual" || mode == "compilation-only") && OpenLibraryFixture.calls == 1 else {
+            fatalError("Repeated metadata provider calls despite cache: \(OpenLibraryFixture.calls)")
+        }
+        print("CACHE: mode=\(mode) Open Library HTTP requests=\(OpenLibraryFixture.calls) across \(cases.count) jobs")
+        if mode == "outage" {
+            print("REPRODUCED: Open Library unavailable; negative cache suppresses repeated request but English-only search yields false no-match")
+        } else if mode == "valid" {
+            print("PASS metadata-only: one translated title search per job, original English search skipped, collection candidates rejected")
+        }
+        print("PASS: metadata-only test; no copyrighted downloads or library imports; isolated directory: \(root.lastPathComponent)")
     }
     @MainActor static func wait(queue: DownloadQueue, id: UUID, stage: DownloadJob.Stage, timeout: TimeInterval) async throws {
         let start = Date()

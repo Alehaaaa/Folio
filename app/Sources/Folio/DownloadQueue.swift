@@ -52,13 +52,43 @@ final class DownloadQueue {
     // Repeated retries should not trigger another metadata lookup during a
     // provider outage or Hardcover rate-limit window.
     private var localizedTitleCache: [String: (title: String?, expires: Date)] = [:]
+    // Avoid hammering denied or rate-limited edition endpoints across queued jobs.
+    private var hardcoverEditionCache: [String: (title: String?, expires: Date)] = [:]
+
+    static func isStandaloneEditionTitle(_ value: String) -> Bool {
+        let words = BookAutoMatch.words(value)
+        guard !words.isEmpty, words.count <= 24, value.count <= 180 else { return false }
+        let bundled: Set<String> = [
+            "omnibus", "collection", "collections", "collected", "anthology", "anthologies",
+            "compilation", "complete", "bundle", "boxset", "boxed", "trilogy",
+            "coleccion", "colecciones", "compilacion", "recopilacion", "antologia",
+            "completo", "completa", "integral", "trilogia", "estuche", "paquete", "pack",
+            "adaptation", "adapted", "adaptacion", "abridged", "resumen", "summary",
+            "illustrated", "ilustrado", "ilustrada"
+        ]
+        guard !words.contains(where: { bundled.contains($0) }) else { return false }
+        return value.range(of: #"(?i)\b(?:books?|libros?|vol(?:umes?|s)?|tomos?)\s*[0-9]+\s*[-–]\s*[0-9]+\b"#,
+                           options: .regularExpression) == nil
+    }
+
+    /// Open Library keys languages by MARC (bibliographic) codes: "fre" and
+    /// "ger", not the ISO terminology codes "fra" and "deu".
+    static func openLibraryLanguage(_ code: String) -> String? {
+        let bibliographic = ["fr": "fre", "de": "ger", "zh": "chi", "nl": "dut", "cs": "cze",
+                             "el": "gre", "fa": "per", "ro": "rum", "sk": "slo", "hy": "arm",
+                             "ka": "geo", "is": "ice", "mk": "mac", "ms": "may", "my": "bur",
+                             "sq": "alb", "eu": "baq", "cy": "wel", "bo": "tib"]
+        return bibliographic[code] ?? Locale.LanguageCode(code).identifier(.alpha3)
+    }
 
     private func openLibraryEditionTitle(title: String, author: String, language: String) async -> String? {
         let key = "\(language)|\(BookAutoMatch.words(title).joined(separator: " "))|\(BookAutoMatch.words(author).joined(separator: " "))"
         if let cached = localizedTitleCache[key], cached.expires > Date() { return cached.title }
         var resolved: String?
         defer { localizedTitleCache[key] = (resolved, Date().addingTimeInterval(resolved == nil ? 30 : 600)) }
-        guard language == "es", !title.isEmpty, !author.isEmpty else { return nil }
+        guard BookLanguage.code(language) == language,
+              let language3 = Self.openLibraryLanguage(language),
+              !title.isEmpty, !author.isEmpty else { return nil }
         var requestURL = URLComponents()
         requestURL.scheme = "https"
         requestURL.host = "openlibrary.org"
@@ -66,7 +96,7 @@ final class DownloadQueue {
         requestURL.queryItems = [
             URLQueryItem(name: "title", value: title),
             URLQueryItem(name: "author", value: author),
-            URLQueryItem(name: "language", value: "spa"),
+            URLQueryItem(name: "language", value: language3),
             URLQueryItem(name: "limit", value: "3"),
             URLQueryItem(name: "fields", value: "key,title,author_name,editions,editions.title,editions.language")
         ]
@@ -99,7 +129,7 @@ final class DownloadQueue {
                         guard BookAutoMatch.sameTitle(title, parts[1]) else { continue }
                         candidate = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
                     } else if parts.count > 2 { continue }
-                    guard !candidate.isEmpty, candidate.count <= 180,
+                    guard Self.isStandaloneEditionTitle(candidate),
                           !BookAutoMatch.sameTitle(title, candidate) else { continue }
                     resolved = candidate
                     return resolved
@@ -345,8 +375,18 @@ final class DownloadQueue {
         var titles = [job.title]
         var editionTitle: String?
         if let hcID = job.hardcoverBookID {
-            editionTitle = (try? await HardcoverClient.shared.edition(bookID: hcID, language: language))?
-                .title?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cacheKey = "\(hcID)|\(language)"
+            if let cached = hardcoverEditionCache[cacheKey], cached.expires > Date() {
+                editionTitle = cached.title
+            } else {
+                editionTitle = (try? await HardcoverClient.shared.edition(bookID: hcID, language: language))?
+                    .title?.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let value = editionTitle, !Self.isStandaloneEditionTitle(value) {
+                    append(id, "Ignoring non-standalone edition metadata from Hardcover")
+                    editionTitle = nil
+                }
+                hardcoverEditionCache[cacheKey] = (editionTitle, Date().addingTimeInterval(editionTitle == nil ? 90 : 600))
+            }
         }
         if (editionTitle?.isEmpty ?? true) || BookAutoMatch.sameTitle(job.title, editionTitle ?? "") {
             if let translated = await openLibraryEditionTitle(title: job.title, author: job.author,
@@ -468,7 +508,9 @@ final class DownloadQueue {
                    : (connectionFailure
                       ? "Cannot reach the book sources (DNS, TLS or network connection failure). No EPUB availability or language could be verified. Check the source websites in Safari on this device and try another network or retry later."
                       : (names.problems.isEmpty
-                         ? "No matching EPUB listing in \(language). Try refining the book title, or select a different language if you want another edition."
+                         ? (titles.count == 1
+                            ? "No matching EPUB found by the original title in \(language); a translated edition title was not verified. Try searching by the published \(language) title or retry when metadata providers are available."
+                            : "No matching EPUB listing in \(language). Try refining the book title, or select a different language if you want another edition.")
                          : "Sources could not complete a search for an EPUB in \(language). Check the activity log, then retry."))))
             return
         }

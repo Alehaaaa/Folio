@@ -420,8 +420,15 @@ struct FolioMobileBookDetail: View {
     }
 
     private func download(in language: String) {
+        // The reader may have selected an edition whose published title is
+        // different from the original work's title. Keep that verified label
+        // through the queue even if Hardcover is denied on the next request.
+        let listed = editionLanguages.first(where: { $0.code == language })?.title
+        let shown = BookLanguage.code(shownEdition?.language) == language ? shownEdition?.title : nil
+        let localized = [listed, shown].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { DownloadQueue.isStandaloneEditionTitle($0) })
         FolioMobileDownloadNotice.enqueue(
-            title: title,
+            title: localized ?? title,
             author: author,
             hardcoverBookID: linkedID,
             hardcoverPages: pages,
