@@ -876,11 +876,14 @@ struct FolioNookDragEnd: ViewModifier {
     /// Whether this system tells us when a drag ends, so a lifted book can
     /// safely leave its place.
     static var tracked: Bool {
+        #if compiler(>=6.4)
         if #available(iOS 27.0, macOS 26.0, *) { return true }
+        #endif
         return false
     }
 
     func body(content: Content) -> some View {
+        #if compiler(>=6.4)
         if #available(iOS 27.0, macOS 26.0, *) {
             content.onDragSessionUpdated { session in
                 if case .ended = session.phase { ended() }
@@ -888,6 +891,9 @@ struct FolioNookDragEnd: ViewModifier {
         } else {
             content
         }
+        #else
+        content
+        #endif
     }
 }
 

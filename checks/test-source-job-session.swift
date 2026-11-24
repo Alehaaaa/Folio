@@ -4,6 +4,24 @@
 // installation, user library, real server, browser, or app is accessed.
 import Foundation
 
+// Keep the standalone harness aligned with the production SourceManifest's
+// language metadata without pulling in the rest of Folio's book model.
+enum BookLanguage {
+    static func code(_ raw: String?) -> String? {
+        guard let raw, !raw.isEmpty else { return nil }
+        return String(raw.lowercased().prefix(2))
+    }
+    static func displayName(_ code: String) -> String { code == "es" ? "Spanish" : "English" }
+}
+
+@MainActor
+final class HardcoverClient {
+    static let shared = HardcoverClient()
+    var isConnected: Bool { false }
+    func query(_ query: String, _ variables: [String: Any]) async throws -> DummyQuery? { nil }
+    struct DummyQuery { let anyValue: [String: Any] = [:] }
+}
+
 @MainActor
 final class LibraryStore {
     static let shared = LibraryStore()
