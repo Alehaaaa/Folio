@@ -8,6 +8,12 @@
       "sha256": "45942cf55c915ac9a8fe12ff8ff0da2abb6aa27f4138a25c523ae43f3dabec3b"
     },
     {
+      "id": "lectulandia",
+      "version": "1.0.0",
+      "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/lectulandia.js",
+      "sha256": "b621178d571a9ae787e9b664196bf83843650b932adcf52d433444836c897545"
+    },
+    {
       "id": "metadata-amazon",
       "version": "1.0.1",
       "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/metadata-amazon.js",

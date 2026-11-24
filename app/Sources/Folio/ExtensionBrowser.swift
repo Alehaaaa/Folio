@@ -327,6 +327,19 @@ private final class ExtensionBrowserPage: NSObject, WKNavigationDelegate, WKUIDe
         if let ua = try? await evaluate("navigator.userAgent"), !ua.isEmpty, ua.utf8.count < 1024 {
             headers["User-Agent"] = ua
         }
+        // Some file hosts require the referring download page as well as its
+        // session cookies. Share only a same-origin HTTPS page: never leak a
+        // source catalogue URL to another allowed host.
+        if let pageURL = web.url,
+           pageURL.scheme?.lowercased() == "https", url.scheme?.lowercased() == "https",
+           pageURL.host?.lowercased() == host, pageURL.port == url.port,
+           pageURL.user == nil, pageURL.password == nil,
+           var referer = URLComponents(url: pageURL, resolvingAgainstBaseURL: false) {
+            referer.fragment = nil
+            if let value = referer.url?.absoluteString, value.utf8.count < 2048 {
+                headers["Referer"] = value
+            }
+        }
         return headers
     }
 

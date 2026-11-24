@@ -1,6 +1,16 @@
 # Folio book source extensions
 
-Source extensions declare their supported language codes (`languages: ["es"]` for a Spanish-only source, `languages: ["*"]` for multilingual sources). Folio shows the languages of single-language sources in the source picker and installed extension settings, and skips them during automatic searches for other languages. Individual EPUB languages are still independently verified at import.
+## Lectulandia (Spanish)
+
+`lectulandia.js` is an optional Spanish-language (`es`) source for the Lectulandia catalogue. Install it from **Settings → Sources → Add Extension from File…**. iOS builds also bundle it automatically.
+
+The source searches titles and authors, includes covers, and reads the site's published EPUB and PDF links. It uses the two currently verified matching Lectulandia catalogues at `ww3.lectulandia.com` and `ww3.lectulandia.co` in failover order, publishing both download URLs as alternatives so Folio can retry the transfer through the second mirror. Older Lectulandia-looking domains were deliberately excluded because they do not currently provide the same verified catalogue. No account or credentials are required.
+
+The EPUB/PDF links lead first to HTML download pages. Folio follows the site's normal background countdown to the published Antupload download page, then resolves the visible **DOWNLOAD NOW** link. The importer still checks the actual EPUB/PDF file signature. A public-domain *Don Quijote* sample confirmed that the final Antupload file endpoint can serve an EPUB; a working response is not guaranteed for every record or network.
+
+Source extensions declare their supported language codes (`languages: ["es"]` for Lectulandia, `languages: ["*"]` for multilingual sources). Folio shows the language in the source picker and installed extension settings, and skips single-language sources during automatic searches for other languages. Individual EPUB languages are still independently verified at import.
+
+`node checks/test-lectulandia-extension.cjs` checks the HTML parser, language filtering, recognized download links, approved final link and automatic mirror fallback without external network requests or downloading a book.
 
 ## Anna's Archive (Free)
 
