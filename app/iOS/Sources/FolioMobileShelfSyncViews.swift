@@ -68,7 +68,7 @@ struct FolioMobileShelfServiceView: View {
                     Button { webSignIn = true } label: {
                         Label("Sign In to \(service.name)", systemImage: "person.crop.circle.badge.checkmark")
                     }
-                    .folioGlassPill(prominent: true)
+                    .folioFormButton()
                 } else {
                     TextField(service.signIn == .email ? "Email" : "Username", text: $login)
                         .textContentType(service.signIn == .email ? .emailAddress : .username)
@@ -89,7 +89,7 @@ struct FolioMobileShelfServiceView: View {
                             Label("Sign In", systemImage: "person.crop.circle.badge.checkmark")
                         }
                     }
-                    .folioGlassPill(prominent: true)
+                    .folioFormButton()
                     .disabled(login.isEmpty || password.isEmpty || signingIn)
                 }
                 if let error = sync.errors[service] {

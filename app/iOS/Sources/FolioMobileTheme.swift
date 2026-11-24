@@ -105,7 +105,7 @@ enum FolioTheme {
     }
     #endif
 
-    private static func dynamic(light: UInt32, dark: UInt32) -> Color {
+    static func dynamic(light: UInt32, dark: UInt32) -> Color {
         Color(uiColor: dynamicUI(light: light, dark: dark))
     }
 

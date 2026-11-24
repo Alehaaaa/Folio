@@ -228,13 +228,18 @@ private final class ExtensionBrowserPage: NSObject, WKNavigationDelegate, WKUIDe
         #else
         // Keep the private WebKit session in the active scene's view hierarchy
         // so iOS allows network navigation while the reader is foregrounded.
+        // The host is one point, clipped and nearly transparent, and sits beneath the
+        // app's own views: without the clip the 1024x768 page drew over the whole
+        // window at 1% opacity, so a faded web page showed through the interface.
         let host = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
         host.alpha = 0.01
+        host.clipsToBounds = true
         host.isUserInteractionEnabled = false
+        host.accessibilityElementsHidden = true
         host.addSubview(view)
         if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
            let window = scene.windows.first(where: \.isKeyWindow) ?? scene.windows.first {
-            window.addSubview(host)
+            window.insertSubview(host, at: 0)
         }
         #endif
         offscreenHost = host

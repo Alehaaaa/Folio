@@ -1520,7 +1520,7 @@ struct FolioMobileHardcoverLinkSheet: View {
                             if searching { ProgressView() }
                         }
                     }
-                    .folioGlassPill(prominent: true)
+                    .folioFormButton()
                     .disabled(searching || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 .folioRow()

@@ -86,7 +86,7 @@ struct FolioMobileGoodreadsSettings: View {
                         goodreads.userID = id
                         Task { await goodreads.syncAll(into: library) }
                     } label: { Label("Link Goodreads", systemImage: "link") }
-                        .folioGlassPill(prominent: true)
+                        .folioFormButton()
                         .disabled(profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 if let date = goodreads.lastSync {
@@ -324,7 +324,7 @@ struct FolioMobileReminderSettings: View {
                 else if reminders.authorizationStatus == .denied {
                     Label("Notifications are disabled in Settings", systemImage: "exclamationmark.triangle")
                     Button("Open Settings") { reminders.openSystemNotificationSettings() }
-                        .folioGlassPill()
+                        .folioFormButton()
                 } else if reminders.enabled, let next = reminders.nextReminder {
                     Label("Next reminder: \(next.formatted(date: .abbreviated, time: .shortened))",
                           systemImage: "checkmark.circle")
@@ -442,6 +442,7 @@ struct FolioMobileExtensionSettings: View {
                     VStack(alignment: .leading, spacing: 9) {
                         HStack {
                             Image(systemName: "puzzlepiece.extension.fill")
+                                .foregroundStyle(FolioTheme.olive)
                             VStack(alignment: .leading) {
                                 Text(ext.manifest.name).font(.headline)
                                 Text("Version \(ext.manifest.version)")
@@ -482,7 +483,7 @@ struct FolioMobileExtensionSettings: View {
                 Button { importing = true } label: {
                     Label("Add Extension from File", systemImage: "plus")
                 }
-                .folioGlassPill(prominent: true)
+                .folioFormButton()
             }
             .folioRow()
         }

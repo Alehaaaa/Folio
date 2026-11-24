@@ -757,7 +757,8 @@ struct FolioRibbon: Shape {
 /// A small metal bookend holding up the last book on the shelf.
 struct FolioBookend: View {
     let height: CGFloat
-    private let metal = Color(hex: "#3D463B")
+    /// Dark pewter on the light shelf, lighter pewter on the dark one so it stays visible.
+    private let metal = FolioTheme.dynamic(light: 0x3D463B, dark: 0x9AA391)
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {

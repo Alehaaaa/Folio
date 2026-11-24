@@ -4,6 +4,7 @@ import SwiftUI
 /// preferences, so books keep their chosen reading position and navigation mode.
 struct FolioMobileReadabilitySettings: View {
     @Environment(ReaderPrefsStore.self) private var preferences
+    @Environment(\.colorScheme) private var colorScheme
     @ScaledMetric(relativeTo: .body) private var textSizeScale: CGFloat = 1
 
     var body: some View {
@@ -67,7 +68,7 @@ struct FolioMobileReadabilitySettings: View {
     }
 
     private var previewPalette: ReaderTheme.Palette {
-        preferences.prefs.theme.palette(dark: preferences.appearance == .dark)
+        preferences.prefs.theme.palette(dark: preferences.appearance.isDark(systemDark: colorScheme == .dark))
     }
 
     private func readabilityRow(_ title: String, symbol: String) -> some View {

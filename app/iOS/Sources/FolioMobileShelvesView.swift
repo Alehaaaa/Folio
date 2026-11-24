@@ -110,48 +110,54 @@ struct FolioMobileShelvesView: View {
                 .pickerStyle(.segmented)
                 .padding(.horizontal, 16)
             }
-            HStack(spacing: 10) {
-                Text("\(visible.count) books")
-                    .font(.subheadline).foregroundStyle(.secondary)
-                Spacer()
-                if loading { ProgressView() }
-                Button {
-                    Task { await refresh(includeGoodreads: true) }
-                } label: {
-                    Label("Refresh Shelves", systemImage: "arrow.clockwise")
-                        .labelStyle(.iconOnly)
-                        .frame(minWidth: 30, minHeight: 30)
-                }
-                .folioGlassPill()
-                .disabled(loading || !goodreads.loading.isEmpty)
-                if hardcover.isConnected, grStatus != nil, !library.data.tracked.isEmpty {
-                    Menu {
-                        Button {
-                            Task { await copyGoodreads() }
-                        } label: {
-                            Label(library.hardcoverCopy.map { "Copying \($0.done) of \($0.total) to Hardcover…" }
-                                    ?? "Copy Goodreads to Hardcover", systemImage: "arrow.up.forward.app")
-                        }
-                        .disabled(copying || library.hardcoverCopy != nil)
-                        NavigationLink {
-                            FolioMobileGoodreadsSettings()
-                        } label: {
-                            Label("Import & Export CSV", systemImage: "square.and.arrow.up.on.square")
-                        }
+            // With nothing connected there is nothing to count or refresh.
+            if hardcover.isConnected || goodreads.isLinked || !library.data.tracked.isEmpty {
+                HStack(spacing: 10) {
+                    Text("\(visible.count) books")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                    Spacer()
+                    if loading { ProgressView() }
+                    Button {
+                        Task { await refresh(includeGoodreads: true) }
                     } label: {
-                        Label("Shelf Options", systemImage: "ellipsis")
+                        Label("Refresh Shelves", systemImage: "arrow.clockwise")
                             .labelStyle(.iconOnly)
                             .frame(minWidth: 30, minHeight: 30)
                     }
                     .folioGlassPill()
+                    .disabled(loading || !goodreads.loading.isEmpty)
+                    if hardcover.isConnected, grStatus != nil, !library.data.tracked.isEmpty {
+                        Menu {
+                            Button {
+                                Task { await copyGoodreads() }
+                            } label: {
+                                Label(library.hardcoverCopy.map { "Copying \($0.done) of \($0.total) to Hardcover…" }
+                                        ?? "Copy Goodreads to Hardcover", systemImage: "arrow.up.forward.app")
+                            }
+                            .disabled(copying || library.hardcoverCopy != nil)
+                            NavigationLink {
+                                FolioMobileGoodreadsSettings()
+                            } label: {
+                                Label("Import & Export CSV", systemImage: "square.and.arrow.up.on.square")
+                            }
+                        } label: {
+                            Label("Shelf Options", systemImage: "ellipsis")
+                                .labelStyle(.iconOnly)
+                                .frame(minWidth: 30, minHeight: 30)
+                        }
+                        .folioGlassPill()
+                    }
                 }
+                .padding(.horizontal, 18)
             }
-            .padding(.horizontal, 18)
             if !hardcover.isConnected && !goodreads.isLinked && library.data.tracked.isEmpty {
                 ContentUnavailableView {
                     Label("Connect Your Reading Shelves", systemImage: "books.vertical")
                 } description: {
                     Text("Connect Hardcover or Goodreads in Settings to bring in your reading lists.")
+                } actions: {
+                    Button("Open Settings") { navigation.openSettings() }
+                        .folioGlassPill(prominent: true)
                 }
                 .frame(maxWidth: .infinity)
             } else if visible.isEmpty && !loading {

@@ -110,3 +110,37 @@ extension View {
         }
     }
 }
+
+/// A full-width action in a Form or List row, drawn like a system Settings row:
+/// an olive icon in the row's icon column and an ink title. Glass capsules
+/// inside list rows dropped their icons and left an empty gap before the title.
+struct FolioFormLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        FolioFormLabel(configuration: configuration)
+    }
+
+    private struct FolioFormLabel: View {
+        let configuration: LabelStyleConfiguration
+        @Environment(\.isEnabled) private var enabled
+
+        var body: some View {
+            HStack(spacing: 15) {
+                configuration.icon
+                    .font(.body)
+                    .imageScale(.large)
+                    .foregroundStyle(FolioTheme.olive)
+                    .frame(width: 28)
+                configuration.title
+                    .foregroundStyle(FolioTheme.ink)
+            }
+            .opacity(enabled ? 1 : 0.4)
+        }
+    }
+}
+
+extension View {
+    /// The row action style for buttons that fill a Form or List row.
+    func folioFormButton() -> some View {
+        buttonStyle(.borderless).labelStyle(FolioFormLabelStyle())
+    }
+}

@@ -12,13 +12,13 @@ struct FolioMobileSettingsView: View {
             Section("Library") {
                 LabeledContent("Imported Books", value: String(store.books.count))
                 Button("Import from Files", systemImage: "square.and.arrow.down", action: showImporter)
-                    .folioGlassPill()
+                    .folioFormButton()
                 Button {
                     UserDefaults.standard.set(false, forKey: "folioIOS.onboardingCompleted")
                 } label: {
                     Label("Show Welcome Tour", systemImage: "sparkles")
                 }
-                .folioGlassPill()
+                .folioFormButton()
             }
             .folioRow()
 
@@ -140,7 +140,7 @@ struct FolioMobileHardcoverAccountSection: View {
                         Label("Connect Hardcover", systemImage: "person.crop.circle.badge.checkmark")
                     }
                 }
-                .folioGlassPill(prominent: true)
+                .folioFormButton()
                 .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || hardcover.connecting)
                 if let error = hardcover.lastError {
                     Text(error).font(.footnote).foregroundStyle(FolioTheme.danger)

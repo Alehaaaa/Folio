@@ -145,13 +145,12 @@ struct FolioMobileFindSourceView: View {
                             Label("No Copies Found", systemImage: "magnifyingglass")
                         } description: {
                             Text(extensions.enabled.isEmpty
-                                 ? "Enable a source in the Sources tab and search again."
+                                 ? "Enable a source in Sources and search again."
                                  : "Try a different title or author, or enable additional sources.")
                         } actions: {
                             FolioGlassButton(title: "Manage Sources", systemImage: "square.stack.3d.up") {
                                 dismiss()
-                                // Compact layouts place Sources inside the More tab.
-                                navigation.selectedTab = sizeClass == .compact ? .settings : .sources
+                                navigation.openSources()
                             }
                         }
                     } else if !copies.isEmpty {
