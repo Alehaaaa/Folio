@@ -28,6 +28,7 @@ SHARED = [
     "Goodreads",
     "DefaultSources",
     "Extensions",
+    "EncryptedDNS",
     "ExtensionBrowser",
     "WidgetShared",
     "WidgetBridge",

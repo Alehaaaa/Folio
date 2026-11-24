@@ -138,6 +138,7 @@ struct FolioApp: App {
 
     init() {
         FolioLog.start()
+        FolioEncryptedDNS.shared.start()
         FolioShelfSync.install()
     }
 

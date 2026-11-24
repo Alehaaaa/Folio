@@ -17,6 +17,7 @@ struct FolioIOSApp: App {
 
     init() {
         FolioLog.start()
+        FolioEncryptedDNS.shared.start()
         FolioTheme.applyAppearance()
         FolioShelfSync.install()
     }

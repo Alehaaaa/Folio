@@ -241,6 +241,10 @@
 			isa = PBXBuildFile;
 			fileRef = 228C52A290B14024D14DA53D /* Extensions.swift */;
 		};
+		0EF51F527695A4C43FF7AFED /* EncryptedDNS.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = 6C364E55B789C95F2CCD8EB7 /* EncryptedDNS.swift */;
+		};
 		EF7E6E65F3D6AA83F567873B /* ExtensionBrowser.swift in Sources */ = {
 			isa = PBXBuildFile;
 			fileRef = DAFB596F53CD17AA6A90CC79 /* ExtensionBrowser.swift */;
@@ -664,16 +668,16 @@
 			path = Hardcover.swift;
 			sourceTree = "<group>";
 		};
-		DCF4A23BEA87A5C1970F4534 /* Goodreads.swift */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.swift;
-			path = Goodreads.swift;
 		1A2C4AFA1C95F5C330B71BEB /* OpenLibrary.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
 			path = OpenLibrary.swift;
 			sourceTree = "<group>";
 		};
+		DCF4A23BEA87A5C1970F4534 /* Goodreads.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = Goodreads.swift;
 			sourceTree = "<group>";
 		};
 		998160561DF98DBBCD1DF26D /* DefaultSources.swift */ = {
@@ -686,6 +690,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
 			path = Extensions.swift;
+			sourceTree = "<group>";
+		};
+		6C364E55B789C95F2CCD8EB7 /* EncryptedDNS.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = EncryptedDNS.swift;
 			sourceTree = "<group>";
 		};
 		DAFB596F53CD17AA6A90CC79 /* ExtensionBrowser.swift */ = {
@@ -901,9 +911,11 @@
 				F5A1F198ED86A5D653F89D95 /* BookAutoMatch.swift */,
 				FE0F309A0011C9862106D14E /* DownloadQueue.swift */,
 				6575FC05C1FE452717C48B7C /* Hardcover.swift */,
+				1A2C4AFA1C95F5C330B71BEB /* OpenLibrary.swift */,
 				DCF4A23BEA87A5C1970F4534 /* Goodreads.swift */,
 				998160561DF98DBBCD1DF26D /* DefaultSources.swift */,
 				228C52A290B14024D14DA53D /* Extensions.swift */,
+				6C364E55B789C95F2CCD8EB7 /* EncryptedDNS.swift */,
 				DAFB596F53CD17AA6A90CC79 /* ExtensionBrowser.swift */,
 				C099E05B735EAF4904DEC64D /* WidgetShared.swift */,
 				0CE89E81DA04C85F16472F9C /* WidgetBridge.swift */,
@@ -911,7 +923,6 @@
 			);
 			name = "Shared Folio Sources";
 			path = ../Sources/Folio;
-				1A2C4AFA1C95F5C330B71BEB /* OpenLibrary.swift */,
 			sourceTree = "<group>";
 		};
 		5380B91D982392B4A89B5568 /* Resources */ = {
@@ -1100,9 +1111,11 @@
 				6C774D99808ABAA6FBB4B3ED /* BookAutoMatch.swift in Sources */,
 				F0E131B28914354AA7432AAE /* DownloadQueue.swift in Sources */,
 				09E46BA53BE3434E3E179FEA /* Hardcover.swift in Sources */,
+				1955DE0D753BA4A84F5BE7D3 /* OpenLibrary.swift in Sources */,
 				D76EC36F310468065944AB8A /* Goodreads.swift in Sources */,
 				55BC5A180A2A20E2B5846744 /* DefaultSources.swift in Sources */,
 				6F5BE4195371C5A6AC00F906 /* Extensions.swift in Sources */,
+				0EF51F527695A4C43FF7AFED /* EncryptedDNS.swift in Sources */,
 				EF7E6E65F3D6AA83F567873B /* ExtensionBrowser.swift in Sources */,
 				821DB0CDC55F34BB1823A8F9 /* WidgetShared.swift in Sources */,
 				8266CA00ADEBE392D3F5CE22 /* WidgetBridge.swift in Sources */,
@@ -1111,7 +1124,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		C83F532172B26B0BC0125134 /* Widget Sources */ = {
-				1955DE0D753BA4A84F5BE7D3 /* OpenLibrary.swift in Sources */,
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (

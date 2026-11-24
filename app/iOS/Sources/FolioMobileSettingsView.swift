@@ -36,6 +36,8 @@ struct FolioMobileSettingsView: View {
             }
             .folioRow()
 
+            FolioEncryptedDNSSection()
+
             Section("Reading Goals") {
                 Stepper(
                     "Daily: \(store.data.goals.dailyMinutes) minutes",
@@ -148,5 +150,39 @@ struct FolioMobileHardcoverAccountSection: View {
             }
         }
         .folioRow()
+    }
+}
+
+/// Settings › Network: encrypted DNS through Cloudflare (1.1.1.1).
+struct FolioEncryptedDNSSection: View {
+    @State private var dns = FolioEncryptedDNS.shared
+
+    var body: some View {
+        Section {
+            Toggle(isOn: $dns.enabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Encrypted DNS")
+                    Text(statusText)
+                        .font(.caption)
+                        .foregroundStyle(dns.status == .unavailable ? FolioTheme.caution : FolioTheme.muted)
+                }
+            }
+            .accessibilityIdentifier("folio.settings.encryptedDNS")
+        } header: {
+            Text("Network")
+        } footer: {
+            Text("Looks up websites through Cloudflare's 1.1.1.1 over HTTPS for book details, covers and downloads, instead of your network's DNS. If Cloudflare can't be reached, Folio keeps using your network's DNS.")
+        }
+        .folioRow()
+    }
+
+    private var statusText: String {
+        if dns.needsRelaunch { return dns.enabled ? "On · applies fully after Folio restarts" : "Off · applies fully after Folio restarts" }
+        return switch dns.status {
+        case .off: "Off · using your network's DNS"
+        case .checking: "Checking Cloudflare…"
+        case .active: "On · Cloudflare 1.1.1.1"
+        case .unavailable: "Cloudflare unreachable · using your network's DNS"
+        }
     }
 }
