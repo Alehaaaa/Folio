@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.67",
+          "buildVersion": "68",
+          "date": "2026-11-24",
+          "localizedDescription": "Gate iOS releases on source extension regressions",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.67-68.ipa",
+          "size": 5601830,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.64",
           "buildVersion": "65",
           "date": "2026-11-23",
