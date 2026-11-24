@@ -149,7 +149,7 @@ final class DownloadQueue {
         jobs[index].error = nil
         jobs[index].importedBookID = nil
         jobs[index].updatedAt = Date()
-        jobs[index].detailLog.append("Retry requested")
+        jobs[index].detailLog.append("Retry requested · current language \(BookLanguage.code(jobs[index].expectedLanguage) ?? "unverified")")
         persist()
         startWorker()
     }
@@ -274,10 +274,24 @@ final class DownloadQueue {
         let language = BookLanguage.code(job.expectedLanguage) ?? BookLanguage.preferred
         mutate(id) { $0.expectedLanguage = language }
         append(id, "Automatic EPUB language requirement: \(language) (edition metadata must agree)")
+        // Editions in another language often carry their own title ("Dune"
+        // is "Duna" in Catalan). Search with Hardcover's edition title for the
+        // chosen language too, and accept a copy under either title.
+        var titles = [job.title]
+        if let hcID = job.hardcoverBookID,
+           let edition = try? await HardcoverClient.shared.edition(bookID: hcID, language: language),
+           let editionTitle = edition.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !editionTitle.isEmpty, !AutomaticEPUBChoice.sameTitle(job.title, editionTitle) {
+            titles.insert(editionTitle, at: 0)
+            append(id, "Edition title in \(language): \(editionTitle) · searching with it first")
+        }
+        func knownTitle(_ candidate: String) -> Bool {
+            titles.contains { AutomaticEPUBChoice.sameTitle($0, candidate) }
+        }
         // A locally imported edition can retain a harmless series subtitle in
         // its own OPF title; don't download a duplicate because of that label.
         for local in store.books where
-            AutomaticEPUBChoice.sameTitle(job.title, local.title) &&
+            knownTitle(local.title) &&
             AutomaticEPUBChoice.sameAuthor(job.author, local.author) {
             let package = local.format == .epub
                 ? try? EPUBPackage.load(root: store.extractedURL(local)) : nil
@@ -290,14 +304,20 @@ final class DownloadQueue {
         }
 
         state(id, .searching, "Searching enabled sources…")
-        let names = await sourceSession.findCopies(title: job.title, author: job.author,
-            expectedLanguage: language,
-            progress: { [weak self] name in
-                self?.state(id, .searching, "Searching \(name)…")
-            },
-            onEvent: { [weak self] name, value in
-                Task { @MainActor in self?.event(id, source: name, value: value) }
-            })
+        var names: (copies: [ExtensionStore.Copy], problems: [String]) = ([], [])
+        for title in titles {
+            let found = await sourceSession.findCopies(title: title, author: job.author,
+                expectedLanguage: language,
+                progress: { [weak self] name in
+                    self?.state(id, .searching, titles.count > 1 ? "Searching \(name) for \(title)…" : "Searching \(name)…")
+                },
+                onEvent: { [weak self] name, value in
+                    Task { @MainActor in self?.event(id, source: name, value: value) }
+                })
+            let seen = Set(names.copies.map(\.id))
+            names.copies += found.copies.filter { !seen.contains($0.id) }
+            names.problems += found.problems.filter { !names.problems.contains($0) }
+        }
         guard !Task.isCancelled,
               jobs.first(where: { $0.id == id })?.stage.isActive == true else { return }
         for problem in names.problems { append(id, problem) }
@@ -305,15 +325,22 @@ final class DownloadQueue {
         state(id, .choosing, "Checking editions for language \(language)…")
         let identityMatches = names.copies.filter {
             $0.result.preferred?.format == "epub" &&
-            AutomaticEPUBChoice.sameTitle(job.title, $0.result.title) &&
+            knownTitle($0.result.title) &&
             AutomaticEPUBChoice.sameAuthor(job.author, $0.result.author)
         }
         for choice in identityMatches where
             BookLanguage.matches(choice.result.language, expected: language) == false {
             append(id, "Rejected \(choice.sourceName) record \(choice.result.id): source language \(choice.result.language ?? "unknown") differs from requested \(language)")
         }
-        let ranked = AutomaticEPUBChoice.ranked(names.copies, title: job.title,
-                                                author: job.author, expectedLanguage: language)
+        // Copies under the edition title first, then under the original title.
+        var ranked: [ExtensionStore.Copy] = []
+        for title in titles {
+            for copy in AutomaticEPUBChoice.ranked(names.copies, title: title, author: job.author,
+                                                   expectedLanguage: language)
+            where !ranked.contains(where: { $0.id == copy.id }) {
+                ranked.append(copy)
+            }
+        }
         append(id, "Found \(names.copies.count) nearby records, \(identityMatches.count) exact identity EPUBs, \(ranked.count) language-eligible candidate(s) for \(language)")
         guard !ranked.isEmpty else {
             for choice in names.copies.prefix(8) {
@@ -394,7 +421,7 @@ final class DownloadQueue {
                 state(id, .importing, "Verifying the imported EPUB metadata…")
                 let package = store.book(imported).flatMap { try? EPUBPackage.load(root: store.extractedURL($0)) }
                 guard let package,
-                      AutomaticEPUBChoice.sameTitle(job.title, package.title),
+                      knownTitle(package.title),
                       AutomaticEPUBChoice.sameAuthor(job.author, package.author) else {
                     store.remove(imported)
                     let error = "Imported EPUB metadata did not match \(job.title) — \(job.author)"
