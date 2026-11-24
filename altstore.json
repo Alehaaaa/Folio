@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.69",
+          "buildVersion": "70",
+          "date": "2026-11-24",
+          "localizedDescription": "Release Folio 1.0.69 with localized edition search and parallel source discovery",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.69-70.ipa",
+          "size": 5629349,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.68",
           "buildVersion": "69",
           "date": "2026-11-24",
