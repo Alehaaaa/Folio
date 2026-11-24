@@ -394,13 +394,6 @@ struct FolioMobileAuthorView: View {
                     ProgressView().frame(maxWidth: .infinity).padding(.vertical, 30)
                 } else if let failure {
                     Text(failure).font(.subheadline).foregroundStyle(.secondary)
-                } else if !hardcover.isConnected {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Connect Hardcover to see every book and series by \(name).")
-                            .font(.subheadline).foregroundStyle(.secondary)
-                        Button("Account Settings") { navigation.openSettings() }
-                            .folioGlassPill()
-                    }
                 }
             }
             .padding(20)
@@ -413,10 +406,10 @@ struct FolioMobileAuthorView: View {
             if let url = author?.webURL {
                 Link(destination: url) { FolioHeaderIconLabel(symbol: "arrow.up.right.square") }
                     .foregroundStyle(FolioTheme.ink)
-                    .accessibilityLabel("Open on Hardcover")
+                    .accessibilityLabel(author?.id ?? 0 < 0 ? "Open on Open Library" : "Open on Hardcover")
             }
         }
-        .task(id: "\(route.name)-\(route.id ?? 0)-\(hardcover.isConnected)") { await load() }
+        .task(id: "\(route.name)-\(route.id ?? 0)") { await load() }
     }
 
     init(route: FolioMobileAuthorRoute) {
@@ -530,24 +523,24 @@ struct FolioMobileAuthorView: View {
             // Author pages change slowly; refresh twice a day at most.
             if Date().timeIntervalSince(cached.saved) < 60 * 60 * 12 { return }
         }
-        guard hardcover.isConnected else { return }
+        // Open Library and Wikidata: no account needed, and no Hardcover requests.
         loading = true
         failure = nil
         defer { loading = false }
         do {
-            guard let page = try await hardcover.authorPage(id: route.id ?? author?.id, name: route.name) else {
-                if books.isEmpty { failure = "Hardcover has no author page for \(route.name)." }
+            guard let page = try await FolioOpenLibrary.authorPage(name: route.name) else {
+                if books.isEmpty { failure = "Open Library has no author page for \(route.name)." }
                 return
             }
             author = page.author
             books = page.books
             series = page.series
             FolioAuthorCache.save(page: page, for: route.name)
-            follows.refresh(name: page.author.name, hardcoverID: page.author.id, imageURL: page.author.imageURL)
+            follows.refresh(name: page.author.name, hardcoverID: nil, imageURL: page.author.imageURL)
         } catch is CancellationError {
             return
         } catch {
-            FolioLog.log("Author page for \(route.name) failed: \(error.localizedDescription)", "hardcover")
+            FolioLog.log("Author page for \(route.name) failed: \(error.localizedDescription)", "discover")
             // Keep showing the saved page when a refresh fails.
             if books.isEmpty { failure = error.localizedDescription }
         }
@@ -568,6 +561,9 @@ enum FolioSeriesCache {
     }
 
     private static var memory: [Int: Entry] = [:]
+
+    /// Series rarely change: a list this young is shown without asking again.
+    static let freshFor: TimeInterval = 3 * 24 * 60 * 60
 
     private static var directory: URL {
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -706,17 +702,22 @@ struct FolioMobileSeriesView: View {
         .task(id: route.id) { await load() }
     }
 
+    /// Wikidata series (negative ids) come with Open Library's books and need no account;
+    /// series only Hardcover knows go through its paced client. Either way the list is
+    /// cached, so the book page that linked here has usually fetched it already.
     @MainActor
     private func load() async {
         if let cached = FolioSeriesCache.load(route.id) {
             entries = cached.books
-            if Date().timeIntervalSince(cached.saved) < 60 * 60 * 12 { return }
+            if Date().timeIntervalSince(cached.saved) < FolioSeriesCache.freshFor { return }
         }
-        guard hardcover.isConnected else { return }
+        guard route.id < 0 || hardcover.isConnected else { return }
         loading = true
         defer { loading = false }
         do {
-            let books = try await hardcover.seriesBooks(route.id).map { HCSeriesBook(position: $0.position, book: $0.book) }
+            let books = route.id < 0
+                ? try await FolioWikidataSeries.books(route.id)
+                : try await hardcover.seriesBooks(route.id).map { HCSeriesBook(position: $0.position, book: $0.book) }
             entries = books
             failure = books.isEmpty ? "No books found in this series." : nil
             FolioSeriesCache.save(books, for: route.id)
@@ -1099,11 +1100,8 @@ struct FolioMobileAuthorRows: View {
         if let cached { followedBooks = cached.books }
         // Refresh at most every few hours; the cached row shows instantly meanwhile.
         if let saved = cached?.saved, Date().timeIntervalSince(saved) < 60 * 60 * 6 { return }
-        guard hardcover.isConnected else { return }
-
         let knownIDs = Set(store.books.compactMap(\.hardcoverBookID))
         let followedNow = Array(follows.authors.prefix(6))
-        await FolioAuthorCache.resolveAll(followedNow.filter { $0.hardcoverID == nil }.map(\.name), hardcover: hardcover)
         var groups: [[HCBook]] = []
         for followed in followedNow {
             guard !Task.isCancelled else { return }
@@ -1111,8 +1109,7 @@ struct FolioMobileAuthorRows: View {
             if let page = FolioAuthorCache.page(followed.name), Date().timeIntervalSince(page.saved) < 60 * 60 * 24 {
                 books = page.page.books
             } else {
-                guard let id = followed.hardcoverID ?? FolioAuthorCache.author(followed.name)?.id,
-                      let fetched = try? await hardcover.authorBooks(id: id) else { continue }
+                guard let fetched = try? await FolioOpenLibrary.booksBy(author: followed.name) else { continue }
                 books = fetched
             }
             let fresh = books.filter {

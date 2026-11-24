@@ -101,7 +101,7 @@ final class FolioMobileHomeRecommendations {
         var contributingAuthors: [String] = []
         for author in authors {
             do {
-                let matches = try await hardcover.search(author)
+                let matches = try await FolioOpenLibrary.booksBy(author: author)
                 guard generation == run, !Task.isCancelled else { return }
                 let matching = matches.filter {
                     Self.matchesAuthor(author, in: $0.authors) && notInLibrary($0)

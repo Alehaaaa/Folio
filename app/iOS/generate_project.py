@@ -24,6 +24,7 @@ SHARED = [
     "BookAutoMatch",
     "DownloadQueue",
     "Hardcover",
+    "OpenLibrary",
     "Goodreads",
     "DefaultSources",
     "Extensions",

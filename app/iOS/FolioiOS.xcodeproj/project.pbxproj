@@ -225,6 +225,10 @@
 			isa = PBXBuildFile;
 			fileRef = 6575FC05C1FE452717C48B7C /* Hardcover.swift */;
 		};
+		1955DE0D753BA4A84F5BE7D3 /* OpenLibrary.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = 1A2C4AFA1C95F5C330B71BEB /* OpenLibrary.swift */;
+		};
 		D76EC36F310468065944AB8A /* Goodreads.swift in Sources */ = {
 			isa = PBXBuildFile;
 			fileRef = DCF4A23BEA87A5C1970F4534 /* Goodreads.swift */;
@@ -664,6 +668,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
 			path = Goodreads.swift;
+		1A2C4AFA1C95F5C330B71BEB /* OpenLibrary.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = OpenLibrary.swift;
+			sourceTree = "<group>";
+		};
 			sourceTree = "<group>";
 		};
 		998160561DF98DBBCD1DF26D /* DefaultSources.swift */ = {
@@ -901,6 +911,7 @@
 			);
 			name = "Shared Folio Sources";
 			path = ../Sources/Folio;
+				1A2C4AFA1C95F5C330B71BEB /* OpenLibrary.swift */,
 			sourceTree = "<group>";
 		};
 		5380B91D982392B4A89B5568 /* Resources */ = {
@@ -1100,6 +1111,7 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		C83F532172B26B0BC0125134 /* Widget Sources */ = {
+				1955DE0D753BA4A84F5BE7D3 /* OpenLibrary.swift in Sources */,
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (

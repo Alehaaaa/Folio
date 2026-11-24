@@ -50,7 +50,9 @@ final class FolioBecauseYouRead {
         loading = true
         defer { loading = false }
         guard let genres = try? await hardcover.genres(bookID: id), !genres.isEmpty,
-              let similar = try? await hardcover.similarBooks(bookID: id, genres: genres) else { return }
+              let similar = try? await FolioOpenLibrary.similar(
+                to: HCBook(id: id, title: seed.title, authors: seed.author),
+                genres: genres.filter { !["fiction", "nonfiction", "adult", "general"].contains($0.lowercased()) }) else { return }
         let byline = Set(FolioAuthorNames.split(seed.author).map(FolioAuthorNames.key))
         var seen = Set<Int>()
         let picked = similar.filter { book in

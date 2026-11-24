@@ -22,6 +22,11 @@ struct FolioMobileBookDetail: View {
     @State private var myHardcoverBook: HCUserBook?
     @State private var bookSeries: [HCBookSeries] = []
     @State private var seriesEntries: [HCSeriesBook] = []
+    /// The series as Wikidata knows it, once looked up; it wins over Hardcover's.
+    @State private var openSeries: [HCBookSeries]?
+    @State private var openSeriesChecked = false
+    /// Hardcover's genres for this book, from the page request.
+    @State private var pageGenres: [String] = []
     @State private var stats: HCBookStats?
     @State private var edition: HCEdition?
     /// Languages this book has editions in, from Hardcover, with each one's title.
@@ -157,7 +162,7 @@ struct FolioMobileBookDetail: View {
         return local?.hardcoverPages ?? edits?.pages ?? editionPages ?? remote?.pages ?? edition?.pages
     }
     private var overview: String? {
-        let value = local?.summary?.plainText ?? edits?.summary ?? (remote ?? initialRemote)?.description?.plainText
+        let value = local?.summary?.plainText ?? edits?.summary ?? (remote ?? remoteDetails ?? initialRemote)?.description?.plainText
         return value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : value
     }
 
@@ -280,6 +285,7 @@ struct FolioMobileBookDetail: View {
             }
         }
         .task(id: "\(linkedID ?? 0)-\(hardcover.isConnected)") { await loadHardcoverData() }
+        .task(id: "open-\(initialRemote?.id ?? 0)-\(linkedID ?? 0)-\(title)") { await loadOpenData() }
         .task(id: "\(local?.id.uuidString ?? title)-\(hardcover.isConnected)") { await resolveHardcover() }
     }
 
@@ -853,7 +859,7 @@ struct FolioMobileBookDetail: View {
                         .contentMargins(.horizontal, 20)
                         .padding(.horizontal, -20)
                         .onAppear {
-                            if let linkedID { proxy.scrollTo(linkedID, anchor: .center) }
+                            if let current = seriesEntries.first(where: isCurrentEntry) { proxy.scrollTo(current.id, anchor: .center) }
                         }
                     }
                 }
@@ -871,8 +877,15 @@ struct FolioMobileBookDetail: View {
         }
     }
 
+    /// This book's place in the series: its Hardcover id, or its numbered place in a Wikidata list.
+    private func isCurrentEntry(_ entry: HCSeriesBook) -> Bool {
+        if entry.book.id == linkedID || entry.book.id == initialRemote?.id { return true }
+        guard let place = bookSeries.first?.position, entry.position == place else { return false }
+        return seriesEntries.filter { $0.position == place }.count == 1
+    }
+
     private func seriesTile(_ entry: HCSeriesBook) -> some View {
-        let isCurrent = entry.book.id == linkedID
+        let isCurrent = isCurrentEntry(entry)
         let shown = FolioBookOverrides.shared.apply(entry.book)
         return NavigationLink(value: entry.book) {
             VStack(alignment: .leading, spacing: 6) {
@@ -1034,37 +1047,74 @@ struct FolioMobileBookDetail: View {
         remote ?? HCBook(id: linkedID ?? 0, title: title, authors: author, imageURL: initialRemote?.imageURL)
     }
 
-    /// Up to fifteen books for each row; read books are left out when shown.
+    /// The book as Open Library and Wikidata know it: the work opened from Discover, else this page's book.
+    private var openBase: HCBook {
+        if let initialRemote, FolioOpenLibrary.isOpenLibrary(initialRemote) { return initialRemote }
+        return remote ?? HCBook(id: 0, title: title, authors: author)
+    }
+
+    /// Series, more by the author and similar books. They come from Open Library and
+    /// Wikidata, which need no account and have no daily cap. Hardcover is asked only
+    /// for a series Wikidata doesn't know.
     @MainActor
-    private func loadRecommendations(_ bookID: Int, genres known: [String]? = nil) async {
-        let skip = Set([bookID] + seriesEntries.map(\.book.id))
-        var authorID = remoteDetails?.authorRefs.first?.id
-        if authorID == nil, let name = authorRoutes.first?.name {
-            authorID = await FolioAuthorCache.resolve(name, hardcover: hardcover)?.id
+    private func loadOpenData() async {
+        let base = openBase
+        guard !base.title.isEmpty else { return }
+        if FolioOpenLibrary.isOpenLibrary(base), remoteDetails?.id == base.id, remoteDetails?.description == nil,
+           let text = await FolioOpenLibrary.description(of: base), remoteDetails?.id == base.id {
+            remoteDetails?.description = text
         }
-        // Fetch the whole author page here (not just their books) and keep it, so tapping
-        // the author opens their page instantly. A fresh saved page costs no request at all.
-        if let name = authorRoutes.first?.name {
-            var books = FolioAuthorCache.page(name).flatMap {
-                Date().timeIntervalSince($0.saved) < 60 * 60 * 12 ? $0.page.books : nil
-            }
-            if books == nil, let page = try? await hardcover.authorPage(id: authorID, name: name) {
-                FolioAuthorCache.save(page: page, for: name)
-                books = page.books
-            }
-            if let books { moreByAuthor = Array(books.filter { !skip.contains($0.id) }.prefix(20)) }
+        let memberships = await FolioWikidataSeries.series(of: base)
+        guard !Task.isCancelled else { return }
+        if let first = memberships.first, let entries = try? await FolioWikidataSeries.books(first.id), entries.count > 1 {
+            let found = memberships.prefix(3).map { HCBookSeries(id: $0.id, name: $0.name, position: $0.position) }
+            openSeries = found
+            bookSeries = found
+            seriesEntries = entries
+            FolioSeriesCache.save(entries, for: first.id)
         }
-        let genres: [String]?
-        if let known { genres = known } else { genres = try? await hardcover.genres(bookID: bookID) }
-        if let genres, !genres.isEmpty,
-           let books = try? await hardcover.similarBooks(bookID: bookID, genres: genres) {
-            let authorIDs = Set(moreByAuthor.map(\.id))
+        openSeriesChecked = true
+        await hardcoverSeriesFallback()
+        guard !Task.isCancelled else { return }
+
+        let skipTitles = [base.title, title] + seriesEntries.map(\.book.title)
+        func skipped(_ book: HCBook) -> Bool {
+            book.id == linkedID || skipTitles.contains { BookAutoMatch.sameTitle($0, book.title) }
+        }
+        if let name = authorRoutes.first?.name ?? FolioAuthorNames.split(base.authors).first,
+           let books = try? await FolioOpenLibrary.booksBy(author: name) {
+            moreByAuthor = Array(books.filter { !skipped($0) }.prefix(20))
+        }
+        var genres = pageGenres
+        if genres.isEmpty, FolioOpenLibrary.isOpenLibrary(base) {
+            genres = await FolioOpenLibrary.subjects(of: base)
+        }
+        genres = genres.filter { !["fiction", "nonfiction", "non-fiction", "adult", "general"].contains($0.lowercased()) }
+        if !genres.isEmpty, let books = try? await FolioOpenLibrary.similar(to: base, genres: genres) {
+            let byAuthor = Set(moreByAuthor.map(\.id))
             let byline = Set(FolioAuthorNames.split(author).map(FolioAuthorNames.key))
             similar = Array(books.filter { book in
-                !skip.contains(book.id) && !authorIDs.contains(book.id)
+                !skipped(book) && !byAuthor.contains(book.id)
                     && FolioAuthorNames.split(book.authors).allSatisfy { !byline.contains(FolioAuthorNames.key($0)) }
             }.prefix(20))
         }
+        saveSnapshot()
+    }
+
+    /// A series only Hardcover knows: its list, through Hardcover's paced client and
+    /// the shared series cache, so the series page opens without asking again.
+    @MainActor
+    private func hardcoverSeriesFallback() async {
+        guard openSeriesChecked, openSeries == nil, seriesEntries.isEmpty, hardcover.isConnected,
+              let first = bookSeries.first, first.id > 0 else { return }
+        if let cached = FolioSeriesCache.load(first.id), Date().timeIntervalSince(cached.saved) < FolioSeriesCache.freshFor {
+            seriesEntries = cached.books
+            return
+        }
+        let rows = (try? await hardcover.seriesBooks(first.id)) ?? []
+        guard !rows.isEmpty else { return }
+        seriesEntries = rows.map { HCSeriesBook(position: $0.position, book: $0.book) }
+        FolioSeriesCache.save(seriesEntries, for: first.id)
     }
 
     /// "More by" the first author and "More like this", as on Home.
@@ -1123,7 +1173,8 @@ struct FolioMobileBookDetail: View {
             FolioPendingProgress.clear(linkedID)
         }
         edition = page.edition
-        bookSeries = page.series
+        bookSeries = openSeries ?? page.series
+        pageGenres = page.genres ?? []
         await backfillEdition(linkedID)
         var fresh = page.stats
         // Keep the bars on screen while the distribution refreshes.
@@ -1137,16 +1188,10 @@ struct FolioMobileBookDetail: View {
 
         async let distribution = hardcover.ratingDistribution(bookID: linkedID)
         async let reviews = try? hardcover.reviews(bookID: linkedID, limit: 2)
-        if let first = bookSeries.first {
-            let rows = (try? await hardcover.seriesBooks(first.id)) ?? []
-            if !rows.isEmpty { seriesEntries = rows.map { HCSeriesBook(position: $0.position, book: $0.book) } }
-        } else {
-            seriesEntries = []
-        }
         let bars = await distribution
         if !bars.isEmpty { stats?.distribution = bars }
         if let list = await reviews { topReviews = list }
-        await loadRecommendations(linkedID, genres: page.genres)
+        await hardcoverSeriesFallback()
         guard !Task.isCancelled else { return }
         saveSnapshot()
     }
@@ -1156,19 +1201,21 @@ struct FolioMobileBookDetail: View {
         myHardcoverBook = snapshot.page.userBook
         stats = snapshot.page.stats
         edition = snapshot.page.edition
-        bookSeries = snapshot.page.series
-        seriesEntries = snapshot.seriesBooks
+        bookSeries = openSeries ?? snapshot.page.series
+        if openSeries == nil { seriesEntries = snapshot.seriesBooks }
         topReviews = snapshot.reviews
         moreByAuthor = snapshot.moreByAuthor ?? []
         similar = snapshot.similar ?? []
     }
 
+    /// Open Library and Wikidata rows describe the same book, so they stay.
     private func clearHardcoverData() {
-        moreByAuthor = []
-        similar = []
         myHardcoverBook = nil
-        bookSeries = []
-        seriesEntries = []
+        if openSeries == nil {
+            bookSeries = []
+            seriesEntries = []
+        }
+        pageGenres = []
         stats = nil
         edition = nil
         topReviews = []

@@ -126,7 +126,10 @@ struct HCBook: Identifiable, Hashable, Codable {
     var editionID: Int? = nil
     var editionTitle: String? = nil
 
-    var webURL: URL? { slug.flatMap { URL(string: "https://hardcover.app/books/\($0)") } }
+    var webURL: URL? {
+        if id < 0 { return URL(string: "https://openlibrary.org/works/OL\(-id)W") }
+        return slug.flatMap { URL(string: "https://hardcover.app/books/\($0)") }
+    }
 
     static func from(book j: JSON) -> HCBook? {
         guard let id = j["id"].int else { return nil }
@@ -201,7 +204,10 @@ struct HCAuthor: Identifiable, Hashable, Codable {
     var booksCount: Int?
     var followers: Int?
 
-    var webURL: URL? { slug.flatMap { URL(string: "https://hardcover.app/authors/\($0)") } }
+    var webURL: URL? {
+        if id < 0 { return URL(string: "https://openlibrary.org/authors/OL\(-id)A") }
+        return slug.flatMap { URL(string: "https://hardcover.app/authors/\($0)") }
+    }
 
     static func from(_ j: JSON) -> HCAuthor? {
         guard let id = j["id"].int, let name = j["name"].string else { return nil }
@@ -373,42 +379,133 @@ struct HCError: LocalizedError {
     static func isRateLimit(_ error: Error) -> Bool { (error as? HCError)?.rateLimited == true }
 }
 
-/// Keeps requests under Hardcover's limits (60 a minute, bursts of 10) so pages
-/// that need several queries wait a moment instead of failing.
+/// Keeps requests under Hardcover's limits so pages wait a moment instead of failing.
+///
+/// Hardcover meters every top-level field of a query, not every HTTP request: a
+/// book page asking for the book, its editions, series and your shelf entry costs
+/// four. Free accounts get a bucket of 10 that refills at 60 a minute, plus 5,000 a
+/// day. The gate mirrors that bucket with a safety margin, charges each query its
+/// real cost, and follows the `RateLimit` headers Hardcover sends with every answer.
 actor HCRateGate {
     static let shared = HCRateGate()
-    private var stamps: [Date] = []
-    private var blockedUntil = Date.distantPast
-    private var lastRequest = Date.distantPast
 
-    /// A 429 applies to the entire Hardcover account, not just one view.
-    /// Fail subsequent requests promptly while the service asks us to stop;
-    /// otherwise Home, Search and Downloads each amplify the same outage.
-    func noteRateLimit(retryAfter: String?) {
-        let seconds = retryAfter.flatMap(Double.init) ?? 20
-        let delay = min(90, max(5, seconds))
-        blockedUntil = max(blockedUntil, Date().addingTimeInterval(delay))
+    private(set) var capacity: Double = 8
+    private var refillPerSecond: Double = 0.9
+    private var tokens: Double = 8
+    private var refilled = Date()
+    private var blockedUntil = Date.distantPast
+
+    /// Waits up to this long for a short block (a drained bucket) instead of failing.
+    static let patience: TimeInterval = 20
+
+    /// The number of top-level fields in a GraphQL document: what Hardcover charges.
+    nonisolated static func cost(of query: String) -> Int {
+        var depth = 0, parens = 0, inString = false, escaped = false
+        var count = 0
+        var chars = Array(query.unicodeScalars)
+        chars.append(" ")
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            if inString {
+                if escaped { escaped = false } else if c == "\\" { escaped = true } else if c == "\"" { inString = false }
+                i += 1; continue
+            }
+            switch c {
+            case "\"": inString = true
+            case "(": parens += 1
+            case ")": parens -= 1
+            case "{" where parens == 0: depth += 1
+            case "}" where parens == 0: depth -= 1
+            default:
+                if depth == 1, parens == 0, c == "_" || CharacterSet.letters.contains(c) {
+                    var j = i
+                    var word = ""
+                    while j < chars.count, chars[j] == "_" || CharacterSet.alphanumerics.contains(chars[j]) {
+                        word.unicodeScalars.append(chars[j]); j += 1
+                    }
+                    var k = j
+                    while k < chars.count, CharacterSet.whitespacesAndNewlines.contains(chars[k]) { k += 1 }
+                    // `alias: field` names one field; introspection is free.
+                    if !(k < chars.count && chars[k] == ":") && !word.hasPrefix("__") { count += 1 }
+                    i = j; continue
+                }
+            }
+            i += 1
+        }
+        return max(1, count)
     }
 
-    func wait() async throws {
+    private func refill(_ now: Date) {
+        tokens = min(capacity, tokens + now.timeIntervalSince(refilled) * refillPerSecond)
+        refilled = now
+    }
+
+    /// A 429 applies to the entire Hardcover account, not just one view.
+    func noteRateLimit(retryAfter: String?) {
+        let seconds = retryAfter.flatMap(Double.init) ?? 20
+        let delay = min(60 * 60 * 24, max(2, seconds))
+        blockedUntil = max(blockedUntil, Date().addingTimeInterval(delay))
+        tokens = 0
+        refilled = Date()
+    }
+
+    /// Follows Hardcover's own count, e.g. `RateLimit: "Free";r=8;t=0, "daily";r=4231;t=51234`
+    /// and `RateLimit-Policy: "Free";q=60;w=60;burst=10, "daily";q=5000;w=86400`.
+    func noteHeaders(rateLimit: String?, policy: String?) {
+        let now = Date()
+        refill(now)
+        for entry in Self.entries(policy) where entry.name != "daily" {
+            if let burst = entry.values["burst"], burst > 0 { capacity = max(1, burst - 2) }
+            if let q = entry.values["q"], let w = entry.values["w"], q > 0, w > 0 { refillPerSecond = q / w * 0.9 }
+        }
+        let current = Self.entries(rateLimit)
+        for entry in current {
+            guard let remaining = entry.values["r"] else { continue }
+            let reset = entry.values["t"] ?? 0
+            if entry.name == "daily" {
+                if remaining <= 0 { blockedUntil = max(blockedUntil, now.addingTimeInterval(max(60, reset))) }
+            } else {
+                tokens = min(tokens, max(0, remaining - 1))
+            }
+        }
+    }
+
+    private struct Entry { var name: String; var values: [String: Double] }
+
+    private static func entries(_ header: String?) -> [Entry] {
+        guard let header else { return [] }
+        return header.split(separator: ",").map { part in
+            let pieces = part.split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }
+            var values: [String: Double] = [:]
+            for piece in pieces.dropFirst() {
+                let kv = piece.split(separator: "=", maxSplits: 1)
+                if kv.count == 2, let v = Double(kv[1]) { values[String(kv[0])] = v }
+            }
+            let name = (pieces.first ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            return Entry(name: name.lowercased(), values: values)
+        }
+    }
+
+    func wait(cost: Int = 1) async throws {
+        let need = min(Double(max(1, cost)), capacity)
         while true {
             try Task.checkCancellation()
             let now = Date()
-            guard now >= blockedUntil else {
-                throw HCError(message: "Hardcover is rate-limiting requests. Retry shortly; cached book data remains available.", rateLimited: true)
+            if now < blockedUntil {
+                let left = blockedUntil.timeIntervalSince(now)
+                guard left <= Self.patience else {
+                    throw HCError(message: "Hardcover is rate-limiting requests. Retry shortly; cached book data remains available.", rateLimited: true)
+                }
+                try await Task.sleep(for: .seconds(left))
+                continue
             }
-            stamps.removeAll { now.timeIntervalSince($0) > 60 }
-            let lastSecond = stamps.filter { now.timeIntervalSince($0) < 1 }.count
-            if stamps.count < 45 && lastSecond < 5 && now.timeIntervalSince(lastRequest) >= 0.2 {
-                stamps.append(now)
-                lastRequest = now
+            refill(now)
+            if tokens >= need {
+                tokens -= need
                 return
             }
-            let perMinute = stamps.count >= 45 ? max(0.1, 60.05 - now.timeIntervalSince(stamps[0])) : 0
-            let perSecond = lastSecond >= 5 ? 0.25 : 0
-            let spacing = max(0, 0.2 - now.timeIntervalSince(lastRequest))
-            let delay = max(0.05, perMinute, perSecond, spacing)
-            try await Task.sleep(for: .seconds(delay))
+            try await Task.sleep(for: .seconds(max(0.05, (need - tokens) / refillPerSecond)))
         }
     }
 }
@@ -509,6 +606,15 @@ final class HardcoverClient {
 
     @discardableResult
     func query(_ q: String, _ variables: [String: Any] = [:]) async throws -> JSON {
+        do {
+            return try await send(q, variables)
+        } catch let error as HCError where error.rateLimited {
+            // A short throttle: the gate now waits it out, so try once more.
+            return try await send(q, variables)
+        }
+    }
+
+    private func send(_ q: String, _ variables: [String: Any]) async throws -> JSON {
         guard let token else { throw HCError(message: "Connect your Hardcover account in Settings first.") }
         var req = URLRequest(url: endpoint)
         req.httpMethod = "POST"
@@ -518,10 +624,12 @@ final class HardcoverClient {
         req.setValue("Folio/1.0 (macOS)", forHTTPHeaderField: "User-Agent")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["query": q, "variables": variables])
         let queued = Date()
-        try await HCRateGate.shared.wait()
+        try await HCRateGate.shared.wait(cost: HCRateGate.cost(of: q))
         let sent = Date()
         let (data, resp) = try await URLSession.shared.data(for: req)
         let http = resp as? HTTPURLResponse
+        await HCRateGate.shared.noteHeaders(rateLimit: http?.value(forHTTPHeaderField: "RateLimit"),
+                                            policy: http?.value(forHTTPHeaderField: "RateLimit-Policy"))
         #if os(iOS)
         Self.logTiming(q, status: http?.statusCode, waited: sent.timeIntervalSince(queued),
                        took: Date().timeIntervalSince(sent), bytes: data.count)

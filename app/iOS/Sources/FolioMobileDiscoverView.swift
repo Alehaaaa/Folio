@@ -28,16 +28,7 @@ struct FolioMobileDiscoverView: View {
                         FolioSearchField(text: $query, prompt: "Titles, authors or series")
                     }
                 }
-                if !hardcover.isConnected {
-                    ContentUnavailableView {
-                        Label("Connect Hardcover", systemImage: "person.crop.circle.badge.plus")
-                    } description: {
-                        Text("Connect your Hardcover account in Settings to explore and search books.")
-                    } actions: {
-                        Button("Open Settings") { navigation.openSettings() }
-                            .folioGlassPill(prominent: true)
-                    }
-                } else if isSearching {
+                if isSearching {
                     searchResults
                 } else {
                     if let message = feed.error, feed.visibleTopics.isEmpty {
@@ -64,19 +55,22 @@ struct FolioMobileDiscoverView: View {
         }
         .refreshable {
             if isSearching { await search(searchText) }
-            else { await feed.load(from: hardcover, force: true) }
+            else { await feed.load(force: true) }
         }
         .task(id: taskKey) {
             // Invalidate requests as soon as the search changes, not only after debounce.
             activeRequest = UUID()
-            if !hardcover.isConnected {
+            if !isSearching {
+                loading = false
+                // Rows come from Open Library and need no account; your genres do.
+                if hardcover.isConnected {
+                    await FolioReadBooks.shared.refresh(from: hardcover)
+                    await feed.loadYourGenres(from: hardcover)
+                }
+                await feed.load()
+            } else if !hardcover.isConnected {
                 loading = false
                 error = nil
-            } else if !isSearching {
-                loading = false
-                await FolioReadBooks.shared.refresh(from: hardcover)
-                await feed.loadYourGenres(from: hardcover)
-                await feed.load(from: hardcover)
             } else {
                 loading = true
                 do {
@@ -156,7 +150,7 @@ struct FolioMobileDiscoverView: View {
             Button("Retry") {
                 Task {
                     if isSearching { await search(searchText) }
-                    else { await feed.load(from: hardcover, force: true) }
+                    else { await feed.load(force: true) }
                 }
             }
             .folioGlassPill(prominent: true)
@@ -420,7 +414,7 @@ struct FolioMobileDiscoverTopicPage: View {
         loading = true
         defer { loading = false }
         do {
-            let page = try await hardcover.discoverBooks(topic, filters: filtersNow, limit: pageSize, offset: 0)
+            let page = try await FolioOpenLibrary.discoverBooks(topic, filters: filtersNow, limit: pageSize, offset: 0)
             guard filtersNow == filters else { return }
             books = FolioMobileDiscoverySections.unique(page)
             fetched = page.count
@@ -437,7 +431,7 @@ struct FolioMobileDiscoverTopicPage: View {
         loading = true
         defer { loading = false }
         do {
-            let page = try await hardcover.discoverBooks(topic, filters: filtersNow, limit: pageSize, offset: fetched)
+            let page = try await FolioOpenLibrary.discoverBooks(topic, filters: filtersNow, limit: pageSize, offset: fetched)
             guard filtersNow == filters else { return }
             books = FolioMobileDiscoverySections.unique(books + page)
             fetched += page.count

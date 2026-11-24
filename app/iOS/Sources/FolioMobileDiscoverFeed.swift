@@ -96,7 +96,7 @@ struct FolioDiscoverFilters: Hashable {
 
     var isDefault: Bool { self == FolioDiscoverFilters() }
 
-    /// Client-side version of the filters, for lists Hardcover can't filter (Trending).
+    /// Client-side version of the filters, for lists that can't be filtered at the source (Trending).
     func apply(_ books: [HCBook]) -> [HCBook] {
         var out = books
         if let range = published.range {
@@ -113,94 +113,6 @@ struct FolioDiscoverFilters: Hashable {
         case .oldest: out.sort { ($0.year ?? .max) < ($1.year ?? .max) }
         }
         return out
-    }
-}
-
-// MARK: - Hardcover queries
-
-extension HardcoverClient {
-    /// How Hardcover answered genre filters this session: the tag relation,
-    /// the cached tag list, or neither.
-    private enum GenreMode { case unknown, taggings, cachedTags, unsupported }
-    private static var genreMode: GenreMode = .unknown
-
-    /// One page of a Discover topic, with optional filters applied by Hardcover.
-    func discoverBooks(_ topic: FolioDiscoverTopic, filters: FolioDiscoverFilters = .init(),
-                       limit: Int = 24, offset: Int = 0) async throws -> [HCBook] {
-        if case .trending = topic.kind {
-            guard offset == 0 else { return [] }
-            return filters.apply(try await trending())
-        }
-
-        var conditions: [String] = []
-        var sort = filters.sort
-        let year = Calendar.current.component(.year, from: .now)
-
-        func years(_ from: Int?, _ to: Int?) {
-            if let from { conditions.append("{release_year: {_gte: \(from)}}") }
-            if let to { conditions.append("{release_year: {_lt: \(to)}}") }
-        }
-
-        switch topic.kind {
-        case .trending, .popular, .genre: break
-        case .newThisYear: years(year, nil)
-        case .acclaimed:
-            conditions.append("{ratings_count: {_gt: 2000}}")
-            if filters.sort == .popular { sort = .rated }
-        case .shortReads: conditions.append("{pages: {_gt: 60}}"); conditions.append("{pages: {_lt: 250}}")
-        case .longReads: conditions.append("{pages: {_gt: 600}}")
-        case .years(let from, let to): years(from, to)
-        }
-        if let range = filters.published.range { years(range.from, range.to) }
-        if let minimum = filters.rating.minimum {
-            conditions.append("{rating: {_gte: \(minimum)}}")
-            conditions.append("{ratings_count: {_gt: 25}}")
-        }
-        if sort == .rated && filters.rating.minimum == nil, topic.kind != .acclaimed {
-            // Top rated among books with a meaningful number of ratings.
-            conditions.append("{ratings_count: {_gt: 200}}")
-        }
-        if sort == .newest || sort == .oldest { conditions.append("{release_year: {_is_null: false}}") }
-
-        let order: String
-        switch sort {
-        case .popular: order = "{users_count: desc}"
-        case .rated: order = "[{rating: desc_nulls_last}, {users_count: desc}]"
-        case .newest: order = "[{release_year: desc}, {users_count: desc}]"
-        case .oldest: order = "[{release_year: asc}, {users_count: desc}]"
-        }
-
-        func run(extra: String?, declarations: String, variables: [String: Any]) async throws -> [HCBook] {
-            let all = conditions + (extra.map { [$0] } ?? [])
-            let whereClause = all.isEmpty ? "{}" : "{_and: [\(all.joined(separator: ", "))]}"
-            let header = declarations.isEmpty ? "query Discover" : "query Discover(\(declarations))"
-            let d = try await query("""
-            \(header) { books(where: \(whereClause), order_by: \(order), limit: \(limit), offset: \(offset)) { \(Self.bookFields) } }
-            """, variables)
-            return d["books"].array.compactMap(HCBook.from(book:))
-        }
-
-        guard case .genre(let genre) = topic.kind else {
-            return try await run(extra: nil, declarations: "", variables: [:])
-        }
-        let viaTaggings = { try await run(extra: "{taggings: {tag: {tag: {_eq: $g}}}}", declarations: "$g: String!", variables: ["g": genre]) }
-        let viaCache = { try await run(extra: "{cached_tags: {_contains: $tags}}", declarations: "$tags: jsonb!",
-                                       variables: ["tags": ["Genre": [["tag": genre]]]]) }
-        switch Self.genreMode {
-        case .taggings: return try await viaTaggings()
-        case .cachedTags: return try await viaCache()
-        case .unsupported: return []
-        case .unknown:
-            if let books = try? await viaTaggings(), !books.isEmpty {
-                Self.genreMode = .taggings
-                return books
-            }
-            if let books = try? await viaCache(), !books.isEmpty {
-                Self.genreMode = .cachedTags
-                return books
-            }
-            return []
-        }
     }
 }
 
@@ -244,8 +156,7 @@ final class FolioMobileDiscoverFeed {
         }
     }
 
-    func load(from hardcover: HardcoverClient, force: Bool = false) async {
-        guard hardcover.isConnected else { return }
+    func load(force: Bool = false) async {
         if !force, let lastRefresh, Date().timeIntervalSince(lastRefresh) < Self.freshFor, !books.isEmpty { return }
         guard !loading else { return }
         loading = true
@@ -256,7 +167,7 @@ final class FolioMobileDiscoverFeed {
         var fresh: [String: [HCBook]] = [:]
         var firstError: String?
         let topics = FolioDiscoverCatalog.rowTopics
-        // A few requests at a time keeps well inside Hardcover's rate limit. Plain
+        // Open Library answers these, a few at a time (its client paces them). Plain
         // tasks, not a task group: on iOS 27 a group whose children run on the main
         // actor ended early and its children then crashed the app ("Pure virtual
         // function called"). These tasks inherit the main actor, like the client.
@@ -265,7 +176,7 @@ final class FolioMobileDiscoverFeed {
             let batch = Array(topics[start..<min(start + 4, topics.count)])
             start += batch.count
             let requests = batch.map { topic in
-                (topic.id, Task { try await hardcover.discoverBooks(topic, limit: 20) })
+                (topic.id, Task { try await FolioOpenLibrary.discoverBooks(topic, limit: 20) })
             }
             for (id, request) in requests {
                 switch await request.result {
@@ -290,7 +201,7 @@ final class FolioMobileDiscoverFeed {
             lastRefresh = Date()
             Self.writeCache(books: books, savedAt: lastRefresh!)
         } else if visibleTopics.isEmpty {
-            error = firstError ?? "Hardcover didn't return any books. Try again later."
+            error = firstError ?? "Open Library didn't return any books. Try again later."
         }
     }
 
