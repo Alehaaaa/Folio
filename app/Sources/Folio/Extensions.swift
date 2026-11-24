@@ -544,8 +544,39 @@ final class ExtensionStore {
     private static let updateCheckKey = "folio.extensions.lastUpdateCheck"
     private static let updateCheckInterval: TimeInterval = 6 * 60 * 60
 
-    /// Enabled download sources (metadata sources never take part in finding copies).
-    var enabled: [Installed] { installed.filter { $0.saved.enabled && !$0.manifest.isMetadata } }
+    /// Enabled download sources (metadata sources never take part in finding
+    /// copies), in the reader's preferred order.
+    var enabled: [Installed] {
+        installed.filter { $0.saved.enabled && !$0.manifest.isMetadata }.sorted(by: Self.inSourceOrder)
+    }
+
+    /// Every download source, enabled or not, in the reader's preferred order.
+    var downloadSources: [Installed] {
+        installed.filter { !$0.manifest.isMetadata }.sorted(by: Self.inSourceOrder)
+    }
+
+    static let sourceOrderKey = "folio.sources.order"
+
+    private static func inSourceOrder(_ a: Installed, _ b: Installed) -> Bool {
+        let order = UserDefaults.standard.stringArray(forKey: sourceOrderKey) ?? []
+        return (order.firstIndex(of: a.id) ?? Int.max, a.manifest.name) < (order.firstIndex(of: b.id) ?? Int.max, b.manifest.name)
+    }
+
+    func setSourceOrder(_ ids: [String]) {
+        UserDefaults.standard.set(ids, forKey: Self.sourceOrderKey)
+    }
+
+    /// Which source to prefer when two offer equally good copies: a source
+    /// made for the requested language first ("Spanish books" for Spanish),
+    /// then the reader's order. Lower is preferred.
+    func priority(_ id: String, for language: String?) -> Int {
+        let order = downloadSources.map(\.id)
+        let base = order.firstIndex(of: id) ?? order.count
+        guard let source = ext(id), let code = BookLanguage.code(language),
+              source.manifest.restrictedLanguageLabel != nil,
+              source.manifest.supportsLanguage(code) else { return base }
+        return base - 1_000
+    }
 
     /// Every metadata source, in the reader's priority order.
     var metadataSources: [Installed] {
@@ -989,7 +1020,9 @@ final class ExtensionStore {
                let aCount = a.result.downloadCount,
                let bCount = b.result.downloadCount,
                aCount != bCount { return aCount > bCount }
-            if a.sourceID != b.sourceID { return a.sourceID < b.sourceID }
+            if a.sourceID != b.sourceID {
+                return priority(a.sourceID, for: expectedLanguage) < priority(b.sourceID, for: expectedLanguage)
+            }
             return a.result.id < b.result.id
         }
         return (copies, problems)

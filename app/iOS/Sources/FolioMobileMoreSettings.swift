@@ -438,6 +438,19 @@ struct FolioMobileExtensionSettings: View {
     var body: some View {
         Form {
             Section {
+                NavigationLink {
+                    FolioSourceOrderEditor()
+                } label: {
+                    LabeledContent("Download Order") {
+                        Text(extensions.enabled.map(\.manifest.name).formatted(.list(type: .and)))
+                            .lineLimit(1)
+                    }
+                }
+            } footer: {
+                Text("When two sources have the same edition, Folio downloads from the one higher on this list. A source made for one language goes first when you download in that language.")
+            }
+            .folioRow()
+            Section {
                 ForEach(extensions.installed) { ext in
                     VStack(alignment: .leading, spacing: 9) {
                         HStack {
@@ -587,5 +600,45 @@ struct FolioMobileNookSettings: View {
         .confirmationDialog("Reset the order of your nook?", isPresented: $resetting, titleVisibility: .visible) {
             Button("Reset Order", role: .destructive) { nook.resetOrder() }
         }
+    }
+}
+
+/// The order Folio tries download sources in.
+struct FolioSourceOrderEditor: View {
+    @Environment(ExtensionStore.self) private var extensions
+    @State private var order: [String] = ExtensionStore.shared.downloadSources.map(\.id)
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(order, id: \.self) { id in
+                    if let source = extensions.ext(id) {
+                        HStack(spacing: 12) {
+                            Text("\((order.firstIndex(of: id) ?? 0) + 1)")
+                                .font(.callout.monospacedDigit())
+                                .foregroundStyle(FolioTheme.muted)
+                                .frame(width: 20)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(source.manifest.name)
+                                    .foregroundStyle(source.saved.enabled ? FolioTheme.ink : FolioTheme.muted)
+                                Text(source.saved.enabled ? source.manifest.languageLabel : "Off · \(source.manifest.languageLabel)")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .onMove { from, to in
+                    order.move(fromOffsets: from, toOffset: to)
+                    extensions.setSourceOrder(order)
+                }
+            } footer: {
+                Text("Drag to reorder. Folio still prefers the right edition and language first; this order breaks ties between sources. A source made for one language goes first when you download in that language.")
+            }
+            .folioRow()
+        }
+        .environment(\.editMode, .constant(.active))
+        .folioScreen()
+        .navigationTitle("Download Order")
+        .folioPageHeader("Download Order")
     }
 }

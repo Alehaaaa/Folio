@@ -18,7 +18,9 @@ enum AutomaticEPUBChoice {
 
     static func ranked(_ copies: [ExtensionStore.Copy], title: String, author: String,
                        expectedLanguage: String = BookLanguage.preferred) -> [ExtensionStore.Copy] {
-        copies.filter {
+        // Copies arrive in source preference order; keep it between sources.
+        let place = Dictionary(copies.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return copies.filter {
             $0.result.preferred?.format == "epub" &&
             sameTitle(title, $0.result.title) && sameAuthor(author, $0.result.author) &&
             BookLanguage.matches($0.result.language, expected: expectedLanguage) != false
@@ -30,7 +32,7 @@ enum AutomaticEPUBChoice {
             let bVerified = BookLanguage.matches(b.result.language, expected: expectedLanguage) == true
             if aVerified != bVerified { return aVerified }
             // Counts reported by unrelated providers are not comparable.
-            if a.sourceID != b.sourceID { return a.sourceID < b.sourceID }
+            if a.sourceID != b.sourceID { return (place[a.id] ?? 0) < (place[b.id] ?? 0) }
             let aCount = a.result.downloadCount.flatMap { $0 >= 0 ? $0 : nil }
             let bCount = b.result.downloadCount.flatMap { $0 >= 0 ? $0 : nil }
             if aCount != bCount { return (aCount ?? -1) > (bCount ?? -1) }
