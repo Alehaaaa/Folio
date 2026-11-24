@@ -32,6 +32,10 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/PlugIns"
 cp .build/release/Folio "$APP/Contents/MacOS/Folio"
 cp Support/Info.plist "$APP/Contents/Info.plist"
 "$APP_DIR/Support/compile-macos-icon.sh" "$APP/Contents/Resources"
+# The metadata extensions (Edit Details providers) ship inside the app.
+for script in "$APP_DIR"/../extensions/metadata-*.js; do
+  [ -e "$script" ] && cp "$script" "$APP/Contents/Resources/"
+done
 for bundle in .build/release/*.bundle; do
   [ -e "$bundle" ] && ditto "$bundle" "$APP/Contents/Resources/$(basename "$bundle")"
 done

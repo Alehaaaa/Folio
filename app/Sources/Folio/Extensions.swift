@@ -547,22 +547,25 @@ final class ExtensionStore {
     /// Enabled download sources (metadata sources never take part in finding
     /// copies), in the reader's preferred order.
     var enabled: [Installed] {
-        installed.filter { $0.saved.enabled && !$0.manifest.isMetadata }.sorted(by: Self.inSourceOrder)
+        installed.filter { $0.saved.enabled && !$0.manifest.isMetadata }.sorted(by: inSourceOrder)
     }
 
     /// Every download source, enabled or not, in the reader's preferred order.
     var downloadSources: [Installed] {
-        installed.filter { !$0.manifest.isMetadata }.sorted(by: Self.inSourceOrder)
+        installed.filter { !$0.manifest.isMetadata }.sorted(by: inSourceOrder)
     }
 
     static let sourceOrderKey = "folio.sources.order"
 
-    private static func inSourceOrder(_ a: Installed, _ b: Installed) -> Bool {
-        let order = UserDefaults.standard.stringArray(forKey: sourceOrderKey) ?? []
-        return (order.firstIndex(of: a.id) ?? Int.max, a.manifest.name) < (order.firstIndex(of: b.id) ?? Int.max, b.manifest.name)
+    /// Observed, so every list of sources redraws as soon as the order changes.
+    private(set) var sourceOrder: [String] = UserDefaults.standard.stringArray(forKey: ExtensionStore.sourceOrderKey) ?? []
+
+    private func inSourceOrder(_ a: Installed, _ b: Installed) -> Bool {
+        (sourceOrder.firstIndex(of: a.id) ?? Int.max, a.manifest.name) < (sourceOrder.firstIndex(of: b.id) ?? Int.max, b.manifest.name)
     }
 
     func setSourceOrder(_ ids: [String]) {
+        sourceOrder = ids
         UserDefaults.standard.set(ids, forKey: Self.sourceOrderKey)
     }
 
@@ -609,10 +612,10 @@ final class ExtensionStore {
             if savedByID[id] == nil { savedByID[id] = Saved(file: "\(id).js", builtIn: true) }
             savedByID[id]?.builtIn = true
         }
-        #if os(iOS)
-        // Ship the same external JavaScript source extensions as the macOS
-        // distribution. Bundled sources are refreshed with each iOS app build;
-        // the user's per-source configuration and enabled state are retained.
+        // Extensions bundled with the app: every extensions/*.js on iOS, the
+        // metadata extensions on the Mac (see build-macos.command). They are
+        // refreshed with each app build; the user's per-extension configuration
+        // and enabled state are retained.
         let idPattern = try? NSRegularExpression(pattern: #"\bid\s*:\s*["']([A-Za-z0-9_-]+)["']"#)
         for url in (Bundle.main.urls(forResourcesWithExtension: "js", subdirectory: nil) ?? []).sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             guard let script = try? String(contentsOf: url, encoding: .utf8),
@@ -635,7 +638,6 @@ final class ExtensionStore {
             savedByID[id]?.file = file
             savedByID[id]?.builtIn = true
         }
-        #endif
         Task { await loadAll() }
     }
 
