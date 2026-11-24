@@ -31,6 +31,10 @@ struct DownloadJob: Identifiable, Codable {
     /// Optional so download-queue.json written by older Folio versions still decodes.
     /// A missing value in a resumed job uses the current preferred app language.
     var expectedLanguage: String?
+    /// The title of the edition chosen for `expectedLanguage` ("Nacidos de la
+    /// bruma"), when it was picked on a book page. `title` stays the work's own
+    /// title, so both can be searched. Cleared when the language changes.
+    var editionTitle: String?
     var stage: Stage
     var statusText: String
     var detailLog: [String]
@@ -238,21 +242,29 @@ final class DownloadQueue {
     @discardableResult
     func enqueue(title: String, author: String, hardcoverBookID: Int? = nil,
                  hardcoverPages: Int? = nil, cover: URL? = nil,
-                 expectedLanguage: String? = nil) -> UUID {
+                 expectedLanguage: String? = nil, editionTitle: String? = nil) -> UUID {
         let cleanedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        var chosenEdition: String?
+        if let value = editionTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+           Self.isStandaloneEditionTitle(value), !BookAutoMatch.sameTitle(cleanedTitle, value) {
+            chosenEdition = value
+        }
         let cleanedAuthor = author.trimmingCharacters(in: .whitespacesAndNewlines)
         // Without a choice, the language set under Settings > Book Language.
         let language = BookLanguage.code(expectedLanguage) ?? BookLanguage.reading
         let signature = BookMatch.key(author: cleanedAuthor, title: cleanedTitle)
         if let existing = jobs.first(where: {
             $0.stage.isActive && BookMatch.key(author: $0.author, title: $0.title) == signature &&
-            (BookLanguage.code($0.expectedLanguage) ?? BookLanguage.preferred) == language
+            (BookLanguage.code($0.expectedLanguage) ?? BookLanguage.reading) == language
         }) { return existing.id }
         if let previouslyFailed = jobs.first(where: {
             ($0.stage == .failed || $0.stage == .cancelled) &&
             BookMatch.key(author: $0.author, title: $0.title) == signature &&
-            (BookLanguage.code($0.expectedLanguage) ?? BookLanguage.preferred) == language
+            (BookLanguage.code($0.expectedLanguage) ?? BookLanguage.reading) == language
         }) {
+            if let chosenEdition, let index = jobs.firstIndex(where: { $0.id == previouslyFailed.id }) {
+                jobs[index].editionTitle = chosenEdition
+            }
             retry(previouslyFailed.id)
             return previouslyFailed.id
         }
@@ -261,7 +273,7 @@ final class DownloadQueue {
         jobs.insert(DownloadJob(
             id: id, title: cleanedTitle, author: cleanedAuthor,
             cover: cover, hardcoverBookID: hardcoverBookID,
-            hardcoverPages: hardcoverPages, expectedLanguage: language, stage: .queued,
+            hardcoverPages: hardcoverPages, expectedLanguage: language, editionTitle: chosenEdition, stage: .queued,
             statusText: "Waiting in the download queue…",
             detailLog: ["\(now.formatted(date: .abbreviated, time: .standard)) · Queued for automatic source search · required language \(language)"],
             error: nil, importedBookID: nil, createdAt: now, updatedAt: now
@@ -278,6 +290,10 @@ final class DownloadQueue {
               !jobs[index].stage.isActive else { return }
         if let expectedLanguage {
             guard let code = BookLanguage.code(expectedLanguage) else { return }
+            if BookLanguage.code(jobs[index].expectedLanguage) != code {
+                // The chosen edition's title belongs to the old language.
+                jobs[index].editionTitle = nil
+            }
             jobs[index].expectedLanguage = code
             jobs[index].detailLog.append("Language changed to \(code) for the next attempt")
         }
@@ -416,7 +432,11 @@ final class DownloadQueue {
         // chosen language too, and accept a copy under either title.
         var titles = [job.title]
         var editionTitle: String?
-        if let hcID = job.hardcoverBookID {
+        if let chosen = job.editionTitle, !chosen.isEmpty {
+            // Picked on the book page: the verified title of that edition.
+            editionTitle = chosen
+            append(id, "Edition chosen on the book page: \(chosen)")
+        } else if let hcID = job.hardcoverBookID {
             let cacheKey = "\(hcID)|\(language)"
             if let cached = hardcoverEditionCache[cacheKey], cached.expires > Date() {
                 editionTitle = cached.title

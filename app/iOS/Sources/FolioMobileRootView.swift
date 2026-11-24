@@ -277,12 +277,13 @@ enum FolioMobileDownloadNotice {
 
     @MainActor
     static func enqueue(title: String, author: String, hardcoverBookID: Int? = nil,
-                        hardcoverPages: Int? = nil, cover: URL? = nil, language: String? = nil) {
+                        hardcoverPages: Int? = nil, cover: URL? = nil, language: String? = nil,
+                        editionTitle: String? = nil) {
         let queue = DownloadQueue.shared
         let before = Set(queue.jobs.filter { $0.stage.isActive }.map(\.id))
         let id = queue.enqueue(title: title, author: author,
                                hardcoverBookID: hardcoverBookID, hardcoverPages: hardcoverPages,
-                               cover: cover, expectedLanguage: language)
+                               cover: cover, expectedLanguage: language, editionTitle: editionTitle)
         NotificationCenter.default.post(name: name, object: nil, userInfo: [
             "title": title, "alreadyInProgress": before.contains(id)
         ])

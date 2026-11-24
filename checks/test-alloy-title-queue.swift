@@ -44,7 +44,12 @@ final class OpenLibraryFixture: URLProtocol {
 
 
 enum BookLanguage {
-    static func code(_ raw: String?) -> String? { ["es", "spa", "spanish"].contains(raw?.lowercased() ?? "") ? "es" : nil }
+    static func code(_ raw: String?) -> String? {
+        let value = raw?.lowercased() ?? ""
+        if ["es", "spa", "spanish"].contains(value) { return "es" }
+        if ["fr", "fre", "french"].contains(value) { return "fr" }
+        return nil
+    }
     static var preferred: String { "es" }
     static var reading: String { preferred }
     static func matches(_ raw: String?, expected: String) -> Bool? {
@@ -201,6 +206,30 @@ struct EPUBPackage {
                     ? [("compilation-only",42,"429",false)]
                     : [("http429",42,"429",true),("http403",42,"403",true),
                        ("missing-id",nil,"ok",true),("valid-edition",42,"ok",true)]
+        if mode == "chosen-edition" {
+            // The edition picked on a book page is searched first, with no
+            // metadata lookups, even while Hardcover is rate-limited.
+            source.searched = []
+            hardcover.response = "429"
+            hardcover.calls = 0
+            let id = queue.enqueue(title: "The Alloy of Law", author: "Brandon Sanderson",
+                                   hardcoverBookID: 42, expectedLanguage: "es",
+                                   editionTitle: "Aleación de ley")
+            try await wait(queue: queue, id: id, stage: .failed, timeout: 5)
+            let job = queue.jobs.first { $0.id == id }!
+            let searches = source.searched.filter { !$0.hasPrefix("CANDIDATE:") }
+            guard job.title == "The Alloy of Law", job.editionTitle == "Aleación de ley",
+                  searches.first == "Aleación de ley",
+                  hardcover.calls == 0, OpenLibraryFixture.calls == 0 else {
+                fatalError("Chosen edition not used first: \(searches) hc=\(hardcover.calls) ol=\(OpenLibraryFixture.calls)")
+            }
+            queue.retry(id, expectedLanguage: "fr")
+            guard queue.jobs.first(where: { $0.id == id })?.editionTitle == nil else {
+                fatalError("Edition title survived a language change")
+            }
+            print("PASS: chosen edition searched first without lookups; cleared when the language changes")
+            return
+        }
         for (caseName, bookID, response, translated) in cases {
             let caseStart = Date()
             source.searched = []

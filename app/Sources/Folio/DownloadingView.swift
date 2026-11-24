@@ -195,7 +195,7 @@ struct DownloadingView: View {
             CoverArt(title: job.title, author: job.author, remote: job.cover, cornerRadius: 4)
                 .frame(width: 44, height: 66)
             VStack(alignment: .leading, spacing: 3) {
-                Text(job.title)
+                Text(job.editionTitle ?? job.title)
                     .font(.body.weight(.medium))
                     .foregroundStyle(FolioTheme.ink)
                     .lineLimit(1)
@@ -286,7 +286,7 @@ struct DownloadingView: View {
                 VStack(alignment: .leading, spacing: 9) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(job.title).font(.headline).textSelection(.enabled)
+                            Text(job.editionTitle ?? job.title).font(.headline).textSelection(.enabled)
                             Text(job.author).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                         }
                         Spacer(minLength: 12)

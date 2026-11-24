@@ -427,13 +427,16 @@ struct FolioMobileBookDetail: View {
         let shown = BookLanguage.code(shownEdition?.language) == language ? shownEdition?.title : nil
         let localized = [listed, shown].compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first(where: { DownloadQueue.isStandaloneEditionTitle($0) })
+        // The job keeps the work's own title too, so sources listing the book
+        // under either title are found and Open Library can verify it.
         FolioMobileDownloadNotice.enqueue(
-            title: localized ?? title,
+            title: originalTitle ?? title,
             author: author,
             hardcoverBookID: linkedID,
             hardcoverPages: pages,
             cover: remoteCover,
-            language: language
+            language: language,
+            editionTitle: localized
         )
     }
 

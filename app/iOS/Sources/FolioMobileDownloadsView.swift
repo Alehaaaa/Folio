@@ -240,7 +240,7 @@ struct FolioMobileDownloadsView: View {
                 .accessibilityLabel("More options for \(job.title)")
             }
 
-            Text(job.title)
+            Text(job.editionTitle ?? job.title)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
@@ -302,7 +302,7 @@ struct FolioMobileDownloadsView: View {
                 FolioMobileRemoteCover(url: job.cover, title: job.title)
                     .frame(width: 76, height: 108)
                 VStack(alignment: .leading, spacing: 7) {
-                    Text(job.title).font(.folioDisplay(.title2))
+                    Text(job.editionTitle ?? job.title).font(.folioDisplay(.title2))
                     Text(job.author.isEmpty ? "Unknown Author" : job.author)
                         .font(.subheadline).foregroundStyle(.secondary)
                     Label(stageName(job.stage), systemImage: stageSymbol(job.stage))
