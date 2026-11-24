@@ -21,6 +21,11 @@ struct AutoMatchSmoke {
         assert(BookAutoMatch.sameAuthor("Backman,Fredrik", "Fredrik Backman"))
         assert(BookAutoMatch.sameAuthor("Philip Fracassi", "Philip Fracassi, Other Contributor"))
         assert(!BookAutoMatch.sameAuthor("Philip Fracassi", "Different Fracassi"))
+        assert(!BookAutoMatch.sameEditionTitle("Dune", "Dune: La saga completa"))
+        assert(!BookAutoMatch.sameEditionTitle("Don Quijote", "Don Quijote: Colección integral"))
+        assert(BookAutoMatch.sameEditionTitle("Iron Gold", "Iron Gold: Book 4 of the Red Rising Saga"))
+        assert(BookAutoMatch.sameEditionAuthor("Frank Herbert", "Herbert, Frank"))
+        assert(!BookAutoMatch.sameEditionAuthor("Frank Herbert", "Brian Herbert, Frank Herbert, Kevin J. Anderson"))
 
         let verified = candidate(101, "The Third Rule of Time Travel", "Philip Fracassi")
         let differentAuthor = candidate(102, "The Third Rule of Time Travel", "Someone Else")

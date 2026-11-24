@@ -51,6 +51,10 @@ enum BookAutoMatch {
             "companion", "unofficial", "fan", "collection", "omnibus",
             "novella", "shortened", "simplified", "translation",
             "bundle", "boxset", "boxed", "anthology", "complete",
+            // Spanish catalogue series bundles must never be fetched as an
+            // individual novel (e.g. "Dune: La saga completa").
+            "completa", "completo", "coleccion", "compilacion", "recopilacion",
+            "integral", "antologia", "estuche", "paquete", "pack",
             "key", "takeaways", "readers", "recap", "questions", "review"
         ]
         guard extra.count <= 20, !extra.contains(where: { disallowed.contains($0) }) else { return false }
@@ -84,13 +88,15 @@ enum BookAutoMatch {
     /// contributor. Other people and translator/editor names remain excluded.
     static func sameEditionAuthor(_ expected: String, _ actual: String) -> Bool {
         if words(expected).count == 1 { return words(expected) == words(actual) }
-        if sameAuthor(expected, actual) { return true }
         var actualWords = words(actual)
         // Providers sometimes join editor and author credit for the same
         // person, e.g. "Gillian Anderson (ed) Anderson, Gillian".
         // Ignore only standalone role *words*, never different contributors.
         actualWords.removeAll { ["author", "writer", "editor", "edited", "ed"].contains($0) }
-        if sameAuthor(expected, actualWords.joined(separator: " ")) { return true }
+        // Unlike general catalogue identity matching, unattended downloads
+        // must not accept an individual writer inside a multi-author credit.
+        // A comma-inverted personal name remains equivalent by word order.
+        if actualWords.sorted() == words(expected).sorted() { return true }
         // Some Anna result rows duplicate the same writer as both a library
         // catalog name and a normalized name: "Brown, Pierce Pierce Brown".
         // Each repeated segment must consist of precisely the same author;

@@ -23,6 +23,9 @@ enum AutomaticEPUBChoice {
             sameTitle(title, $0.result.title) && sameAuthor(author, $0.result.author) &&
             BookLanguage.matches($0.result.language, expected: expectedLanguage) != false
         }.sorted { a, b in
+            let aExact = BookAutoMatch.sameTitle(title, a.result.title)
+            let bExact = BookAutoMatch.sameTitle(title, b.result.title)
+            if aExact != bExact { return aExact }
             let aVerified = BookLanguage.matches(a.result.language, expected: expectedLanguage) == true
             let bVerified = BookLanguage.matches(b.result.language, expected: expectedLanguage) == true
             if aVerified != bVerified { return aVerified }

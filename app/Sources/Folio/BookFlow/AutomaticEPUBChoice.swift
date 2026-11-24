@@ -22,6 +22,11 @@ enum AutomaticEPUBChoice {
             sameTitle(title, $0.result.title) && sameAuthor(author, $0.result.author) &&
             BookLanguage.matches($0.result.language, expected: expectedLanguage) != false
         }.sorted { a, b in
+            // A complete-series compilation may share a title prefix; prefer
+            // the requested standalone edition over any valid subtitle.
+            let aExact = BookAutoMatch.sameTitle(title, a.result.title)
+            let bExact = BookAutoMatch.sameTitle(title, b.result.title)
+            if aExact != bExact { return aExact }
             // A declared matching language outranks any unknown edition,
             // regardless of popularity or source.
             let aVerified = BookLanguage.matches(a.result.language, expected: expectedLanguage) == true
