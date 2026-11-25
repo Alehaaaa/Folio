@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.77",
+          "buildVersion": "78",
+          "date": "2026-11-25",
+          "localizedDescription": "1.0.77: Folio Sync works with no server or keys",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.77-78.ipa",
+          "size": 5878726,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.76",
           "buildVersion": "77",
           "date": "2026-11-25",
