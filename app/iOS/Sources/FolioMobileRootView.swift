@@ -364,6 +364,8 @@ struct FolioMobileHomeView: View {
             .padding(.top, 12)
             .padding(.bottom, 36)
         }
+        // A book in the hand on the shelf holds the page still.
+        .scrollDisabled(FolioNookStore.shared.holding)
         .refreshable {
             await shelves.load(from: hardcover)
             await discovery.load(from: hardcover, books: store.books, tracked: store.data.tracked)

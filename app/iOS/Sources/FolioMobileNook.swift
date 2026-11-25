@@ -223,6 +223,9 @@ final class FolioNookStore {
 
     static let shelfRange = 1...8
 
+    /// A book is in the hand on the Home shelf: the page holds still under it.
+    var holding = false
+
     private init() {
         let defaults = UserDefaults.standard
         order = defaults.stringArray(forKey: Key.order) ?? []
