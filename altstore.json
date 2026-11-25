@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.76",
+          "buildVersion": "77",
+          "date": "2026-11-25",
+          "localizedDescription": "1.0.76: encrypted DNS reaches the download sources' browser too",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.76-77.ipa",
+          "size": 5872814,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.75",
           "buildVersion": "76",
           "date": "2026-11-25",
