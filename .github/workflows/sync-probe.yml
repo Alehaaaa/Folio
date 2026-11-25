@@ -10,4 +10,7 @@ jobs:
       - run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
       - run: LIVE=1 bash checks/test-cloud-sync.sh
       - name: Mac build compiles
-        run: swift build -c debug --package-path app 2>&1 | grep -E "error|warning: .*CloudSync|Compiling|Build complete" | grep -v "^\[.*Compiling" | tail -40; test ${PIPESTATUS[0]} -eq 0
+        run: |
+          swift build -c debug --package-path app > build.log 2>&1 && ok=1 || ok=0
+          grep -E "error|CloudSync.*warning|Build complete" build.log | tail -40
+          test $ok = 1
