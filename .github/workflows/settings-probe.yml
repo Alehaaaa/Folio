@@ -1,0 +1,15 @@
+name: settings-probe
+on:
+  push:
+    branches: ["test/settings"]
+jobs:
+  mac:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+      - name: Mac build compiles
+        run: |
+          swift build -c debug --package-path app > build.log 2>&1 && ok=1 || ok=0
+          grep -E "error|Build complete" build.log | tail -40
+          test $ok = 1
