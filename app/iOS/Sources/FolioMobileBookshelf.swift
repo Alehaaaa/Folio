@@ -123,7 +123,7 @@ struct FolioMobileBookshelf: View {
                     dropSpot = nil
                 }
             },
-            dropped: { payload in dropIncoming(payload) }
+            dropped: { dropIncoming() }
         ))
         .background(
             LinearGradient(colors: [FolioTheme.wood.opacity(0.92), FolioTheme.wood],
@@ -647,13 +647,15 @@ struct FolioMobileBookshelf: View {
     }
 
     /// Puts the incoming book on the shelf, in the gap it was shown in.
-    private func dropIncoming(_ payload: String?) {
+    /// Runs inside the drop itself: right after it the system reports the
+    /// drag leaving the shelf, which clears the gap.
+    private func dropIncoming() {
         defer { nook.incoming = nil }
-        guard let book = nook.incoming, let ghost = incoming,
-              payload == FolioNookIncomingDrop.payload(for: book) else {
+        guard let book = nook.incoming else {
             withAnimation(Self.slide) { incoming = nil; dropSpot = nil }
             return
         }
+        let ghost = incoming ?? copy(of: book) ?? FolioNookShelf.item(for: book)
         let widths = Dictionary(items.map { ($0.id, FolioSpineMetrics.width(for: $0)) },
                                 uniquingKeysWith: { a, _ in a })
         let list = layout(widths: widths).flatMap { $0 }
@@ -1011,7 +1013,7 @@ struct FolioSpineLean {
 struct FolioNookIncomingDrop: DropDelegate {
     let hovered: (CGPoint) -> Void
     let left: () -> Void
-    let dropped: (String?) -> Void
+    let dropped: () -> Void
 
     static func payload(for book: HCBook) -> String { "folio-book:\(book.id):\(book.title)" }
 
@@ -1025,17 +1027,10 @@ struct FolioNookIncomingDrop: DropDelegate {
         return DropProposal(operation: .copy)
     }
     func performDrop(info: DropInfo) -> Bool {
-        guard let provider = info.itemProviders(for: [.plainText]).first else {
-            dropped(nil)
-            return false
-        }
-        // Only a drag from Folio's own rows carries this book's payload.
-        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
-            let text = object as? String
-            DispatchQueue.main.async { dropped(text) }
-        }
+        dropped()
         return true
     }
+
 }
 
 /// Lets a book in a Home row be dragged onto the shelf.
@@ -1045,9 +1040,19 @@ struct FolioNookDragSource: ViewModifier {
 
     func body(content: Content) -> some View {
         if enabled {
-            content.onDrag {
+            let cover = FolioBookOverrides.shared.apply(book).imageURL
+            content
+                .contentShape(.dragPreview, RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .onDrag {
                 MainActor.assumeIsolated { FolioNookStore.shared.incoming = book }
                 return NSItemProvider(object: FolioNookIncomingDrop.payload(for: book) as NSString)
+            } preview: {
+                // A small cover, so the spine it becomes on the shelf stays in view.
+                FolioCachedImage(url: cover) {
+                    FolioClothCover(title: book.title, compact: true)
+                }
+                .frame(width: 58, height: 84)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
         } else {
             content
