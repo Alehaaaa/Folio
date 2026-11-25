@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.80",
+          "buildVersion": "81",
+          "date": "2026-11-25",
+          "localizedDescription": "1.0.80: steadier Sources page, encrypted DNS check for every download, scrollable cover picker",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.80-81.ipa",
+          "size": 5901078,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.79",
           "buildVersion": "80",
           "date": "2026-11-25",
