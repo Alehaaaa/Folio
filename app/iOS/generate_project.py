@@ -22,6 +22,7 @@ SHARED = [
     "ReadingAnnotations",
     "ReaderScript",
     "BookAutoMatch",
+    "EditionTitle",
     "DownloadQueue",
     "Hardcover",
     "OpenLibrary",

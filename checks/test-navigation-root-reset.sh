@@ -40,6 +40,13 @@ struct FolioMobileReading: Identifiable { let id: UUID }
         precondition(nav.navigationRootID != inLibrary, "Reselecting a tab must return to its root")
 
         nav.selectedTab = .settings
+        nav.morePath.append("Settings")
+        let inMore = nav.navigationRootID
+        nav.selectedTab = .settings // tapping More again
+        precondition(nav.morePath.isEmpty, "Tapping More again must close Settings/Downloads/Sources")
+        precondition(nav.navigationRootID != inMore, "Tapping More again must return to its root")
+
+        nav.selectedTab = .settings
         nav.morePath.append("Sync")
         nav.openShelf(.reading)
         precondition(nav.selectedTab == .library)

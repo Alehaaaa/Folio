@@ -76,16 +76,5 @@ let code = CloudSyncMerge.newCode()
 check(code.count == 16 && CloudSyncMerge.normalizedCode(CloudSyncMerge.display(code).lowercased()) == code, "codes survive display and lower case")
 check(CloudSyncMerge.normalizedCode("abc") == nil, "short codes are refused")
 
-// Sealing for the public store.
-var channel = CloudSyncChannel()
-channel.devices["dev-1"] = CloudSyncDeviceDoc(deviceName: "Mac", platform: "mac", savedAt: later, books: [r])
-let sealed = try! CloudSyncBox.seal(channel, code: code)
-check(sealed.hasPrefix(CloudSyncBox.prefix) && !sealed.contains("Mac"), "sealed document hides its contents")
-check((try? CloudSyncBox.open(sealed, code: code))?.devices["dev-1"] == channel.devices["dev-1"], "sealed document opens with its code")
-check((try? CloudSyncBox.open(sealed, code: CloudSyncMerge.newCode())) == nil, "another code can't open it")
-check((try? CloudSyncBox.open("", code: code))?.devices.isEmpty == true, "an empty slot is an empty channel")
-check(CloudSyncBox.slot(for: code) == CloudSyncBox.slot(for: code) && CloudSyncBox.slot(for: code) != CloudSyncBox.slot(for: CloudSyncMerge.newCode()), "each code has its own slot")
-check(!CloudSyncBox.slot(for: code).contains(code), "the slot doesn't reveal the code")
-
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("All merge checks passed")

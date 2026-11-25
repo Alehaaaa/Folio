@@ -469,11 +469,18 @@ final class DownloadQueue {
                 hardcoverEditionCache[cacheKey] = (editionTitle, Date().addingTimeInterval(editionTitle == nil ? 90 : 600))
             }
         }
+        if let value = editionTitle {
+            let cleaned = BookAutoMatch.localizedEditionTitle(value, original: job.title)
+            if cleaned != value {
+                append(id, "Edition title \"\(value)\" also carries the original title; searching with \"\(cleaned)\"")
+                editionTitle = cleaned
+            }
+        }
         if (editionTitle?.isEmpty ?? true) || BookAutoMatch.sameTitle(job.title, editionTitle ?? "") {
             if let translated = await openLibraryEditionTitle(title: job.title, author: job.author,
                                                              language: language) {
-                editionTitle = translated
-                append(id, "Verified translated title from Open Library metadata: \(translated)")
+                editionTitle = BookAutoMatch.localizedEditionTitle(translated, original: job.title)
+                append(id, "Verified translated title from Open Library metadata: \(editionTitle ?? translated)")
             }
         }
         if let editionTitle, !editionTitle.isEmpty,

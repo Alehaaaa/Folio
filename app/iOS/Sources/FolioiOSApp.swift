@@ -116,10 +116,13 @@ final class FolioMobileNavigation {
     /// Navigating to a top-level section starts it at its root rather than
     /// retaining a nested Settings/Library/Discover screen from a previous tab.
     /// This also covers programmatic routes and reselecting the current tab.
+    /// Tapping the tab you are already on lands here too (the tab bar writes
+    /// the same value again), and, as in Apple's own apps, closes whatever
+    /// page is open in it: Settings, Downloads, Sources, a book page...
     var selectedTab: FolioMobileTab = .home {
         didSet {
             navigationRootID = UUID()
-            if oldValue != selectedTab { morePath = NavigationPath() }
+            morePath = NavigationPath()
         }
     }
     var navigationRootID = UUID()
