@@ -57,13 +57,18 @@ struct FolioMobileReading: Identifiable { let id: UUID }
         precondition(nav.selectedTab == .library)
         precondition(nav.morePath.isEmpty, "Programmatic navigation must dismiss stale More submenu")
 
-        // Pages fold into More only when the window is too narrow for their tabs.
-        precondition(FolioMobileTabLayout(width: 393, regular: false).moreRoutes == [.downloads, .sources, .settings])
-        precondition(FolioMobileTabLayout(width: 1000, regular: false) == .compact, "Compact width class keeps five tabs")
-        precondition(FolioMobileTabLayout(width: 0, regular: true) == .compact, "Unknown width starts compact")
-        precondition(FolioMobileTabLayout(width: 600, regular: true).moreRoutes == [.sources, .settings])
-        precondition(FolioMobileTabLayout(width: 744, regular: true).moreRoutes.isEmpty, "iPad mini portrait shows every tab")
-        precondition(FolioMobileTabLayout(width: 932, regular: true).moreRoutes.isEmpty, "Large iPhone landscape shows every tab")
+        // Pages fold into More only when the bar can't hold them. iPhones (and compact
+        // iPad windows) get at most five tabs, or UIKit hides Discover in its own More.
+        for layout in [FolioMobileTabLayout.compact, .medium, .full] {
+            let tabs = 2 + 3 - layout.moreRoutes.count + (layout.moreRoutes.isEmpty ? 0 : 1) + 1
+            precondition(layout == .full || tabs <= FolioMobileTabLayout.maxTabs, "\(layout) has \(tabs) tabs")
+        }
+        precondition(FolioMobileTabLayout(width: 393, regular: false, phone: true) == .medium, "iPhone portrait")
+        precondition(FolioMobileTabLayout(width: 932, regular: true, phone: true) == .medium, "iPhone landscape stays at five tabs")
+        precondition(FolioMobileTabLayout(width: 320, regular: false, phone: false) == .compact, "Slide Over")
+        precondition(FolioMobileTabLayout(width: 0, regular: false, phone: true) == .medium, "Unknown width")
+        precondition(FolioMobileTabLayout(width: 600, regular: true, phone: false) == .medium)
+        precondition(FolioMobileTabLayout(width: 744, regular: true, phone: false).moreRoutes.isEmpty, "iPad mini portrait shows every tab")
         print("PASS sidebar switches, tab reselect and programmatic navigation discard stale submenus")
     }
 }

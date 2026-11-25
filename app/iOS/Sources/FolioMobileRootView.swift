@@ -14,7 +14,8 @@ struct FolioMobileRootView: View {
     @State private var windowWidth: CGFloat = 0
 
     private var tabLayout: FolioMobileTabLayout {
-        FolioMobileTabLayout(width: windowWidth, regular: sizeClass == .regular)
+        FolioMobileTabLayout(width: windowWidth, regular: sizeClass == .regular,
+                             phone: UIDevice.current.userInterfaceIdiom == .phone)
     }
 
     /// A short, actionable handoff: the person decides when to leave the current page.

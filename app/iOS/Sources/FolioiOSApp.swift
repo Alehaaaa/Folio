@@ -109,16 +109,23 @@ enum FolioMobileTabLayout: Equatable {
     /// Home, Library, Downloads, Sources, Settings, Discover. No More tab.
     case full
 
-    /// Widest window that still folds Sources and Settings into More. Six labeled
-    /// tabs need about 600 points; the margin keeps them from crowding.
+    /// Narrowest iPad window that shows six tabs. Six labeled tabs need about 600
+    /// points; the margin keeps them from crowding.
     static let fullWidth: CGFloat = 680
 
-    /// A compact width class keeps at most five tabs (four and Discover): with more,
-    /// UIKit folds the extra ones into its own More list. Before the width is known
-    /// (0) or the size class is (nil), lay out the compact tabs.
-    init(width: CGFloat, regular: Bool) {
-        if !regular || width <= 0 { self = .compact }
-        else if width >= Self.fullWidth { self = .full }
+    /// UIKit's own limit: a tab bar shows at most five tabs (Discover included) on
+    /// every iPhone, in either orientation, and in a compact iPad window. A sixth tab
+    /// makes UIKit fold the last ones, Discover too, into its own More list. So only
+    /// an iPad window with a regular width class gets the six-tab layout.
+    static let maxTabs = 5
+
+    /// Narrower than this (iPhone mini Display Zoom, iPad Slide Over), four tabs and
+    /// Discover crowd the bar, so Downloads joins More.
+    static let mediumWidth: CGFloat = 360
+
+    init(width: CGFloat, regular: Bool, phone: Bool) {
+        if !phone && regular && width >= Self.fullWidth { self = .full }
+        else if width > 0 && width < Self.mediumWidth { self = .compact }
         else { self = .medium }
     }
 
