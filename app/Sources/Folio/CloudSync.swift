@@ -271,9 +271,7 @@ final class FolioCloudSync {
     }()
 
     nonisolated static func fetch(_ url: URL, code: String) async throws -> CloudSyncChannel {
-        var request = URLRequest(url: url)
-        request.setValue("text/plain", forHTTPHeaderField: "Accept")
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: CloudSyncBox.readRequest(url))
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         if status == 404 { return CloudSyncChannel() }
         guard status == 200 else { throw ServerError(status: status) }
@@ -287,11 +285,7 @@ final class FolioCloudSync {
     }
 
     nonisolated static func put(_ channel: CloudSyncChannel, to url: URL, code: String) async throws {
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data(try CloudSyncBox.seal(channel, code: code).utf8)
-        let (_, response) = try await session.data(for: request)
+        let (_, response) = try await session.data(for: CloudSyncBox.writeRequest(channel, to: url, code: code))
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else { throw ServerError(status: status) }
     }

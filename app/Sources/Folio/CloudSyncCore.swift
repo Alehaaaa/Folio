@@ -88,6 +88,19 @@ enum CloudSyncBox {
         return prefix + box.base64EncodedString()
     }
 
+    /// Reading a slot. No Accept header: textdb.dev answers 406 to "text/plain".
+    static func readRequest(_ url: URL) -> URLRequest {
+        URLRequest(url: url)
+    }
+
+    static func writeRequest(_ channel: CloudSyncChannel, to url: URL, code: String) throws -> URLRequest {
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(try seal(channel, code: code).utf8)
+        return request
+    }
+
     /// An empty slot is an empty channel.
     static func open(_ text: String, code: String) throws -> CloudSyncChannel {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)

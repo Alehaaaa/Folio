@@ -16,13 +16,13 @@ import Foundation
 let code = CloudSyncMerge.newCode()
 let url = URL(string: "https://textdb.dev/api/data/")!.appendingPathComponent(CloudSyncBox.slot(for: code))
 func get() async throws -> CloudSyncChannel {
-    let (d, _) = try await URLSession.shared.data(from: url)
+    // The app's own requests, so a header the store refuses shows up here.
+    let (d, r) = try await URLSession.shared.data(for: CloudSyncBox.readRequest(url))
+    guard (r as! HTTPURLResponse).statusCode == 200 else { fatalError("GET \((r as! HTTPURLResponse).statusCode)") }
     return try CloudSyncBox.open(String(decoding: d, as: UTF8.self), code: code)
 }
 func put(_ c: CloudSyncChannel) async throws {
-    var q = URLRequest(url: url); q.httpMethod = "POST"; q.setValue("text/plain", forHTTPHeaderField: "Content-Type")
-    q.httpBody = Data(try CloudSyncBox.seal(c, code: code).utf8)
-    let (_, r) = try await URLSession.shared.data(for: q)
+    let (_, r) = try await URLSession.shared.data(for: CloudSyncBox.writeRequest(c, to: url, code: code))
     guard (r as! HTTPURLResponse).statusCode == 200 else { fatalError("POST \((r as! HTTPURLResponse).statusCode)") }
 }
 let books = (0..<800).map { i in CloudSyncRecord(keys: ["t:book\(i)", "isbn:978000000\(i)"], title: "A Fairly Long Book Title Number \(i)", author: "Some Author", progress: Double(i % 100) / 100, chapter: i % 30, fraction: 0.5, pdfPage: 0, status: "reading", finishedAt: nil, lastOpenedAt: Date(), collections: ["Favourites"], updatedAt: Date()) }
