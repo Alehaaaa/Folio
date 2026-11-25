@@ -1,52 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The same service configuration, reminder cadence and reader options as
-/// Folio on macOS, presented with native iPhone and iPad navigation.
-struct FolioMobileMoreSettings: View {
-    var body: some View {
-        Section("Accounts & Library") {
-            NavigationLink {
-                FolioMobileSyncServicesView()
-            } label: {
-                Label("Sync", systemImage: "arrow.triangle.2.circlepath")
-            }
-            NavigationLink {
-                FolioMobileCollectionsSettings()
-            } label: {
-                Label("Manage Collections", systemImage: "rectangle.stack")
-            }
-        }
-        .folioRow()
-        Section("Personalise Folio") {
-            NavigationLink {
-                FolioMobileNookSettings()
-            } label: {
-                Label("Home Nook", systemImage: "books.vertical")
-            }
-            NavigationLink {
-                FolioMobileReaderAdvancedSettings()
-            } label: {
-                Label("Typography & Reading Layout", systemImage: "textformat.size")
-            }
-            NavigationLink {
-                FolioMobileReminderSettings()
-            } label: {
-                Label("Reading Reminders", systemImage: "bell.badge")
-            }
-        }
-        .folioRow()
-        Section("Sources") {
-            NavigationLink {
-                FolioMobileExtensionSettings()
-            } label: {
-                Label("Manage Source Extensions", systemImage: "puzzlepiece.extension")
-            }
-        }
-        .folioRow()
-    }
-}
-
 struct FolioMobileCollectionsSettings: View {
     @Environment(LibraryStore.self) private var library
     @State private var newName = ""
@@ -167,10 +121,20 @@ struct FolioMobileReminderSettings: View {
 }
 
 struct FolioMobileReaderAdvancedSettings: View {
+    var body: some View {
+        Form { FolioMobileTypographySections() }
+            .navigationTitle("Typography & Layout")
+            .folioPageHeader("Typography & Layout")
+            .folioScreen()
+    }
+}
+
+/// Font, page layout and spacing: shared by Settings › Reading and the reader.
+struct FolioMobileTypographySections: View {
     @Environment(ReaderPrefsStore.self) private var reader
 
     var body: some View {
-        Form {
+        Group {
             Section("Typeface") {
                 Picker("Font", selection: Binding(
                     get: { reader.prefs.font },
@@ -246,9 +210,6 @@ struct FolioMobileReaderAdvancedSettings: View {
             }
             .folioRow()
         }
-        .navigationTitle("Typography & Layout")
-        .folioPageHeader("Typography & Layout")
-        .folioScreen()
     }
 }
 

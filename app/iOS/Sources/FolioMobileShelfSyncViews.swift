@@ -1,13 +1,16 @@
 import SwiftUI
 import WebKit
 
-/// Every reading service Folio keeps in step, Hardcover first.
+/// Settings › Sync: this device's other devices first, then every reading
+/// service Folio keeps in step, Hardcover first.
 struct FolioMobileSyncServicesView: View {
     @Environment(HardcoverClient.self) private var hardcover
     @State private var sync = FolioShelfSync.shared
 
     var body: some View {
         Form {
+            FolioCloudSyncSection()
+
             Section {
                 NavigationLink {
                     Form { FolioMobileHardcoverAccountSection() }
@@ -38,6 +41,8 @@ struct FolioMobileSyncServicesView: View {
                         }
                     }
                 }
+            } header: {
+                Text("Services")
             } footer: {
                 Text("Each book's status and reading progress go to every service that's on.")
             }

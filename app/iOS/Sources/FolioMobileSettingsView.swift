@@ -1,18 +1,37 @@
 import SwiftUI
 
+/// Settings: one short list of pages, each holding one subject.
 struct FolioMobileSettingsView: View {
-    @Environment(LibraryStore.self) private var store
-    @Environment(HardcoverClient.self) private var hardcover
-    @Environment(ReaderPrefsStore.self) private var preferences
     let showImporter: () -> Void
-    @AppStorage(BookLanguage.readingLanguageKey) private var bookLanguage = ""
 
     var body: some View {
         Form {
-            Section("Library") {
-                LabeledContent("Imported Books", value: String(store.books.count))
-                Button("Import from Files", systemImage: "square.and.arrow.down", action: showImporter)
-                    .folioFormButton()
+            Section {
+                NavigationLink { FolioMobileSyncServicesView() } label: {
+                    Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+                }
+                NavigationLink { FolioMobileReadingSettings() } label: {
+                    Label("Reading", systemImage: "textformat.size")
+                }
+                NavigationLink { FolioMobileLibrarySettings(showImporter: showImporter) } label: {
+                    Label("Library", systemImage: "books.vertical")
+                }
+                NavigationLink { FolioMobileGoalsSettings() } label: {
+                    Label("Goals & Reminders", systemImage: "target")
+                }
+                NavigationLink { FolioMobileNetworkSettings() } label: {
+                    Label("Network", systemImage: "network")
+                }
+            }
+            .folioRow()
+
+            Section("About") {
+                LabeledContent(
+                    "Version",
+                    value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+                )
+                FolioUpdateRow()
+                FolioDebugLogRow()
                 Button {
                     UserDefaults.standard.set(false, forKey: "folioIOS.onboardingCompleted")
                 } label: {
@@ -21,10 +40,77 @@ struct FolioMobileSettingsView: View {
                 .folioFormButton()
             }
             .folioRow()
+        }
+        .navigationTitle("Settings")
+        .folioPageHeader("Settings")
+        .folioScreen()
+    }
+}
 
-            FolioMobileHardcoverAccountSection()
+/// Settings › Reading: everything about how pages look, in one place.
+struct FolioMobileReadingSettings: View {
+    @Environment(ReaderPrefsStore.self) private var preferences
 
-            FolioCloudSyncSection()
+    var body: some View {
+        Form {
+            FolioMobileReadabilitySettings(rowBackground: FolioTheme.surface)
+
+            Section("Appearance") {
+                Picker("Appearance", selection: Binding(
+                    get: { preferences.appearance },
+                    set: { preferences.appearance = $0 }
+                )) {
+                    ForEach(ReaderAppearance.allCases) { appearance in
+                        Label(appearance.label, systemImage: appearance.symbol).tag(appearance)
+                    }
+                }
+                Picker("Theme", selection: Binding(
+                    get: { preferences.prefs.theme },
+                    set: { preferences.pickTheme($0) }
+                )) {
+                    ForEach(ReaderTheme.allCases) { theme in
+                        Text(theme.label).tag(theme)
+                    }
+                }
+                Stepper(
+                    "Text Size: \(preferences.prefs.fontSize) pt",
+                    value: Binding(
+                        get: { preferences.prefs.fontSizeIndex },
+                        set: { preferences.prefs.fontSizeIndex = $0 }
+                    ),
+                    in: 0...(ReaderPrefs.fontSizes.count - 1)
+                )
+            }
+            .folioRow()
+
+            FolioMobileTypographySections()
+        }
+        .navigationTitle("Reading")
+        .folioPageHeader("Reading")
+        .folioScreen()
+    }
+}
+
+/// Settings › Library: importing, collections, the home nook and book language.
+struct FolioMobileLibrarySettings: View {
+    @Environment(LibraryStore.self) private var store
+    let showImporter: () -> Void
+    @AppStorage(BookLanguage.readingLanguageKey) private var bookLanguage = ""
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Imported Books", value: String(store.books.count))
+                Button("Import from Files", systemImage: "square.and.arrow.down", action: showImporter)
+                    .folioFormButton()
+                NavigationLink { FolioMobileCollectionsSettings() } label: {
+                    Label("Collections", systemImage: "rectangle.stack")
+                }
+                NavigationLink { FolioMobileNookSettings() } label: {
+                    Label("Home Nook", systemImage: "books.vertical")
+                }
+            }
+            .folioRow()
 
             Section {
                 Picker("Book Language", selection: $bookLanguage) {
@@ -34,13 +120,23 @@ struct FolioMobileSettingsView: View {
                     }
                 }
             } footer: {
-                Text("Book pages show the edition in this language when Hardcover has one: its title, cover and pages. Imported books always use their own language.")
+                Text("Book pages show the edition in this language when Hardcover has one. Imported books keep their own language.")
             }
             .folioRow()
+        }
+        .navigationTitle("Library")
+        .folioPageHeader("Library")
+        .folioScreen()
+    }
+}
 
-            FolioEncryptedDNSSection()
+/// Settings › Goals & Reminders.
+struct FolioMobileGoalsSettings: View {
+    @Environment(LibraryStore.self) private var store
 
-            Section("Reading Goals") {
+    var body: some View {
+        Form {
+            Section("Goals") {
                 Stepper(
                     "Daily: \(store.data.goals.dailyMinutes) minutes",
                     value: Binding(
@@ -59,58 +155,26 @@ struct FolioMobileSettingsView: View {
                 )
             }
             .folioRow()
-
-            FolioMobileReadabilitySettings(rowBackground: FolioTheme.surface)
-
-            Section("Reading Appearance") {
-                Picker("Appearance", selection: Binding(
-                    get: { preferences.appearance },
-                    set: { preferences.appearance = $0 }
-                )) {
-                    ForEach(ReaderAppearance.allCases) { appearance in
-                        Label(appearance.label, systemImage: appearance.symbol).tag(appearance)
-                    }
+            Section {
+                NavigationLink { FolioMobileReminderSettings() } label: {
+                    Label("Reading Reminders", systemImage: "bell.badge")
                 }
-
-                Picker("Theme", selection: Binding(
-                    get: { preferences.prefs.theme },
-                    set: { preferences.pickTheme($0) }
-                )) {
-                    ForEach(ReaderTheme.allCases) { theme in
-                        Text(theme.label).tag(theme)
-                    }
-                }
-                Stepper(
-                    "Text Size: \(preferences.prefs.fontSize) pt",
-                    value: Binding(
-                        get: { preferences.prefs.fontSizeIndex },
-                        set: { preferences.prefs.fontSizeIndex = $0 }
-                    ),
-                    in: 0...(ReaderPrefs.fontSizes.count - 1)
-                )
-                Toggle("Bold Text", isOn: Binding(
-                    get: { preferences.prefs.boldText },
-                    set: { preferences.prefs.boldText = $0 }
-                ))
-            }
-            .folioRow()
-
-            FolioMobileMoreSettings()
-
-            Section("About") {
-                LabeledContent("App", value: "Folio for iOS")
-                LabeledContent(
-                    "Version",
-                    value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-                )
-                FolioUpdateRow()
-                FolioDebugLogRow()
             }
             .folioRow()
         }
-        .navigationTitle("Settings")
-        .folioPageHeader("Settings")
+        .navigationTitle("Goals & Reminders")
+        .folioPageHeader("Goals & Reminders")
         .folioScreen()
+    }
+}
+
+/// Settings › Network.
+struct FolioMobileNetworkSettings: View {
+    var body: some View {
+        Form { FolioEncryptedDNSSection() }
+            .navigationTitle("Network")
+            .folioPageHeader("Network")
+            .folioScreen()
     }
 }
 
@@ -184,8 +248,6 @@ struct FolioEncryptedDNSSection: View {
                                          ? FolioTheme.caution : FolioTheme.muted)
                 }
             }
-        } header: {
-            Text("Network")
         } footer: {
             Text("Book details, covers and downloads look up websites over HTTPS with this provider. If it can't be reached, Folio uses your network's DNS.")
         }

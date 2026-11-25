@@ -15,7 +15,7 @@ struct FolioCloudSyncSection: View {
 
     var body: some View {
         Section {
-            Toggle("Sync Reading Progress", isOn: Binding(
+            Toggle("Sync My Devices", isOn: Binding(
                 get: { sync.isEnabled },
                 set: { sync.isEnabled = $0 }
             ))
@@ -44,7 +44,7 @@ struct FolioCloudSyncSection: View {
                 .disabled(sync.syncing)
             }
         } header: {
-            Text("Sync")
+            Text("Devices")
         } footer: {
             Text(sync.isEnabled
                  ? "Turn on sync on your other device and enter this code there."
