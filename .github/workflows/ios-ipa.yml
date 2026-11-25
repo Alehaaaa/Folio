@@ -42,6 +42,8 @@ jobs:
           zsh checks/test-language-sparse-queue.sh
           swiftc -swift-version 5 app/Sources/Folio/BookAutoMatch.swift app/Sources/Folio/BookFlow/AutomaticEPUBChoice.swift checks/test-automatic-epub-ranking.swift -o /tmp/folio-automatic-epub-ranking
           /tmp/folio-automatic-epub-ranking
+          swiftc -swift-version 5 app/Sources/Folio/BookAutoMatch.swift checks/test-localized-edition-title.swift -o /tmp/folio-localized-edition-title
+          /tmp/folio-localized-edition-title
 
       - name: Build unsigned IPA
         run: app/iOS/build-ipa.sh
