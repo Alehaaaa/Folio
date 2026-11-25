@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.87",
+          "buildVersion": "88",
+          "date": "2026-11-25",
+          "localizedDescription": "1.0.87: books dragged from Home rows land on the shelf",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.87-88.ipa",
+          "size": 5978691,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.85",
           "buildVersion": "86",
           "date": "2026-11-25",
