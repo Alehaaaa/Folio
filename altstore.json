@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.78",
+          "buildVersion": "79",
+          "date": "2026-11-25",
+          "localizedDescription": "1.0.78: restore Folio Sync from 1.0.77 and ship the 1.0.77 fixes",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.78-79.ipa",
+          "size": 5880679,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.77",
           "buildVersion": "78",
           "date": "2026-11-25",
