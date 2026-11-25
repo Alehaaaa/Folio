@@ -95,6 +95,43 @@ enum FolioMobileTab: Hashable {
     case downloads
     case sources
     case settings
+    case more
+}
+
+/// Which pages get their own tab and which share More. It follows the width the
+/// window actually has, not the device: a wide window shows every page as a tab,
+/// and pages fold into More only when the bar would not fit them.
+enum FolioMobileTabLayout: Equatable {
+    /// Home, Library, More (Downloads, Sources, Settings), Discover.
+    case compact
+    /// Home, Library, Downloads, More (Sources, Settings), Discover.
+    case medium
+    /// Home, Library, Downloads, Sources, Settings, Discover. No More tab.
+    case full
+
+    /// Widest window that still folds Sources and Settings into More. Six labeled
+    /// tabs need about 600 points; the margin keeps them from crowding.
+    static let fullWidth: CGFloat = 680
+
+    /// A compact width class keeps at most five tabs (four and Discover): with more,
+    /// UIKit folds the extra ones into its own More list. Before the width is known
+    /// (0) or the size class is (nil), lay out the compact tabs.
+    init(width: CGFloat, regular: Bool) {
+        if !regular || width <= 0 { self = .compact }
+        else if width >= Self.fullWidth { self = .full }
+        else { self = .medium }
+    }
+
+    /// The pages listed under More, in order. Empty means no More tab.
+    var moreRoutes: [FolioMobileMoreRoute] {
+        switch self {
+        case .compact: [.downloads, .sources, .settings]
+        case .medium: [.sources, .settings]
+        case .full: []
+        }
+    }
+
+    func hasTab(_ route: FolioMobileMoreRoute) -> Bool { !moreRoutes.contains(route) }
 }
 
 enum FolioMobileLibraryScope: String, CaseIterable, Identifiable {
@@ -102,8 +139,17 @@ enum FolioMobileLibraryScope: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-enum FolioMobileMoreRoute: Hashable {
+enum FolioMobileMoreRoute: Hashable, CaseIterable {
     case downloads, sources, settings
+
+    /// The tab this page has when it is not folded into More.
+    var tab: FolioMobileTab {
+        switch self {
+        case .downloads: .downloads
+        case .sources: .sources
+        case .settings: .settings
+        }
+    }
 }
 
 struct FolioMobileReading: Identifiable {
@@ -134,8 +180,10 @@ final class FolioMobileNavigation {
     var libraryScope: FolioMobileLibraryScope = .books
     /// Pages pushed inside the More tab, so Downloads can be opened from anywhere.
     var morePath = NavigationPath()
-    /// iPhone layout: Downloads, Sources and Settings live under More.
-    var compactTabs = true
+    /// Which pages have their own tab right now; the rest are under More.
+    var tabLayout: FolioMobileTabLayout = .compact
+    /// The last page opened under More, so it can move to its own tab on resize.
+    var moreRoute: FolioMobileMoreRoute?
     var shelfStatus: HCStatus = .reading
 
     func openShelf(_ status: HCStatus) {

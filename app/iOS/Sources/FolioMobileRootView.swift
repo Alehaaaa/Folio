@@ -11,6 +11,11 @@ struct FolioMobileRootView: View {
     @State private var showingOnboarding = false
     @State private var importAfterOnboarding = false
     @State private var downloadToast: DownloadToast?
+    @State private var windowWidth: CGFloat = 0
+
+    private var tabLayout: FolioMobileTabLayout {
+        FolioMobileTabLayout(width: windowWidth, regular: sizeClass == .regular)
+    }
 
     /// A short, actionable handoff: the person decides when to leave the current page.
     private struct DownloadToast: Identifiable {
@@ -39,18 +44,36 @@ struct FolioMobileRootView: View {
                 }
                 .id(navigation.navigationRootID)
             }
-            // Before the size class is known it is nil: lay out the iPhone tabs, not
-            // tabs that UIKit folds into its own More list and then rebuilds. iPad keeps
-            // Downloads as its own tab; Sources and Settings share More so the bar fits
-            // an iPad mini without hiding Settings behind an overflow button.
-            if sizeClass == .regular {
+            // Pages get their own tab when the window is wide enough, and fold into
+            // More only when the bar would not fit them (see FolioMobileTabLayout).
+            if tabLayout.hasTab(.downloads) {
                 Tab("Downloads", systemImage: "arrow.down.circle", value: .downloads) {
                     NavigationStack { FolioMobileDownloadsView() }
                         .id(navigation.navigationRootID)
                 }
             }
-            Tab("More", systemImage: "ellipsis.circle", value: .settings) {
-                moreTab(includeDownloads: sizeClass != .regular)
+            if tabLayout.hasTab(.sources) {
+                Tab("Sources", systemImage: "square.stack.3d.up", value: .sources) {
+                    NavigationStack {
+                        FolioMobileSourcesView()
+                            .folioDetailDestinations()
+                    }
+                    .id(navigation.navigationRootID)
+                }
+            }
+            if tabLayout.hasTab(.settings) {
+                Tab("Settings", systemImage: "gearshape", value: .settings) {
+                    NavigationStack {
+                        FolioMobileSettingsView(showImporter: { importing = true })
+                            .folioDetailDestinations()
+                    }
+                    .id(navigation.navigationRootID)
+                }
+            }
+            if !tabLayout.moreRoutes.isEmpty {
+                Tab("More", systemImage: "ellipsis.circle", value: .more) {
+                    moreTab(routes: tabLayout.moreRoutes)
+                }
             }
             // The search role sets Discover apart, at the trailing end of the tab bar.
             Tab("Discover", systemImage: "magnifyingglass", value: .search, role: .search) {
@@ -61,16 +84,10 @@ struct FolioMobileRootView: View {
                 .id(navigation.navigationRootID)
             }
         }
-        .onAppear { navigation.compactTabs = sizeClass != .regular }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { windowWidth = $0 }
+        .onChange(of: tabLayout, initial: true) { _, layout in navigation.apply(layout) }
         .onChange(of: navigation.selectedTab) { _, tab in
             FolioLog.log("Tab \(tab), memory \(FolioLog.footprintMB()) MB", "nav")
-        }
-        .onChange(of: sizeClass) { _, value in
-            navigation.compactTabs = value != .regular
-            // iPad Split View can drop the Downloads and Sources tabs: show them under More.
-            if value != .regular, navigation.selectedTab == .downloads { navigation.openDownloads() }
-            // Downloads leaves More when it gets its own tab again.
-            if value == .regular, navigation.morePath.count > 0 { navigation.morePath = NavigationPath() }
         }
         .fileImporter(
             isPresented: $importing,
@@ -216,24 +233,20 @@ struct FolioMobileRootView: View {
         }
     }
 
-    private func moreTab(includeDownloads: Bool) -> some View {
+    private func moreTab(routes: [FolioMobileMoreRoute]) -> some View {
         @Bindable var navigation = navigation
         return NavigationStack(path: $navigation.morePath) {
             List {
-                Group {
-                    if includeDownloads {
-                        NavigationLink(value: FolioMobileMoreRoute.downloads) {
-                            Label("Downloads", systemImage: "arrow.down.circle")
+                ForEach(routes, id: \.self) { route in
+                    NavigationLink(value: route) {
+                        switch route {
+                        case .downloads: Label("Downloads", systemImage: "arrow.down.circle")
+                        case .sources: Label("Sources", systemImage: "square.stack.3d.up")
+                        case .settings: Label("Settings", systemImage: "gearshape")
                         }
                     }
-                    NavigationLink(value: FolioMobileMoreRoute.sources) {
-                        Label("Sources", systemImage: "square.stack.3d.up")
-                    }
-                    NavigationLink(value: FolioMobileMoreRoute.settings) {
-                        Label("Settings", systemImage: "gearshape")
-                    }
+                    .folioRow()
                 }
-                .folioRow()
             }
             .navigationTitle("More")
             // The same header as Settings and the other tabs, at the screen margin.
@@ -241,11 +254,14 @@ struct FolioMobileRootView: View {
             .folioScreen()
             .folioDetailDestinations()
             .navigationDestination(for: FolioMobileMoreRoute.self) { route in
-                switch route {
-                case .downloads: FolioMobileDownloadsView()
-                case .sources: FolioMobileSourcesView()
-                case .settings: FolioMobileSettingsView(showImporter: { importing = true })
+                Group {
+                    switch route {
+                    case .downloads: FolioMobileDownloadsView()
+                    case .sources: FolioMobileSourcesView()
+                    case .settings: FolioMobileSettingsView(showImporter: { importing = true })
+                    }
                 }
+                .onAppear { navigation.moreRoute = route }
             }
         }
         .id(navigation.navigationRootID)
@@ -254,15 +270,42 @@ struct FolioMobileRootView: View {
 #endif
 
 extension FolioMobileNavigation {
-    func openSettings() { showInMore(.settings) }
+    func openSettings() { open(.settings) }
 
-    func openSources() { showInMore(.sources) }
+    func openSources() { open(.sources) }
 
-    func openDownloads() {
-        if compactTabs {
-            showInMore(.downloads)
+    func openDownloads() { open(.downloads) }
+
+    /// Opens Downloads, Sources or Settings from anywhere: its own tab when it has
+    /// one, otherwise its page under More.
+    func open(_ route: FolioMobileMoreRoute) {
+        if tabLayout.hasTab(route) {
+            selectedTab = route.tab
         } else {
-            selectedTab = .downloads
+            showInMore(route)
+        }
+    }
+
+    /// Keeps the open page when the window is resized (Split View, Stage Manager,
+    /// rotation) and the tabs change: a page that loses its tab opens under More,
+    /// and a page under More that gains a tab moves to it.
+    func apply(_ layout: FolioMobileTabLayout) {
+        let old = tabLayout
+        guard layout != old else { return }
+        tabLayout = layout
+        switch selectedTab {
+        case .downloads, .sources, .settings:
+            if let route = FolioMobileMoreRoute.allCases.first(where: { $0.tab == selectedTab }),
+               !layout.hasTab(route) {
+                showInMore(route)
+            }
+        case .more:
+            if let route = morePath.isEmpty ? nil : moreRoute, layout.hasTab(route) {
+                selectedTab = route.tab
+            } else if layout.moreRoutes.isEmpty {
+                selectedTab = .settings
+            }
+        default: break
         }
     }
 
@@ -271,8 +314,9 @@ extension FolioMobileNavigation {
     /// the same path left them on screen. Popping to the root first and pushing on the
     /// next turn always lands on the requested page.
     private func showInMore(_ route: FolioMobileMoreRoute) {
-        selectedTab = .settings
+        selectedTab = .more
         morePath = NavigationPath()
+        moreRoute = route
         Task { @MainActor in self.morePath.append(route) }
     }
 }

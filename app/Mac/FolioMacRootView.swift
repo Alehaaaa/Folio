@@ -94,7 +94,8 @@ struct FolioMacRootView: View {
         // instead of the two-column default that misaligns the shared rows.
         .formStyle(.grouped)
         .onAppear {
-            navigation.compactTabs = false
+            // The sidebar lists every page, so nothing goes under More.
+            navigation.tabLayout = .full
             // Testing aid: screenshot runs can open a tab with FOLIO_SHOT_TAB.
             if ScreenshotMode.path != nil {
                 switch ProcessInfo.processInfo.environment["FOLIO_SHOT_TAB"] {
@@ -123,7 +124,7 @@ struct FolioMacRootView: View {
         case .search: FolioMobileDiscoverView()
         case .downloads: DownloadingView().folioScreen()
         case .sources: FolioMobileSourcesView()
-        case .settings: FolioMobileSettingsView(showImporter: { importing = true })
+        case .settings, .more: FolioMobileSettingsView(showImporter: { importing = true })
         }
     }
 
