@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.83",
+          "buildVersion": "84",
+          "date": "2026-11-25",
+          "localizedDescription": "1.0.83: custom drag for books on the Home shelf",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.83-84.ipa",
+          "size": 5935864,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.82",
           "buildVersion": "83",
           "date": "2026-11-25",
