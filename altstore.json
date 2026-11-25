@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.81",
+          "buildVersion": "82",
+          "date": "2026-11-25",
+          "localizedDescription": "1.0.81: fix \"Sync unavailable (406)\"",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.81-82.ipa",
+          "size": 5898586,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.80",
           "buildVersion": "81",
           "date": "2026-11-25",
