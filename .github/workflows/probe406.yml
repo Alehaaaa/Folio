@@ -1,0 +1,16 @@
+name: probe406b
+on:
+  push:
+    branches: ["test/sync-406b"]
+jobs:
+  live:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+      - run: LIVE=1 bash checks/test-cloud-sync.sh
+      - name: Mac build compiles
+        run: |
+          swift build -c debug --package-path app > build.log 2>&1 && ok=1 || ok=0
+          grep -E "error|Build complete" build.log | tail -40
+          test $ok = 1
