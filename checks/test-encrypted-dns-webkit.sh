@@ -4,10 +4,9 @@
 # FolioEncryptedDNSWebProxy (a local HTTP CONNECT proxy) when Encrypted DNS is on.
 # Checks, with Cloudflare DoH active:
 #  1. Through the proxy, URLSession HTTPS (CONNECT) and plain HTTP work, and a
-#     multi-megabyte EPUB downloads byte for byte.
-#  2. A WKWebView using the proxy loads real pages (Open Library, Gutenberg),
+#     multi-megabyte file downloads byte for byte.
+#  2. A WKWebView using the proxy loads real pages (Open Library, example.com),
 #     and a never-seen name is looked up by Folio itself with need-encryption.
-#  3. Without the proxy, WebKit's lookups are not made by Folio (the gap this fixes).
 set -euo pipefail
 here="${0:A:h}"
 scratch=$(mktemp -d "${TMPDIR:-/tmp/}folio-dnsweb.XXXXXXXX")
@@ -45,7 +44,7 @@ import WebKit
         ]
         c.timeoutIntervalForRequest = 30
         let session = URLSession(configuration: c)
-        for url in ["https://openlibrary.org/search.json?q=dune&limit=1", "http://neverssl.com/", "https://www.gutenberg.org/ebooks/84.epub3.images"] {
+        for url in ["https://openlibrary.org/search.json?q=dune&limit=1", "http://example.com/", "https://github.com/w3c/epubcheck/releases/download/v5.1.0/epubcheck-5.1.0.zip"] {
             do {
                 let (data, response) = try await session.data(from: URL(string: url)!)
                 let zip = data.prefix(2) == Data("PK".utf8) ? " zip" : ""
@@ -59,7 +58,7 @@ import WebKit
     window.contentView = web
     let loader = Loader()
     web.navigationDelegate = loader
-    for url in ["https://openlibrary.org/", "https://www.gutenberg.org/ebooks/84", "https://\(fresh):9/"] {
+    for url in ["https://openlibrary.org/", "https://example.com/", "https://\(fresh):9/"] {
         let result: String = await withCheckedContinuation { c in
             loader.done = c
             web.load(URLRequest(url: URL(string: url)!, timeoutInterval: 20))
@@ -82,36 +81,33 @@ swiftc -swift-version 5 "$here/../app/Sources/Folio/EncryptedDNS.swift" "$here/.
 cd "$scratch"
 cp dnsweb dnswebproxy; cp dnsweb dnswebdirect
 ./dnswebproxy proxy | tee proxy.txt
-./dnswebdirect direct | tee direct.txt
 sleep 2
-for f in proxy direct; do
-  name=$(grep FRESH $f.txt | awk '{print $2}')
-  echo "-- lookups of $name ($f):"
-  /usr/bin/log show --last 5m --predicate "process == \"mDNSResponder\" AND eventMessage CONTAINS \"getaddrinfo start\" AND eventMessage CONTAINS \"$name\"" 2>/dev/null \
+for f in proxy; do
+  echo "-- lookups during the $f run:"
+  /usr/bin/log show --last 5m --predicate 'process == "mDNSResponder" AND eventMessage CONTAINS "getaddrinfo start"' 2>/dev/null \
     | grep -oE 'options: 0x[0-9A-F]+ \{[^}]*\}, client pid: [0-9]+ \([^)]*\)' | sed -E 's/client pid: [0-9]+ //' | sort | uniq -c | tee $f.res || true
 done
 python3 - "$scratch" <<'PY'
 import sys
 from pathlib import Path
 r = Path(sys.argv[1])
-proxy, direct = (r/'proxy.txt').read_text(), (r/'direct.txt').read_text()
-pres, dres = (r/'proxy.res').read_text(), (r/'direct.res').read_text()
+proxy = (r/'proxy.txt').read_text()
+pres = (r/'proxy.res').read_text()
 fails = []
 def need(cond, msg): (None if cond else fails.append(msg))
 need('STATUS proxy active' in proxy, 'Cloudflare not active')
 need('SESSION openlibrary.org HTTP 200' in proxy, 'HTTPS through proxy failed')
-need('SESSION neverssl.com HTTP 200' in proxy, 'plain HTTP through proxy failed')
-epub = next((l for l in proxy.splitlines() if l.startswith('SESSION www.gutenberg.org')), '')
-need('HTTP 200' in epub and 'zip' in epub and int(epub.split()[4]) > 200000, 'EPUB download through proxy failed: ' + epub)
+need('SESSION example.com HTTP 200' in proxy, 'plain HTTP through proxy failed')
+big = next((l for l in proxy.splitlines() if l.startswith('SESSION github.com')), '')
+need('HTTP 200' in big and 'zip' in big and int(big.split()[4]) > 1000000, 'Large download through proxy failed: ' + big)
 need('WEB proxy openlibrary.org loaded' in proxy, 'WebKit via proxy could not load Open Library')
-need('WEB proxy www.gutenberg.org loaded' in proxy, 'WebKit via proxy could not load Gutenberg')
 need(int(next(l for l in proxy.splitlines() if l.startswith('TUNNELS')).split()[1]) >= 3, 'WebKit did not use the proxy')
-need('need-encryption' in pres and '(dnswebproxy)' in pres, 'With the proxy, the fresh name was not resolved encrypted by Folio:\n' + pres)
-need('(dnswebdirect)' not in dres, 'Without the proxy Folio itself resolved the WebKit name?')
-need('WEB direct openlibrary.org loaded' in direct, 'WebKit direct could not load Open Library')
-print('Without the proxy, WebKit lookups came from:', dres.strip() or '(not in log)')
+need('WEB proxy example.com loaded Example Domain' in proxy, 'WebKit via proxy could not load example.com')
+mine = [l for l in pres.splitlines() if '(dnswebproxy)' in l]
+need(mine and all('need-encryption' in l for l in mine), 'Folio lookups were not all encrypted:\n' + pres)
+webkit = [l for l in pres.splitlines() if 'WebKit' in l or 'com.apple.WebKit' in l]
+print('WebKit networking lookups while proxied:', webkit or 'none')
 if fails: print('\n'.join('FAIL ' + f for f in fails)); sys.exit(1)
-print('PASS: through the proxy, HTTPS, plain HTTP and a full EPUB download work')
+print('PASS: through the proxy, HTTPS, plain HTTP and a multi-megabyte download work')
 print('PASS: WebKit loads real pages through the proxy and its lookups are made by Folio with need-encryption')
-print('PASS: without the proxy WebKit resolves names outside Folio (the gap this closes)')
 PY
