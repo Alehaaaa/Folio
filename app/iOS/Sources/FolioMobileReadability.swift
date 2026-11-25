@@ -6,6 +6,8 @@ struct FolioMobileReadabilitySettings: View {
     @Environment(ReaderPrefsStore.self) private var preferences
     @Environment(\.colorScheme) private var colorScheme
     @ScaledMetric(relativeTo: .body) private var textSizeScale: CGFloat = 1
+    /// Row background; Settings passes the app's warm surface, the reader keeps its own.
+    var rowBackground: Color? = nil
 
     var body: some View {
         Section {
@@ -58,6 +60,7 @@ struct FolioMobileReadabilitySettings: View {
         } footer: {
             Text("These profiles change only the reading appearance; they don't change your book progress, notes, or bookmarks.")
         }
+        .listRowBackground(rowBackground)
     }
 
     private var previewDesign: Font.Design {

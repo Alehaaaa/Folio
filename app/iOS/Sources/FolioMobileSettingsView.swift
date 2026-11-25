@@ -60,7 +60,7 @@ struct FolioMobileSettingsView: View {
             }
             .folioRow()
 
-            FolioMobileReadabilitySettings()
+            FolioMobileReadabilitySettings(rowBackground: FolioTheme.surface)
 
             Section("Reading Appearance") {
                 Picker("Appearance", selection: Binding(
@@ -155,36 +155,63 @@ struct FolioMobileHardcoverAccountSection: View {
     }
 }
 
-/// Settings › Network: encrypted DNS through Cloudflare (1.1.1.1).
+/// Settings › Network: encrypted DNS (DNS over HTTPS) through a chosen provider.
 struct FolioEncryptedDNSSection: View {
     @State private var dns = FolioEncryptedDNS.shared
 
     var body: some View {
         Section {
-            Toggle(isOn: $dns.enabled) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Encrypted DNS")
+            Toggle("Encrypted DNS", isOn: $dns.enabled)
+                .accessibilityIdentifier("folio.settings.encryptedDNS")
+            if dns.enabled {
+                Picker("Provider", selection: $dns.provider) {
+                    ForEach(FolioEncryptedDNS.Provider.allCases) { Text($0.label).tag($0) }
+                }
+                .accessibilityIdentifier("folio.settings.encryptedDNS.provider")
+                if dns.provider == .nextdns {
+                    TextField("Configuration ID", text: $dns.nextDNSID, prompt: Text("abc123"))
+                        .plainEntry()
+                        .accessibilityIdentifier("folio.settings.encryptedDNS.nextdns")
+                }
+                if dns.provider == .custom {
+                    TextField("DoH URL", text: $dns.customURL, prompt: Text("https://dns.example/dns-query"))
+                        .plainEntry(url: true)
+                        .accessibilityIdentifier("folio.settings.encryptedDNS.custom")
+                }
+                LabeledContent("Status") {
                     Text(statusText)
-                        .font(.caption)
-                        .foregroundStyle(dns.status == .unavailable ? FolioTheme.caution : FolioTheme.muted)
+                        .foregroundStyle(dns.status == .unavailable || dns.status == .needsSetup
+                                         ? FolioTheme.caution : FolioTheme.muted)
                 }
             }
-            .accessibilityIdentifier("folio.settings.encryptedDNS")
         } header: {
             Text("Network")
         } footer: {
-            Text("Looks up websites through Cloudflare's 1.1.1.1 over HTTPS for book details, covers and downloads, instead of your network's DNS. If Cloudflare can't be reached, Folio keeps using your network's DNS.")
+            Text("Book details, covers and downloads look up websites over HTTPS with this provider. If it can't be reached, Folio uses your network's DNS.")
         }
         .folioRow()
     }
 
     private var statusText: String {
-        if dns.needsRelaunch { return dns.enabled ? "On · applies fully after Folio restarts" : "Off · applies fully after Folio restarts" }
-        return switch dns.status {
-        case .off: "Off · using your network's DNS"
-        case .checking: "Checking Cloudflare…"
-        case .active: "On · Cloudflare 1.1.1.1"
-        case .unavailable: "Cloudflare unreachable · using your network's DNS"
+        switch dns.status {
+        case .off: return "Off"
+        case .needsSetup: return dns.provider == .nextdns ? "Enter your ID" : "Enter an https address"
+        case .checking: return "Checking…"
+        case .unavailable: return "Unreachable, using network DNS"
+        case .active: return dns.needsRelaunch ? "Restart Folio to finish" : "On"
         }
+    }
+}
+
+private extension View {
+    func plainEntry(url: Bool = false) -> some View {
+        #if os(iOS)
+        self.textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .keyboardType(url ? .URL : .asciiCapable)
+            .multilineTextAlignment(.trailing)
+        #else
+        self.autocorrectionDisabled()
+        #endif
     }
 }
