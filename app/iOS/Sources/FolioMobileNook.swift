@@ -36,6 +36,9 @@ struct FolioNookItem: Identifiable {
     var addedAt: Date = .distantPast
     var hardcoverBookID: Int?
     var entry: FolioMobileShelfEntry?
+    /// Put on the shelf by hand (dragged in from a Home row), not because
+    /// it's being read.
+    var pinned = false
 
     var keys: [String] { [id] + aliases }
 
@@ -194,8 +197,43 @@ enum FolioNookShelf {
             byKey[match] = items.count
             items.append(item)
         }
-        // Library books join only once they're being read, here or on a shelf.
-        return items.filter(\.reading)
+        // Books put on the shelf by hand: the copy already listed stands for
+        // the book, otherwise the Hardcover record does.
+        for book in FolioNookStore.shared.pinned {
+            let match = BookMatch.key(author: book.authors, title: book.title)
+            if let i = (book.id > 0 ? byHardcover[book.id] : nil) ?? byKey[match] {
+                items[i].pinned = true
+                continue
+            }
+            var item = Self.item(for: book)
+            item.pinned = true
+            if book.id > 0 { byHardcover[book.id] = items.count }
+            byKey[match] = items.count
+            items.append(item)
+        }
+        // Library books join once they're being read, here or on a shelf, or
+        // when they're put on it by hand.
+        return items.filter { $0.reading || $0.pinned }
+    }
+
+    /// The keys a Hardcover book can stand under on the shelf.
+    static func keys(for book: HCBook) -> [String] {
+        let match = "key-" + BookMatch.key(author: book.authors, title: book.title)
+        return book.id > 0 ? ["hc-\(book.id)", match] : [match]
+    }
+
+    /// A Hardcover book as a spine, with the reader's own edits.
+    static func item(for book: HCBook) -> FolioNookItem {
+        let shown = FolioBookOverrides.shared.apply(book)
+        let keys = keys(for: book)
+        return FolioNookItem(
+            id: keys[0], aliases: Array(keys.dropFirst()),
+            title: shown.title, author: shown.authors,
+            pages: shown.pages,
+            source: .remote(book),
+            remoteCover: (book.id > 0 ? FolioBookOverrides.shared.override(for: book.id)?.coverURL : nil) ?? shown.imageURL,
+            hardcoverBookID: book.id > 0 ? book.id : nil
+        )
     }
 }
 
@@ -212,6 +250,7 @@ final class FolioNookStore {
         static let order = "folio.nook.order"
         static let hidden = "folio.nook.hidden"
         static let shelves = "folio.nook.maxShelves"
+        static let pinned = "folio.nook.pinned"
     }
 
     private(set) var order: [String]
@@ -226,17 +265,40 @@ final class FolioNookStore {
     /// A book is in the hand on the Home shelf: the page holds still under it.
     var holding = false
 
+    /// Books put on the shelf by hand, dragged in from a Home row.
+    private(set) var pinned: [HCBook]
+
+    /// The book being dragged out of a Home row, so the shelf can show its
+    /// spine while it hovers. Drags carry only text the shelf can't read
+    /// until the drop, so the book itself waits here.
+    @ObservationIgnored var incoming: HCBook?
+
     private init() {
         let defaults = UserDefaults.standard
         order = defaults.stringArray(forKey: Key.order) ?? []
         hidden = (defaults.dictionary(forKey: Key.hidden) as? [String: String]) ?? [:]
         let stored = defaults.integer(forKey: Key.shelves)
         maxShelves = Self.shelfRange.contains(stored) ? stored : 2
+        pinned = defaults.data(forKey: Key.pinned).flatMap { try? JSONDecoder().decode([HCBook].self, from: $0) } ?? []
     }
 
     private func save() {
         UserDefaults.standard.set(order, forKey: Key.order)
         UserDefaults.standard.set(hidden, forKey: Key.hidden)
+        UserDefaults.standard.set(try? JSONEncoder().encode(pinned), forKey: Key.pinned)
+    }
+
+    /// Puts a book on the shelf by hand, right after `previous` (at the very
+    /// start when nil). A book already there just moves.
+    func pin(_ book: HCBook, keys: [String], after previous: String?) {
+        if !pinned.contains(where: { $0.id == book.id && $0.title == book.title }) { pinned.append(book) }
+        for key in keys { hidden[key] = nil }
+        var list = order
+        list.removeAll { keys.contains($0) }
+        let at = previous.flatMap { list.firstIndex(of: $0).map { $0 + 1 } } ?? (previous == nil ? 0 : list.count)
+        list.insert(contentsOf: keys, at: at)
+        order = list
+        save()
     }
 
     func isHidden(_ item: FolioNookItem) -> Bool {
@@ -354,6 +416,12 @@ final class FolioNookStore {
     }
 
     func hide(_ item: FolioNookItem) {
+        // A book put on the shelf by hand just comes off it again.
+        if item.pinned && !item.reading {
+            pinned.removeAll { book in FolioNookShelf.keys(for: book).contains { item.keys.contains($0) } }
+            save()
+            return
+        }
         let byline = item.author.isEmpty ? item.title : "\(item.title) · \(item.author)"
         hidden[item.id] = byline
         save()

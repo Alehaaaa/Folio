@@ -366,6 +366,8 @@ struct FolioMobileHomeView: View {
         }
         // A book in the hand on the shelf holds the page still.
         .scrollDisabled(FolioNookStore.shared.holding)
+        // Books in the rows can be dragged onto the shelf.
+        .environment(\.folioNookDragSource, true)
         .refreshable {
             await shelves.load(from: hardcover)
             await discovery.load(from: hardcover, books: store.books, tracked: store.data.tracked)

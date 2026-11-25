@@ -51,6 +51,8 @@ struct FolioMobileRemoteBookTile: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // On Home, it can be dragged onto the shelf.
+        .modifier(FolioNookDragSource(book: original))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(book.title), \(book.authors.isEmpty ? "unknown author" : book.authors)")
         .accessibilityHint("Open book details")

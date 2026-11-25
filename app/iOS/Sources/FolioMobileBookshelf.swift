@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import os
 
 /// Drag diagnostics: `log stream --level debug --predicate 'category == "nookdrag"'`.
@@ -34,6 +35,9 @@ struct FolioMobileBookshelf: View {
     /// system took away (a menu opening, a call coming in).
     @GestureState private var pressing = false
     @State private var bounds: CGSize = .zero
+    /// A book dragged in from a Home row, shown as a spine in the gap where
+    /// it would go.
+    @State private var incoming: FolioNookItem?
     @State private var swayRest = FolioNookSwayRest()
     @Namespace private var shelfSpace
     @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 186
@@ -46,15 +50,21 @@ struct FolioMobileBookshelf: View {
     private var innerWidth: CGFloat { max(120, width - frameInset * 2 - sidePadding * 2) }
 
     var body: some View {
-        let widths = Dictionary(items.map { ($0.id, FolioSpineMetrics.width(for: $0)) },
+        var widths = Dictionary(items.map { ($0.id, FolioSpineMetrics.width(for: $0)) },
                                 uniquingKeysWith: { a, _ in a })
+        if let incoming { widths[incoming.id] = FolioSpineMetrics.width(for: incoming) }
         // The live order from the nook store, so a drop shows in the same
         // frame as the move instead of a frame later, when Home re-renders.
         let ordered = nook.arranged(items)
-        let shelves = layout(widths: widths, items: ordered)
-        let flat = shelves.flatMap { $0 }
+        // The shelves as they stand: gaps are picked against these, so
+        // showing an incoming book can never move the gap.
+        let standing = layout(widths: widths, items: ordered)
+        let standingLeans = standing.enumerated().map { index, row in
+            leans(row, free: innerWidth - used(row, widths), keepBookend: index == standing.count - 1)
+        }
+        let shelves = withIncoming(standing, widths: widths)
         let slides = self.slides(shelves, widths: widths)
-        let rowLeans = shelves.enumerated().map { index, row in
+        let rowLeans = incoming == nil ? standingLeans : shelves.enumerated().map { index, row in
             leans(row, free: innerWidth - used(row, widths), keepBookend: index == shelves.count - 1)
         }
         VStack(spacing: 0) {
@@ -66,7 +76,13 @@ struct FolioMobileBookshelf: View {
                 HStack(alignment: .bottom, spacing: spacing) {
                     ForEach(measured ? row : []) { item in
                         let lean = leans[item.id] ?? FolioSpineLean()
-                        spine(item, lean: lean, shelves: shelves, widths: widths, leans: rowLeans)
+                        Group {
+                            if item.id == incoming?.id {
+                                incomingSpine(item)
+                            } else {
+                                spine(item, lean: lean, shelves: shelves, widths: widths, leans: rowLeans)
+                            }
+                        }
                             .modifier(FolioSpinePose(
                                 id: item.id,
                                 x: slides[item.id] ?? 0,
@@ -98,6 +114,18 @@ struct FolioMobileBookshelf: View {
         .padding(.horizontal, frameInset)
         .padding(.top, frameInset)
         .coordinateSpace(.named(Self.space))
+        // Books dragged in from the rows below.
+        .onDrop(of: [.plainText], delegate: FolioNookIncomingDrop(
+            hovered: { location in hoverIncoming(location, shelves: standing, widths: widths, leans: standingLeans) },
+            left: {
+                guard incoming != nil else { return }
+                withAnimation(Self.slide) {
+                    incoming = nil
+                    dropSpot = nil
+                }
+            },
+            dropped: { payload in dropIncoming(payload) }
+        ))
         .background(
             LinearGradient(colors: [FolioTheme.wood.opacity(0.92), FolioTheme.wood],
                            startPoint: .top, endPoint: .bottom),
@@ -527,8 +555,8 @@ struct FolioMobileBookshelf: View {
     /// Picks the gap from where the held book is: the shelf under its
     /// center, and how many of that shelf's other books stand left of it.
     private func hover(_ location: CGPoint, shelves: [[FolioNookItem]], widths: [String: CGFloat],
-                       leans: [[String: FolioSpineLean]]) {
-        guard let key = held?.id, !shelves.isEmpty else { return }
+                       leans: [[String: FolioSpineLean]], excluding: String? = nil) {
+        guard let key = excluding ?? held?.id, !shelves.isEmpty else { return }
         let shelf = min(shelves.count - 1, max(0, Int((location.y - frameInset) / (shelfHeight + 24 + plankHeight))))
         let flat = shelves.flatMap { $0 }
         var x = frameInset + sidePadding
@@ -568,6 +596,77 @@ struct FolioMobileBookshelf: View {
             }
         }
         return nil
+    }
+
+    // MARK: Books from the rows
+
+    /// The shelves with the incoming book standing in its gap, in place of
+    /// its own copy when it's already on the shelf.
+    private func withIncoming(_ shelves: [[FolioNookItem]], widths: [String: CGFloat]) -> [[FolioNookItem]] {
+        guard let incoming, let spot = dropSpot else { return shelves }
+        var list = shelves.flatMap { $0 }
+        list.insert(incoming, at: min(spot.position, list.count))
+        if let copy = list.indices.first(where: { list[$0].id == incoming.id && $0 != min(spot.position, list.count - 1) }) {
+            list.remove(at: copy)
+        }
+        return layout(widths: widths, items: list)
+    }
+
+    /// The incoming book, a little raised, as if about to be slid in.
+    private func incomingSpine(_ item: FolioNookItem) -> some View {
+        FolioMobileSpine(item: item, shelfHeight: shelfHeight)
+            .offset(y: -6)
+            .shadow(color: .black.opacity(0.22), radius: 8, y: 5)
+            .opacity(0.92)
+            .allowsHitTesting(false)
+            .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .bottom)))
+    }
+
+    /// The shelf copy standing for a book from a row, if it's already there.
+    private func copy(of book: HCBook) -> FolioNookItem? {
+        let keys = Set(FolioNookShelf.keys(for: book))
+        return items.first { !keys.isDisjoint(with: $0.keys) }
+    }
+
+    private func hoverIncoming(_ location: CGPoint, shelves: [[FolioNookItem]], widths: [String: CGFloat],
+                               leans: [[String: FolioSpineLean]]) {
+        guard held == nil, let book = nook.incoming else { return }
+        let existing = copy(of: book)
+        let bookKeys = FolioNookShelf.keys(for: book)
+        if incoming.map({ !Set($0.keys).isDisjoint(with: bookKeys) }) != true {
+            var item = existing ?? FolioNookShelf.item(for: book)
+            if existing == nil { item.pinned = true }
+            FolioSpinePalettes.shared.prepare([item])
+            withAnimation(Self.slide) { incoming = item }
+        }
+        // An empty shelf takes it at the start.
+        if shelves.allSatisfy(\.isEmpty) {
+            setSpot(FolioNookDropSpot(shelf: 0, position: 0))
+            return
+        }
+        hover(location, shelves: shelves, widths: widths, leans: leans, excluding: existing?.id ?? "")
+    }
+
+    /// Puts the incoming book on the shelf, in the gap it was shown in.
+    private func dropIncoming(_ payload: String?) {
+        defer { nook.incoming = nil }
+        guard let book = nook.incoming, let ghost = incoming,
+              payload == FolioNookIncomingDrop.payload(for: book) else {
+            withAnimation(Self.slide) { incoming = nil; dropSpot = nil }
+            return
+        }
+        let widths = Dictionary(items.map { ($0.id, FolioSpineMetrics.width(for: $0)) },
+                                uniquingKeysWith: { a, _ in a })
+        let list = layout(widths: widths).flatMap { $0 }
+        let position = min(dropSpot?.position ?? list.count, list.count)
+        let keys = Set(copy(of: book)?.keys ?? FolioNookShelf.keys(for: book))
+        let previous = list[..<position].last { keys.isDisjoint(with: $0.keys) }?.id
+        folioDragLog.debug("add \(ghost.id, privacy: .public) after=\(previous ?? "start", privacy: .public)")
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+            nook.pin(book, keys: [ghost.id] + ghost.aliases, after: previous)
+            incoming = nil
+            dropSpot = nil
+        }
     }
 
     private func lean(of key: String, in shelves: [[FolioNookItem]], widths: [String: CGFloat]) -> FolioSpineLean {
@@ -672,11 +771,14 @@ struct FolioMobileSpine: View {
         .overlay { shape.stroke(.black.opacity(0.16), lineWidth: 0.6) }
         .overlay(alignment: .topTrailing) {
             if item.reading {
+                // It comes out of the top of the pages and hangs down over the
+                // spine, its notched end at the bottom.
                 FolioRibbon()
-                    .fill(Self.ribbon)
-                    .frame(width: 5, height: 15)
-                    .shadow(color: .black.opacity(0.2), radius: 0.5, x: 0.5, y: 0.5)
-                    .offset(x: -max(5, width * 0.18), y: -10)
+                    .fill(LinearGradient(colors: [Self.ribbon.opacity(0.85), Self.ribbon],
+                                         startPoint: .top, endPoint: .bottom))
+                    .frame(width: 8, height: 22)
+                    .shadow(color: .black.opacity(0.25), radius: 0.8, x: 0.5, y: 0.8)
+                    .offset(x: -max(4, width * 0.16), y: -3)
             }
         }
         .shadow(color: .black.opacity(0.18), radius: 2, x: 1, y: 1)
@@ -848,14 +950,15 @@ struct FolioMobileSpine: View {
     }
 }
 
-/// A ribbon marker peeking out of the top of a book, notched at the end.
+/// A ribbon marker hanging from the top of a book, notched at its free end.
 struct FolioRibbon: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.midX, y: rect.minY + rect.width * 0.8))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        let notch = rect.width * 0.7
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY + 1))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY + 1), control: CGPoint(x: rect.midX, y: rect.minY - 1))
         path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY - notch))
         path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
         path.closeSubpath()
         return path
@@ -902,6 +1005,60 @@ struct FolioSpineLean {
     var after: CGFloat = 0
     /// Leaning books pivot on the bottom corner they tip toward.
     var anchor: UnitPoint = .bottom
+}
+
+/// A book dragged in from a Home row: the shelf shows its spine where it
+/// would go, and puts it there on the drop.
+struct FolioNookIncomingDrop: DropDelegate {
+    let hovered: (CGPoint) -> Void
+    let left: () -> Void
+    let dropped: (String?) -> Void
+
+    static func payload(for book: HCBook) -> String { "folio-book:\(book.id):\(book.title)" }
+
+    func validateDrop(info: DropInfo) -> Bool {
+        MainActor.assumeIsolated { FolioNookStore.shared.incoming != nil } && info.hasItemsConforming(to: [.plainText])
+    }
+    func dropEntered(info: DropInfo) { hovered(info.location) }
+    func dropExited(info: DropInfo) { left() }
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        hovered(info.location)
+        return DropProposal(operation: .copy)
+    }
+    func performDrop(info: DropInfo) -> Bool {
+        guard let provider = info.itemProviders(for: [.plainText]).first else {
+            dropped(nil)
+            return false
+        }
+        // Only a drag from Folio's own rows carries this book's payload.
+        _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+            let text = object as? String
+            DispatchQueue.main.async { dropped(text) }
+        }
+        return true
+    }
+}
+
+/// Lets a book in a Home row be dragged onto the shelf.
+struct FolioNookDragSource: ViewModifier {
+    let book: HCBook
+    @Environment(\.folioNookDragSource) private var enabled
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.onDrag {
+                MainActor.assumeIsolated { FolioNookStore.shared.incoming = book }
+                return NSItemProvider(object: FolioNookIncomingDrop.payload(for: book) as NSString)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+extension EnvironmentValues {
+    /// Whether book tiles here can be dragged onto the Home shelf.
+    @Entry var folioNookDragSource = false
 }
 
 /// The book in the hand.
