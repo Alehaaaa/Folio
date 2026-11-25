@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.84",
+          "buildVersion": "85",
+          "date": "2026-11-25",
+          "localizedDescription": "Fix build: no statements in the shelf body",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.84-85.ipa",
+          "size": 5973901,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.83",
           "buildVersion": "84",
           "date": "2026-11-25",
