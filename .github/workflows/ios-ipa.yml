@@ -46,6 +46,7 @@ jobs:
           swiftc -swift-version 5 app/Sources/Folio/BookAutoMatch.swift app/Sources/Folio/EditionTitle.swift checks/test-localized-edition-title.swift -o /tmp/folio-localized-edition-title
           /tmp/folio-localized-edition-title
           bash checks/test-navigation-root-reset.sh
+          python3 checks/check-dns-coverage.py
 
       - name: Build unsigned IPA
         run: app/iOS/build-ipa.sh

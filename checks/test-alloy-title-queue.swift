@@ -154,6 +154,7 @@ struct EPUBPackage {
     var servedURL: URL!
     var searched: [String] = []
     func loadAll() async {}
+    func ensureLoaded() async {}
     func makeJobSession() -> JobSession { JobSession(owner: self) }
 
     @MainActor final class JobSession {

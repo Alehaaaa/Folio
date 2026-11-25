@@ -19,7 +19,7 @@ struct FolioMobileSourcesView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 22) {
-                if extensions.enabled.isEmpty {
+                if extensions.loaded && extensions.enabled.isEmpty {
                     ContentUnavailableView {
                         Label("No Enabled Sources", systemImage: "square.stack.3d.up.slash")
                     } description: {
@@ -70,7 +70,10 @@ struct FolioMobileSourcesView: View {
                 .foregroundStyle(FolioTheme.ink)
                 .accessibilityLabel("More")
         }
-        .task { selectDefaultSource() }
+        .task {
+            await extensions.ensureLoaded()
+            selectDefaultSource()
+        }
         .onChange(of: extensions.enabled.map(\.id)) { _, _ in selectDefaultSource() }
         .onChange(of: selectedSource) { _, _ in results = []; page = 0; lastEvent = nil }
         .sheet(item: $selectedResult) { result in
@@ -145,7 +148,7 @@ struct FolioMobileSourcesView: View {
                     .font(.callout.monospacedDigit())
                     .foregroundStyle(FolioTheme.muted)
             }
-            VStack(spacing: 0) {
+            LazyVStack(spacing: 0) {
                 ForEach(Array(results.enumerated()), id: \.element.id) { index, result in
                     if index > 0 {
                         Rectangle().fill(FolioTheme.line.opacity(0.7)).frame(height: 0.5)
@@ -173,9 +176,9 @@ struct FolioMobileSourcesView: View {
 
     private func resultRow(_ result: SourceResult) -> some View {
         HStack(spacing: 14) {
-            AsyncImage(url: result.cover) { image in
-                image.resizable().scaledToFill()
-            } placeholder: {
+            // Cached and downsized once, so scrolling and status updates
+            // don't download every cover again.
+            FolioCachedImage(url: result.cover) {
                 Image(systemName: "book.closed.fill")
                     .foregroundStyle(FolioTheme.muted)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -230,9 +233,11 @@ struct FolioMobileSourcesView: View {
     }
 
     private func selectDefaultSource() {
-        if !extensions.enabled.contains(where: { $0.id == selectedSource }) {
-            selectedSource = extensions.enabled.first?.id ?? ""
-        }
+        // While extensions reload the list is briefly empty: keep the current
+        // choice and its results instead of clearing the page.
+        let enabled = extensions.enabled
+        guard !enabled.isEmpty, !enabled.contains(where: { $0.id == selectedSource }) else { return }
+        selectedSource = enabled.first?.id ?? ""
     }
 
     @MainActor

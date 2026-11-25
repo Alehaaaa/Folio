@@ -660,7 +660,27 @@ final class ExtensionStore {
         if let d = try? JSONEncoder().encode(savedByID) { try? d.write(to: savedURL, options: .atomic) }
     }
 
+    /// True once the extensions have been read at least once.
+    private(set) var loaded = false
+    @ObservationIgnored private var loading: Task<Void, Never>?
+
+    /// Reads every extension and replaces the runtimes. Calls made while a
+    /// load is running wait for that load instead of starting another one, so
+    /// screens and the download queue never swap runtimes out from under each other.
     func loadAll() async {
+        if let loading { return await loading.value }
+        let task = Task { await self.buildRuntimes() }
+        loading = task
+        await task.value
+        loading = nil
+    }
+
+    /// Loads the extensions only if nothing has loaded them yet.
+    func ensureLoaded() async {
+        if !loaded { await loadAll() }
+    }
+
+    private func buildRuntimes() async {
         var out: [Installed] = []
         for (id, saved) in savedByID.sorted(by: { ($0.value.builtIn ? 0 : 1, $0.key) < ($1.value.builtIn ? 0 : 1, $1.key) }) {
             guard let script = try? String(contentsOf: dir.appendingPathComponent(saved.file), encoding: .utf8) else { continue }
@@ -674,7 +694,12 @@ final class ExtensionStore {
                 lastError = "\(saved.file): \(error.localizedDescription)"
             }
         }
+        let previous = installed
         installed = out
+        loaded = true
+        // Old runtimes each hold a JavaScript context and a hidden WebKit
+        // page; release them instead of leaking one set per reload.
+        for item in previous { Task { await item.runtime.close() } }
     }
 
     /// At launch, refresh Folio-managed JavaScript extensions at most once per
@@ -758,9 +783,6 @@ final class ExtensionStore {
 
         guard changed else { return }
         persist()
-        let previous = installed
-        installed = []
-        for item in previous { await item.runtime.close() }
         await loadAll()
     }
 

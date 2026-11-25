@@ -335,7 +335,7 @@ struct FolioMobileFindSourceView: View {
             searching = false
             hasSearched = true
         }
-        if extensions.installed.isEmpty { await extensions.loadAll() }
+        await extensions.ensureLoaded()
         let result = await extensions.findCopies(
             title: wantedTitle, author: wantedAuthor,
             expectedLanguage: selectedLanguage.isEmpty ? nil : selectedLanguage,

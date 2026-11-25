@@ -65,7 +65,19 @@ import WebKit
         }
         print("WEB \(mode) \(URL(string: url)!.host!.hasPrefix("f") && url.contains("nip.io") ? "fresh" : URL(string: url)!.host!) \(result)")
     }
-    if mode == "proxy" { print("TUNNELS \(FolioEncryptedDNSWebProxy.shared.tunnelsOpened)") }
+    if mode == "proxy" {
+        // iOS tears listeners down while the app is suspended; the same web
+        // view must keep working afterwards, on the same port.
+        let before = await FolioEncryptedDNSWebProxy.shared.port()
+        let after = await FolioEncryptedDNSWebProxy.shared.restart()
+        print("RESTART same-port \(before == after)")
+        let result: String = await withCheckedContinuation { c in
+            loader.done = c
+            web.load(URLRequest(url: URL(string: "https://example.org/")!, timeoutInterval: 20))
+        }
+        print("WEB proxy after-restart \(result)")
+        print("TUNNELS \(FolioEncryptedDNSWebProxy.shared.tunnelsOpened)")
+    }
     print("FRESH \(fresh)")
 }
 
@@ -103,6 +115,8 @@ need('HTTP 200' in big and 'zip' in big and int(big.split()[4]) > 1000000, 'Larg
 need('WEB proxy openlibrary.org loaded' in proxy, 'WebKit via proxy could not load Open Library')
 need(int(next(l for l in proxy.splitlines() if l.startswith('TUNNELS')).split()[1]) >= 3, 'WebKit did not use the proxy')
 need('WEB proxy example.com loaded Example Domain' in proxy, 'WebKit via proxy could not load example.com')
+need('RESTART same-port true' in proxy, 'Proxy came back on a different port')
+need('WEB proxy after-restart loaded Example Domain' in proxy, 'WebKit stopped loading after the proxy restarted')
 mine = [l for l in pres.splitlines() if '(dnswebproxy)' in l]
 count = lambda enc: sum(int(l.split()[0]) for l in mine if ('need-encryption' in l) == enc)
 # The one plain lookup allowed is the provider check (cloudflare-dns.com) made

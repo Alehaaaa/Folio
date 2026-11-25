@@ -302,40 +302,57 @@ struct FolioMobileEditDetails: View {
 
     private var coverSection: some View {
         Section("Cover") {
+            // Plain tap and hold gestures rather than Buttons with a
+            // simultaneous drag: inside a Form row those swallowed the
+            // horizontal swipe, so the strip couldn't scroll.
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 12) {
-                    Button { cover = nil } label: {
-                        Group {
-                            if let localBook {
-                                FolioMobileCover(book: localBook)
-                            } else {
-                                FolioMobileRemoteCover(url: currentCoverURL, title: title)
-                            }
+                LazyHStack(spacing: 12) {
+                    coverChoice(selected: cover == nil, label: "Keep the current cover",
+                                fileURL: localBook.flatMap { library.coverURL($0) }, remoteURL: currentCoverURL,
+                                choose: { cover = nil }) {
+                        if let localBook {
+                            FolioMobileCover(book: localBook)
+                        } else {
+                            FolioMobileRemoteCover(url: currentCoverURL, title: title)
                         }
-                        .frame(width: 78, height: 114)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .overlay { ring(cover == nil) }
                     }
-                    .folioCoverPeek(fileURL: localBook.flatMap { library.coverURL($0) }, remoteURL: currentCoverURL)
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Keep the current cover")
                     ForEach(coverOptions, id: \.self) { url in
-                        Button { cover = url } label: {
+                        coverChoice(selected: cover == url, label: cover == url ? "Chosen cover" : "Use this cover",
+                                    fileURL: url.isFileURL ? url : nil, remoteURL: url.isFileURL ? nil : url,
+                                    choose: { cover = url }) {
                             FolioMobileRemoteCover(url: url, title: title)
-                                .frame(width: 78, height: 114)
-                                .overlay { ring(cover == url) }
                         }
-                        .folioCoverPeek(fileURL: url.isFileURL ? url : nil, remoteURL: url.isFileURL ? nil : url)
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(cover == url ? "Chosen cover" : "Use this cover")
                     }
                     if loading { ProgressView().frame(width: 78, height: 114) }
                 }
                 .padding(.vertical, 4)
+                .padding(.horizontal, 2)
             }
+            .scrollClipDisabled()
             Button("Choose from Files", systemImage: "photo.on.rectangle") { choosingCoverFile = true }
         }
         .folioRow()
+    }
+
+    /// One cover in the strip: tap to choose it, hold to see it large.
+    private func coverChoice<Cover: View>(selected: Bool, label: String, fileURL: URL?, remoteURL: URL?,
+                                          choose: @escaping () -> Void,
+                                          @ViewBuilder cover: () -> Cover) -> some View {
+        cover()
+            .frame(width: 78, height: 114)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay { ring(selected) }
+            .contentShape(Rectangle())
+            .onTapGesture(perform: choose)
+            .onLongPressGesture(minimumDuration: 0.3, maximumDistance: 8) {
+                FolioCoverPeek.shared.show(fileURL: fileURL, remoteURL: remoteURL)
+            } onPressingChanged: { pressing in
+                if !pressing { FolioCoverPeek.shared.hide() }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+            .accessibilityAction { choose() }
     }
 
     private func ring(_ selected: Bool) -> some View {

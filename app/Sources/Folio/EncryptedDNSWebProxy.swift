@@ -35,15 +35,35 @@ final class FolioEncryptedDNSWebProxy: @unchecked Sendable {
         }
     }
 
+    /// Tears the listener down and brings it back on the same port, as after
+    /// iOS suspends the app. Used by checks/test-encrypted-dns-webkit.sh.
+    func restart() async -> NWEndpoint.Port? {
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            queue.async { [self] in
+                listener?.cancel()
+                listener = nil
+                readyPort = nil
+                done.resume()
+            }
+        }
+        return await port()
+    }
+
     private func finishWaiting(_ port: NWEndpoint.Port?) {
         let pending = waiting
         waiting = []
         pending.forEach { $0.resume(returning: port) }
     }
 
+    /// The port WebKit was given. A web view keeps its proxy settings for
+    /// life, so after iOS tears the listener down (the app was suspended) it
+    /// comes back on this same port instead of a new one.
+    private var stickyPort: NWEndpoint.Port?
+
     private func startListener() {
         let parameters = NWParameters.tcp
-        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        parameters.allowLocalEndpointReuse = true
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: stickyPort ?? .any)
         parameters.acceptLocalOnly = true
         guard let listener = try? NWListener(using: parameters) else { return finishWaiting(nil) }
         self.listener = listener
@@ -53,11 +73,22 @@ final class FolioEncryptedDNSWebProxy: @unchecked Sendable {
             switch state {
             case .ready:
                 self.readyPort = listener.port
+                if self.stickyPort == nil { self.stickyPort = listener.port }
                 self.finishWaiting(listener.port)
-            case .failed, .cancelled:
+            case .failed:
+                listener.cancel()
                 self.listener = nil
                 self.readyPort = nil
                 self.finishWaiting(nil)
+                // Come straight back on the same port for the web views using it.
+                if self.stickyPort != nil {
+                    self.queue.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                        guard let self, self.listener == nil else { return }
+                        self.startListener()
+                    }
+                }
+            case .cancelled:
+                if self.listener === listener { self.listener = nil; self.readyPort = nil }
             default: break
             }
         }

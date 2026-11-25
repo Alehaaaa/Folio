@@ -400,7 +400,7 @@ final class DownloadQueue {
             guard bootstrap == nil else { return }
             bootstrap = Task { @MainActor [weak self] in
                 guard let self else { return }
-                await ExtensionStore.shared.loadAll()
+                await ExtensionStore.shared.ensureLoaded()
                 self.didLoadSources = true
                 self.bootstrap = nil
                 self.startWorker()

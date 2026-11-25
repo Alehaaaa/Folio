@@ -177,6 +177,7 @@ struct EPUBPackage {
     var author = ""
     var language = "es"
     func loadAll() async {}
+    func ensureLoaded() async {}
     func makeJobSession() -> JobSession { JobSession(owner: self) }
 
     @MainActor final class JobSession {
