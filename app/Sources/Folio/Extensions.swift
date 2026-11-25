@@ -436,6 +436,18 @@ final class SourceRuntime: @unchecked Sendable {
 }
 
 /// Stops a request from being redirected to a server the extension isn't allowed to reach.
+/// File downloads only: follow redirects to any HTTPS host, never to plain
+/// HTTP, and never carry cookies or credentials to a different origin.
+final class FileRedirects: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    static let shared = FileRedirects()
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        guard let url = request.url, url.scheme?.lowercased() == "https" else { return completionHandler(nil) }
+        completionHandler(RedirectGuard.stripped(request, from: response.url))
+    }
+}
+
 final class RedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     let allow: (URL) -> Bool
     private let invalidationLock = NSLock()
@@ -483,18 +495,20 @@ final class RedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable
             completionHandler(nil)
             return
         }
+        completionHandler(Self.stripped(request, from: response.url))
+    }
+
+    /// A source may explicitly allow more than one HTTPS origin for its
+    /// catalogue and partner pages. Never transfer browser-state or
+    /// referring-page data across separate origins.
+    static func stripped(_ request: URLRequest, from previous: URL?) -> URLRequest {
         var next = request
-        if let previous = response.url, SourceRuntime.hostKey(previous) != SourceRuntime.hostKey(url) {
-            // A source may explicitly allow more than one HTTPS origin for
-            // its catalogue and partner pages. Never transfer browser-state
-            // or referring-page data across those separate origins.
-            next.setValue(nil, forHTTPHeaderField: "Cookie")
-            next.setValue(nil, forHTTPHeaderField: "Authorization")
-            next.setValue(nil, forHTTPHeaderField: "Proxy-Authorization")
-            next.setValue(nil, forHTTPHeaderField: "Referer")
-            next.setValue(nil, forHTTPHeaderField: "Origin")
+        if let previous, let url = request.url, SourceRuntime.hostKey(previous) != SourceRuntime.hostKey(url) {
+            for header in ["Cookie", "Authorization", "Proxy-Authorization", "Referer", "Origin"] {
+                next.setValue(nil, forHTTPHeaderField: header)
+            }
         }
-        completionHandler(next)
+        return next
     }
 }
 
@@ -1086,8 +1100,14 @@ final class ExtensionStore {
                           resolved.user == nil, resolved.password == nil else {
                         throw ExtensionError(message: "The extension could not resolve this landing page into a file URL.")
                     }
-                    guard let key = SourceRuntime.hostKey(resolved), reach(e).contains(key) else {
-                        throw ExtensionError(message: "Free partner resolved to an unapproved file host: \(resolved.host ?? "unknown"). Enable only a trusted provider domain in the extension settings.")
+                    // The file itself may live on any HTTPS host the partner page
+                    // sends it to (partners rotate file hosts). Only the file is
+                    // fetched there: no browser cookies, and it must be a real EPUB.
+                    guard resolved.scheme?.lowercased() == "https", resolved.host != nil else {
+                        throw ExtensionError(message: "Free partner resolved to a non-HTTPS file link.")
+                    }
+                    if let key = SourceRuntime.hostKey(resolved), !reach(e).contains(key) {
+                        onEvent(.log("Link \(index + 1): file is on \(resolved.host ?? "another host"), outside the source's own servers; downloading the file only."))
                     }
                     actual = resolved
                 }
@@ -1101,11 +1121,12 @@ final class ExtensionStore {
                 for (header, value) in await e.runtime.browserDownloadHeaders(for: actual) {
                     req.setValue(value, forHTTPHeaderField: header)
                 }
-                let (tmp, resp) = try await e.runtime.session.download(for: req)
+                // File links often redirect to a CDN or mirror: follow any HTTPS one.
+                let (tmp, resp) = try await e.runtime.session.download(for: req, delegate: FileRedirects.shared)
                 try Task.checkCancellation()
                 if let http = resp as? HTTPURLResponse, http.statusCode >= 300 {
                     lastError = ExtensionError(message: (300..<400).contains(http.statusCode)
-                        ? "Blocked: the download tried to move to another server."
+                        ? "Blocked: the download redirected to a non-HTTPS link."
                         : (http.statusCode == 503 ? "\(actual.host ?? "The server") is busy (503). Try again later." : "\(actual.host ?? "The server") answered \(http.statusCode)."))
                     onEvent(.log("\(actual.host ?? "Source") link \(index + 1): \(lastError.localizedDescription)"))
                     continue
