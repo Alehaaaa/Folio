@@ -50,9 +50,8 @@ struct FolioMobileBookshelf: View {
     private var innerWidth: CGFloat { max(120, width - frameInset * 2 - sidePadding * 2) }
 
     var body: some View {
-        var widths = Dictionary(items.map { ($0.id, FolioSpineMetrics.width(for: $0)) },
+        let widths = Dictionary((items + (incoming.map { [$0] } ?? [])).map { ($0.id, FolioSpineMetrics.width(for: $0)) },
                                 uniquingKeysWith: { a, _ in a })
-        if let incoming { widths[incoming.id] = FolioSpineMetrics.width(for: incoming) }
         // The live order from the nook store, so a drop shows in the same
         // frame as the move instead of a frame later, when Home re-renders.
         let ordered = nook.arranged(items)
