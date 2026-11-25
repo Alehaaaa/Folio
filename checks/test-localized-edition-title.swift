@@ -1,4 +1,4 @@
-// swiftc -swift-version 5 app/Sources/Folio/BookAutoMatch.swift checks/test-localized-edition-title.swift -o /tmp/t && /tmp/t
+// swiftc -swift-version 5 app/Sources/Folio/BookAutoMatch.swift app/Sources/Folio/EditionTitle.swift checks/test-localized-edition-title.swift -o /tmp/t && /tmp/t
 import Foundation
 
 @main struct LocalizedEditionTitleCheck {
