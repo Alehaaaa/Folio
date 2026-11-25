@@ -1,0 +1,16 @@
+name: probe406
+on:
+  push:
+    branches: ["test/sync-406"]
+jobs:
+  p:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          U=https://textdb.dev/api/data/folio-probe-$RANDOM$RANDOM
+          echo "POST text/plain: $(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: text/plain' --data 'folio1:abc' $U)"
+          for a in 'text/plain' '*/*' 'none'; do
+            if [ "$a" = none ]; then c=$(curl -s -o b -w '%{http_code}' -H 'Accept:' $U); else c=$(curl -s -o b -w '%{http_code}' -H "Accept: $a" $U); fi
+            echo "GET Accept=$a -> $c $(head -c 40 b)"
+          done
+          echo "GET iOS-style Accept */* lang: $(curl -s -o /dev/null -w '%{http_code}' -H 'Accept: */*' -H 'Accept-Language: es-ES,es;q=0.9' -H 'User-Agent: Folio/80 CFNetwork/3826 Darwin/25.0.0' $U)"
