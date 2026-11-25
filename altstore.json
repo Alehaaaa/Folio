@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.75",
+          "buildVersion": "76",
+          "date": "2026-11-25",
+          "localizedDescription": "1.0.75: encrypted DNS providers (Cloudflare, Google, Quad9, AdGuard, Mullvad, NextDNS, custom); warm Easy Reading card",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.75-76.ipa",
+          "size": 5858615,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.72",
           "buildVersion": "73",
           "date": "2026-11-24",
