@@ -10,20 +10,8 @@ jobs:
         run: |
           set +e
           ID="folio-probe-$RANDOM$RANDOM"
-          BIG=$(python3 -c "import json,base64,os;print(json.dumps({'d':base64.b64encode(os.urandom(150000)).decode()}))")
-          echo "$BIG" > big.json
-          echo "=== jsonblob create"; curl -s -i -m 20 -X POST -H 'Content-Type: application/json' -H 'Accept: application/json' -d '{"a":1}' https://jsonblob.com/api/jsonBlob | head -20
-          LOC=$(curl -s -D - -o /dev/null -m 20 -X POST -H 'Content-Type: application/json' -H 'Accept: application/json' -d '{"a":1}' https://jsonblob.com/api/jsonBlob | grep -i '^location' | tr -d '\r' | awk '{print $2}')
-          echo "loc=$LOC"
-          echo "=== jsonblob put big"; curl -s -o /dev/null -w "%{http_code}\n" -m 20 -X PUT -H 'Content-Type: application/json' --data-binary @big.json "$LOC"
-          echo "=== jsonblob get"; curl -s -m 20 "$LOC" | head -c 100; echo
-          echo "=== jsonblob custom id put"; curl -s -i -m 20 -X PUT -H 'Content-Type: application/json' -d '{"a":2}' https://jsonblob.com/api/jsonBlob/$ID | head -5
-          echo "=== textdb"; curl -s -i -m 20 -X POST -d 'hello' https://textdb.dev/api/data/$ID | head -8; curl -s -i -m 20 https://textdb.dev/api/data/$ID | head -12
-          echo "=== textdb big"; curl -s -o /dev/null -w "%{http_code}\n" -m 20 -X POST --data-binary @big.json https://textdb.dev/api/data/$ID; curl -s -m 20 https://textdb.dev/api/data/$ID | wc -c
-          echo "=== kvdb"; curl -s -i -m 20 -X POST https://kvdb.io | head -12
-          echo "=== immanuel"; curl -s -i -m 20 https://keyvalue.immanuel.co/api/KeyVal/GetAppKey | head -12
-          echo "=== extendsclass"; curl -s -i -m 20 -X POST -H 'Content-Type: application/json' -d '{"a":1}' https://json.extendsclass.com/bin | head -15
-          echo "=== jsonstorage"; curl -s -i -m 20 -X POST -H 'Content-Type: application/json' -d '{"a":1}' https://api.jsonstorage.net/v1/json | head -15
-          echo "=== ntfy"; curl -s -i -m 20 -d 'x' https://ntfy.sh/$ID | head -5
-          echo "=== pantry"; curl -s -i -m 20 https://getpantry.cloud/ | head -3
-          echo "=== npoint"; curl -s -i -m 20 -X POST -H 'Content-Type: application/json' -d '{"contents":{"a":1}}' https://api.npoint.io/ | head -10
+          echo "=== missing"; curl -s -i -m 20 https://textdb.dev/api/data/nonexistent-$ID | head -12
+          python3 -c "import base64,os;print(base64.b64encode(os.urandom(900000)).decode())" > big.txt
+          echo "=== 1.2MB"; curl -s -o /dev/null -w "%{http_code} %{time_total}\n" -m 30 -X POST --data-binary @big.txt https://textdb.dev/api/data/$ID; curl -s -m 20 https://textdb.dev/api/data/$ID | cmp - big.txt && echo same
+          echo "=== content-type json"; curl -s -i -m 20 -X POST -H 'Content-Type: text/plain' --data-binary 'abc+/=' https://textdb.dev/api/data/$ID-2 | head -3; curl -s https://textdb.dev/api/data/$ID-2; echo
+          echo "=== homepage"; curl -s -m 20 https://textdb.dev/ | sed 's/<[^>]*>/ /g' | tr -s ' \n' | head -c 4000
