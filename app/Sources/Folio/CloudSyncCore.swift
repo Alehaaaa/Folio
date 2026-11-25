@@ -1,10 +1,13 @@
 import Foundation
+import CryptoKit
 
 // Folio Sync: keeps reading progress and library state in step between the
-// Mac and iPhone apps through a small HTTPS endpoint (sync-worker/ in the repo,
-// a Cloudflare Worker). No account or key: devices that share a sync code
-// share one document on the server, where each device keeps its own entry.
-// Every book entry carries the time it last changed, and the newest wins.
+// Mac and iPhone apps through a free public text store over plain HTTPS
+// (textdb.dev). No account, key or server of our own: devices that share a
+// sync code share one document, where each device keeps its own entry. The
+// sync code picks the document and is the encryption key, so the store only
+// ever sees ciphertext. Every book entry carries the time it last changed,
+// and the newest wins.
 
 // MARK: - Wire format
 
@@ -54,6 +57,48 @@ struct CloudSyncDeviceDoc: Codable, Equatable {
 /// What the server holds for one sync code.
 struct CloudSyncChannel: Codable {
     var devices: [String: CloudSyncDeviceDoc] = [:]
+}
+
+/// Seals a channel for the public store: JSON, zlib, then AES-GCM with a key
+/// derived from the sync code. The slot name is a hash of the code, so
+/// neither the code nor the library can be read from the store.
+enum CloudSyncBox {
+    static let prefix = "folio1:"
+
+    static func slot(for code: String) -> String {
+        let digest = SHA256.hash(data: Data("folio-sync-slot|\(code)".utf8))
+        return "folio-" + digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func key(for code: String) -> SymmetricKey {
+        HKDF<SHA256>.deriveKey(
+            inputKeyMaterial: SymmetricKey(data: Data(code.utf8)),
+            salt: Data("folio-sync".utf8),
+            info: Data("folio-sync-key-v1".utf8),
+            outputByteCount: 32
+        )
+    }
+
+    static func seal(_ channel: CloudSyncChannel, code: String) throws -> String {
+        let json = try JSONEncoder.folioSync.encode(channel)
+        let packed = try (json as NSData).compressed(using: .zlib) as Data
+        guard let box = try AES.GCM.seal(packed, using: key(for: code)).combined else {
+            throw CocoaError(.coderInvalidValue)
+        }
+        return prefix + box.base64EncodedString()
+    }
+
+    /// An empty slot is an empty channel.
+    static func open(_ text: String, code: String) throws -> CloudSyncChannel {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { return CloudSyncChannel() }
+        guard text.hasPrefix(prefix), let raw = Data(base64Encoded: String(text.dropFirst(prefix.count))) else {
+            throw CocoaError(.coderReadCorrupt)
+        }
+        let packed = try AES.GCM.open(AES.GCM.SealedBox(combined: raw), using: key(for: code))
+        let json = try (packed as NSData).decompressed(using: .zlib) as Data
+        return try JSONDecoder.folioSync.decode(CloudSyncChannel.self, from: json)
+    }
 }
 
 /// What this device remembers between syncs.
