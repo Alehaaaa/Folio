@@ -8,7 +8,7 @@ var source = {
   kind: "metadata",
   name: "Amazon",
   description: "Full records from the Amazon store for the book's language: description, publisher, pages, ISBN, genres and large covers.",
-  version: "1.0.1",
+  version: "1.0.2",
   languages: ["*"],
   allowedHosts: ["https://www.amazon.com", "https://www.amazon.es", "https://www.amazon.fr", "https://www.amazon.de",
                  "https://www.amazon.it", "https://www.amazon.nl", "https://www.amazon.com.br", "https://www.amazon.co.jp",
@@ -64,11 +64,23 @@ var source = {
     }
   },
 
+  // "Autor", "Author", "Auteur", "Autore", "Författare", "Yazar", "著"…
+  isAuthorRole: function (role) {
+    return /aut|author|auteur|verfasser|författare|yazar|著/i.test(role);
+  },
+
+  // Amazon pages write accents as HTML references ("Mu&ntilde;oz"); decode all of
+  // them with Folio's full decoder, or the common ones on older Folio builds.
+  entities: function (text) {
+    if (typeof folio !== "undefined" && typeof folio.decodeHTML === "function") return folio.decodeHTML(text);
+    return text.replace(/&nbsp;/g, " ").replace(/&quot;/g, "\"").replace(/&#39;|&apos;/g, "'")
+      .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  },
+
   text: function (html) {
-    return String(html || "")
-      .replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n\n").replace(/<[^>]+>/g, " ")
-      .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&quot;/g, "\"").replace(/&#39;|&apos;/g, "'")
-      .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&rlm;|&lrm;|‏|‎/g, "")
+    return this.entities(String(html || "")
+      .replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n\n").replace(/<[^>]+>/g, " "))
+      .replace(/\u00a0/g, " ").replace(/&rlm;|&lrm;|‏|‎/g, "")
       .replace(/[ \t]+/g, " ").replace(/\n[ \t]+/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
   },
 
@@ -125,12 +137,20 @@ var source = {
     var self = this;
     var authors = [];
     var byline = (html.match(/<div id="bylineInfo"[\s\S]*?<\/div>\s*<\/div>/) || [""])[0];
-    var a = /<a class="a-link-normal"[^>]*>([^<]+)<\/a>/g;
     var m;
-    while ((m = a.exec(byline))) {
-      var name = self.text(m[1]);
+    // Each contributor is its own <span class="author">: a name link, then a role
+    // such as "(Autor)" or "(Traductor)". Translators, illustrators and narrators
+    // are not the book's authors.
+    var chunks = byline.split(/<span class="author\b/).slice(1);
+    if (!chunks.length) chunks = [byline];
+    chunks.forEach(function (chunk) {
+      var link = chunk.match(/<a class="a-link-normal"[^>]*>([^<]+)<\/a>/);
+      if (!link) return;
+      var name = self.text(link[1]);
+      var role = (chunk.match(/class="contribution"[\s\S]*?\(([^)]+)\)/) || [])[1] || "";
+      if (role && !self.isAuthorRole(role)) return;
       if (name && authors.indexOf(name) < 0 && !/^(visit|visita|visitez|besuchen|\d)/i.test(name)) authors.push(name);
-    }
+    });
     var description = null;
     var block = html.match(/<div[^>]*id="bookDescription_feature_div"[\s\S]*?<div[^>]*class="a-expander-content[^"]*"[^>]*>([\s\S]*?)<\/div>/);
     if (!block) block = html.match(/<div[^>]*id="bookDescription_feature_div"[\s\S]*?<noscript>([\s\S]*?)<\/noscript>/);

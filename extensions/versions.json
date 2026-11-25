@@ -15,9 +15,9 @@
     },
     {
       "id": "metadata-amazon",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/metadata-amazon.js",
-      "sha256": "8dc414fbc69b4fa3517f322423b2eb438638404a42077ec32bdc3d719dcb732c"
+      "sha256": "c9bd37f018bb39f977a095ff93d593bd6aa0dc01df80c6e36e8f0f954058d4d7"
     },
     {
       "id": "metadata-apple-books",

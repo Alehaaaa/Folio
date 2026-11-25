@@ -306,6 +306,10 @@ final class SourceRuntime: @unchecked Sendable {
             }
         }
         folio.setObject(fetchWith, forKeyedSubscript: "fetchWith" as NSString)
+        // folio.decodeHTML("Mu&ntilde;oz") -> "Muñoz": every HTML character
+        // reference, so scrapers needn't keep their own partial tables.
+        let decodeHTML: @convention(block) (String) -> String = { $0.decodingHTMLEntities }
+        folio.setObject(decodeHTML, forKeyedSubscript: "decodeHTML" as NSString)
         if hardcoverBridge != nil {
             let hardcover: @convention(block) (String, String) -> String? = { [weak self] query, variables in
                 self?.hardcoverBridge?(query, variables)
@@ -344,7 +348,10 @@ final class SourceRuntime: @unchecked Sendable {
             else if let http = resp as? HTTPURLResponse, http.statusCode >= 400 {
                 result = .failure(ExtensionError(message: "\(url.host ?? "server") answered \(http.statusCode)"))
             } else if let data, data.count <= 20_000_000 {
-                result = .success(String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self))
+                // Honor the page's declared character set; Spanish and other
+                // Latin pages are not always UTF-8.
+                let contentType = (resp as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type")
+                result = .success(FolioWebText.string(from: data, contentType: contentType))
             } else {
                 result = .failure(ExtensionError(message: "Answer too large"))
             }

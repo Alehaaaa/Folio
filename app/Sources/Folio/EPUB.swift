@@ -197,9 +197,9 @@ struct EPUBPackage {
         let opfDir = opfURL.deletingLastPathComponent()
 
         let title = opf.first("//*[local-name()='metadata']/*[local-name()='title']")?.stringValue?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            .decodingHTMLEntities.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let authors = opf.all("//*[local-name()='metadata']/*[local-name()='creator']")
-            .compactMap { $0.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .compactMap { $0.stringValue?.decodingHTMLEntities.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
         // Retain the publisher's original language tag for the caller to normalize.
         // A bilingual/mislabelled package must not be silently treated as one language.
@@ -311,11 +311,12 @@ struct EPUBPackage {
                 seriesIndex = Double(pos.trimmingCharacters(in: .whitespaces))
             }
         }
+        series = series?.decodingHTMLEntities.trimmingCharacters(in: .whitespacesAndNewlines)
         if series?.isEmpty == true { series = nil }
 
         func metadataText(_ name: String) -> String? {
             let value = opf.first("//*[local-name()='metadata']/*[local-name()='\(name)']")?.stringValue?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .decodingHTMLEntities.trimmingCharacters(in: .whitespacesAndNewlines)
             return value?.isEmpty == false ? value : nil
         }
         let publicationDate = opf.all("//*[local-name()='metadata']/*[local-name()='date']").first { node in

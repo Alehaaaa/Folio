@@ -32,6 +32,7 @@ final class LibraryStore {
            let decoded = try? JSONDecoder().decode(LibraryData.self, from: raw) {
             data = decoded
         }
+        if decodeStoredEntities() { save() }
         fillInSeries()
     }
 
@@ -44,6 +45,37 @@ final class LibraryStore {
 
     /// Lets Folio Sync follow library changes.
     static var didSave: (() -> Void)?
+
+    /// Books imported before Folio decoded HTML character references kept
+    /// names such as "Mu&amp;ntilde;oz"; fix them once in the saved library.
+    private func decodeStoredEntities() -> Bool {
+        var changed = false
+        func fix(_ value: inout String) {
+            let decoded = value.decodingHTMLEntities
+            if decoded != value { value = decoded; changed = true }
+        }
+        func fix(_ value: inout String?) {
+            guard var text = value else { return }
+            fix(&text)
+            value = text
+        }
+        for i in data.books.indices {
+            fix(&data.books[i].title)
+            fix(&data.books[i].author)
+            fix(&data.books[i].summary)
+            fix(&data.books[i].publisher)
+            fix(&data.books[i].series)
+            if var genres = data.books[i].genres {
+                for g in genres.indices { fix(&genres[g]) }
+                data.books[i].genres = genres
+            }
+        }
+        for i in data.tracked.indices {
+            fix(&data.tracked[i].title)
+            fix(&data.tracked[i].author)
+        }
+        return changed
+    }
 
     func save() {
         changeCount &+= 1

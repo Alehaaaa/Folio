@@ -8,6 +8,7 @@ tmp="$(mktemp -d /tmp/folio-job-session-check.XXXXXX)"
 trap 'rm -rf "$tmp"' EXIT HUP INT TERM
 swiftc -swift-version 5 -parse-as-library \
     app/Sources/Folio/Extensions.swift app/Sources/Folio/ExtensionBrowser.swift \
+    app/Sources/Folio/EncryptedDNS.swift app/Sources/Folio/EncryptedDNSWebProxy.swift app/Sources/Folio/WebText.swift \
     checks/test-source-job-session.swift \
     -o "$tmp/test-source-job-session"
 "$tmp/test-source-job-session"

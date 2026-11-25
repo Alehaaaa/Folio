@@ -37,6 +37,7 @@ jobs:
           node checks/test-anna-folio-extension.cjs
           node checks/test-lectulandia-extension.cjs
           node checks/test-lectulandia-source-behavior.cjs
+          node checks/test-amazon-metadata.cjs
           python3 checks/check-extension-versions.py
           zsh checks/test-hardcover-rate-gate.sh
           zsh checks/test-language-sparse-queue.sh
@@ -47,6 +48,8 @@ jobs:
           /tmp/folio-localized-edition-title
           bash checks/test-navigation-root-reset.sh
           python3 checks/check-dns-coverage.py
+          swiftc -swift-version 5 app/Sources/Folio/WebText.swift checks/test-html-entities.swift -o /tmp/folio-html-entities
+          /tmp/folio-html-entities
 
       - name: Build unsigned IPA
         run: app/iOS/build-ipa.sh
