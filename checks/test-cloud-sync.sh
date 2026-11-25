@@ -1,40 +1,44 @@
 #!/bin/bash
-# Folio Sync: merge rules, and the sync server (sync-worker/worker.js) run
-# locally with an in-memory KV. Needs swiftc and deno.
+# Folio Sync: merge rules and sealing. Needs swiftc (macOS, for CryptoKit).
+# LIVE=1 also round-trips a sealed document through the public store.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
-trap 'kill "${SERVER:-0}" 2>/dev/null || true; rm -rf "$TMP"' EXIT
+trap 'rm -rf "$TMP"' EXIT
 
-echo "== Merge rules"
 cp "$ROOT/checks/test-cloud-sync.swift" "$TMP/main.swift"
 swiftc -O -o "$TMP/merge" "$ROOT/app/Sources/Folio/CloudSyncCore.swift" "$TMP/main.swift"
 "$TMP/merge"
 
-echo "== Sync server"
-PORT=${PORT:-8791}
-deno run --allow-net "$ROOT/sync-worker/local-server.mjs" "$PORT" >"$TMP/server.log" 2>&1 &
-SERVER=$!
-for _ in $(seq 50); do curl -s "http://127.0.0.1:$PORT/" >/dev/null && break; sleep 0.1; done
-URL="http://127.0.0.1:$PORT/v1/ABCDEFGHJKLMNPQR"
-NOW=$(($(date +%s) * 1000))
-fail() { echo "FAIL $1"; exit 1; }
-status() { curl -s -o "$TMP/body" -w '%{http_code}' "$@"; }
-
-[ "$(status "$URL")" = 404 ] || fail "empty code should be 404"; echo "ok   empty code is 404"
-[ "$(status -X PUT -H 'content-type: application/json' --data '{"deviceName":"Mac","platform":"mac","savedAt":'"$NOW"',"books":[]}' "$URL/device-mac-1")" = 200 ] || fail "PUT mac"
-[ "$(status -X PUT --data '{"deviceName":"iPhone","platform":"iphone","savedAt":'"$NOW"',"books":[{"keys":["t:x"]}]}' "$URL/device-phone-1")" = 200 ] || fail "PUT phone"
-[ "$(status "$URL")" = 200 ] || fail "GET after PUT"
-python3 -c 'import json,sys; d=json.load(open(sys.argv[1]))["devices"]; assert set(d)=={"device-mac-1","device-phone-1"}, d' "$TMP/body" || fail "both devices kept"
-echo "ok   both devices are kept side by side"
-[ "$(status -X PUT --data '{"deviceName":"Old","savedAt":1,"books":[]}' "$URL/device-old-1")" = 200 ] || fail "PUT old"
-[ "$(status -X PUT --data '{"deviceName":"Mac","savedAt":'"$NOW"',"books":[]}' "$URL/device-mac-1")" = 200 ] || fail "PUT mac again"
-status "$URL" >/dev/null
-python3 -c 'import json,sys; d=json.load(open(sys.argv[1]))["devices"]; assert set(d)=={"device-mac-1","device-phone-1"}, d' "$TMP/body" || fail "stale device dropped"
-echo "ok   devices silent for 180 days are dropped"
-[ "$(status -X PUT --data 'nope' "$URL/device-mac-1")" = 400 ] || fail "bad json"; echo "ok   bad JSON is refused"
-[ "$(status "http://127.0.0.1:$PORT/v1/short")" = 404 ] || fail "short code"; echo "ok   short codes are refused"
-[ "$(status -X DELETE "$URL")" = 405 ] || fail "delete"; echo "ok   other methods are refused"
-python3 -c 'print("{\"books\":[],\"pad\":\"" + "x"*1100000 + "\"}")' > "$TMP/big.json"
-[ "$(status -X PUT --data-binary @"$TMP/big.json" "$URL/device-mac-1")" = 413 ] || fail "size limit"; echo "ok   oversized entries are refused"
+if [ "${LIVE:-0}" = 1 ]; then
+  cat > "$TMP/live.swift" <<'SWIFT'
+import Foundation
+let code = CloudSyncMerge.newCode()
+let url = URL(string: "https://textdb.dev/api/data/")!.appendingPathComponent(CloudSyncBox.slot(for: code))
+func get() async throws -> CloudSyncChannel {
+    let (d, _) = try await URLSession.shared.data(from: url)
+    return try CloudSyncBox.open(String(decoding: d, as: UTF8.self), code: code)
+}
+func put(_ c: CloudSyncChannel) async throws {
+    var q = URLRequest(url: url); q.httpMethod = "POST"; q.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+    q.httpBody = Data(try CloudSyncBox.seal(c, code: code).utf8)
+    let (_, r) = try await URLSession.shared.data(for: q)
+    guard (r as! HTTPURLResponse).statusCode == 200 else { fatalError("POST \((r as! HTTPURLResponse).statusCode)") }
+}
+let books = (0..<800).map { i in CloudSyncRecord(keys: ["t:book\(i)", "isbn:978000000\(i)"], title: "A Fairly Long Book Title Number \(i)", author: "Some Author", progress: Double(i % 100) / 100, chapter: i % 30, fraction: 0.5, pdfPage: 0, status: "reading", finishedAt: nil, lastOpenedAt: Date(), collections: ["Favourites"], updatedAt: Date()) }
+var c = try await get()
+guard c.devices.isEmpty else { fatalError("new slot should be empty") }
+c.devices["mac"] = CloudSyncDeviceDoc(deviceName: "Mac", platform: "mac", savedAt: Date(), books: books)
+try await put(c)
+var phone = try await get()
+guard phone.devices["mac"]?.books.count == 800 else { fatalError("phone should see the mac's books") }
+phone.devices["phone"] = CloudSyncDeviceDoc(deviceName: "iPhone", platform: "iphone", savedAt: Date(), books: [])
+try await put(phone)
+guard Set(try await get().devices.keys) == ["mac", "phone"] else { fatalError("both devices kept") }
+print("ok   live round trip through the store (\(try CloudSyncBox.seal(phone, code: code).count) bytes for 800 books)")
+SWIFT
+  cp "$TMP/live.swift" "$TMP/main.swift"
+  swiftc -O -o "$TMP/live" "$ROOT/app/Sources/Folio/CloudSyncCore.swift" "$TMP/main.swift"
+  "$TMP/live"
+fi
 echo "All Folio Sync checks passed"

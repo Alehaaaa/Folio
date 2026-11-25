@@ -20,50 +20,38 @@ struct FolioCloudSyncSection: View {
                 set: { sync.isEnabled = $0 }
             ))
             if sync.isEnabled {
-                LabeledContent("Sync Code") {
-                    Text(CloudSyncMerge.display(sync.code))
-                        .font(.body.monospaced())
-                        .textSelection(.enabled)
+                Button { copyCode() } label: {
+                    LabeledContent("Sync Code") {
+                        Text(copied ? "Copied" : CloudSyncMerge.display(sync.code))
+                            .font(copied ? .body : .body.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                Button(copied ? "Copied" : "Copy Sync Code", systemImage: copied ? "checkmark" : "doc.on.doc") {
-                    copyCode()
-                }
-                .folioFormButton()
-                Button("Use a Code from Another Device…", systemImage: "link") {
+                .tint(.primary)
+                Button("Pair with Another Device", systemImage: "link") {
                     typedCode = ""
                     joining = true
                 }
                 .folioFormButton()
-                LabeledContent("Status") {
-                    Text(status).foregroundStyle(sync.lastError == nil ? Color.secondary : FolioTheme.caution)
-                        .multilineTextAlignment(.trailing)
+                Button { Task { await sync.syncNow() } } label: {
+                    LabeledContent("Status") {
+                        Text(status)
+                            .foregroundStyle(sync.lastError == nil ? Color.secondary : FolioTheme.caution)
+                            .multilineTextAlignment(.trailing)
+                    }
                 }
-                Button(sync.syncing ? "Syncing…" : "Sync Now", systemImage: "arrow.triangle.2.circlepath") {
-                    Task { await sync.syncNow() }
-                }
-                .disabled(sync.syncing || sync.endpoint.isEmpty)
-                .folioFormButton()
-                if sync.endpoint.isEmpty || sync.endpoint != FolioCloudSync.defaultEndpoint {
-                    TextField("Sync server URL", text: Binding(
-                        get: { sync.endpoint },
-                        set: { sync.endpoint = $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    ))
-                    .autocorrectionDisabled()
-                    #if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    .keyboardType(.URL)
-                    #endif
-                }
+                .tint(.primary)
+                .disabled(sync.syncing)
             }
         } header: {
             Text("Sync")
         } footer: {
             Text(sync.isEnabled
-                 ? "Copy this code, then on your other device turn on sync, tap Use a Code from Another Device and paste it. Progress, reading position, status and collections sync for books both devices have."
-                 : "Keeps your reading progress, status and collections the same on your Mac, iPhone and iPad. No account needed.")
+                 ? "Turn on sync on your other device and enter this code there."
+                 : "Keeps progress, status and collections the same on your Mac, iPhone and iPad. No account needed.")
         }
         .folioRow()
-        .alert("Sync Code", isPresented: $joining) {
+        .alert("Pair with Another Device", isPresented: $joining) {
             TextField("XXXX-XXXX-XXXX-XXXX", text: $typedCode)
                 .autocorrectionDisabled()
                 #if os(iOS)
@@ -73,10 +61,10 @@ struct FolioCloudSyncSection: View {
                 typedCode = pasteboardString() ?? typedCode
                 join()
             }
-            Button("Use Code") { join() }
+            Button("Pair") { join() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Enter or paste the sync code shown in Settings on your other device.")
+            Text("Enter the sync code shown on your other device.")
         }
         .alert("That isn't a sync code", isPresented: $badCode) {
             Button("OK", role: .cancel) {}
@@ -86,15 +74,14 @@ struct FolioCloudSyncSection: View {
     }
 
     private var status: String {
-        if sync.endpoint.isEmpty { return "No sync server set" }
+        if sync.syncing && sync.lastSync == nil { return "Syncing…" }
         if let error = sync.lastError { return error }
-        guard let last = sync.lastSync else { return sync.syncing ? "Syncing…" : "Not synced yet" }
-        let when = last.formatted(.relative(presentation: .named))
+        guard sync.lastSync != nil else { return "Not synced yet" }
         if let peer = sync.peers.first {
-            let others = sync.peers.count > 1 ? " and \(sync.peers.count - 1) more" : ""
-            return "Synced \(when) with \(peer.name)\(others)"
+            let others = sync.peers.count > 1 ? " +\(sync.peers.count - 1)" : ""
+            return "Synced with \(peer.name)\(others)"
         }
-        return "Synced \(when). No other device yet"
+        return "Waiting for another device"
     }
 
     private func join() {

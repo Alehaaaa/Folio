@@ -3,15 +3,11 @@ on:
   push:
     branches: ["test/**"]
 jobs:
-  probe:
-    runs-on: ubuntu-latest
+  live:
+    runs-on: macos-26
     steps:
-      - name: probe
-        run: |
-          set +e
-          ID="folio-probe-$RANDOM$RANDOM"
-          echo "=== missing"; curl -s -i -m 20 https://textdb.dev/api/data/nonexistent-$ID | head -12
-          python3 -c "import base64,os;print(base64.b64encode(os.urandom(900000)).decode())" > big.txt
-          echo "=== 1.2MB"; curl -s -o /dev/null -w "%{http_code} %{time_total}\n" -m 30 -X POST --data-binary @big.txt https://textdb.dev/api/data/$ID; curl -s -m 20 https://textdb.dev/api/data/$ID | cmp - big.txt && echo same
-          echo "=== content-type json"; curl -s -i -m 20 -X POST -H 'Content-Type: text/plain' --data-binary 'abc+/=' https://textdb.dev/api/data/$ID-2 | head -3; curl -s https://textdb.dev/api/data/$ID-2; echo
-          echo "=== homepage"; curl -s -m 20 https://textdb.dev/ | sed 's/<[^>]*>/ /g' | tr -s ' \n' | head -c 4000
+      - uses: actions/checkout@v4
+      - run: sudo xcode-select -s "$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+      - run: LIVE=1 bash checks/test-cloud-sync.sh
+      - name: Mac build compiles
+        run: swift build -c debug --package-path app 2>&1 | grep -E "error|warning: .*CloudSync|Compiling|Build complete" | grep -v "^\[.*Compiling" | tail -40; test ${PIPESTATUS[0]} -eq 0

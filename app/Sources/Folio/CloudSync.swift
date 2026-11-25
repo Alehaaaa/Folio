@@ -11,12 +11,11 @@ import UIKit
 final class FolioCloudSync {
     static let shared = FolioCloudSync()
 
-    /// The deployed sync-worker. Settings can point at another one.
-    static let defaultEndpoint = ""
+    /// The public store that holds each sync code's sealed document.
+    static let store = URL(string: "https://textdb.dev/api/data/")!
 
     private static let enabledKey = "folio.cloudSync.enabled"
     private static let codeKey = "folio.cloudSync.code"
-    private static let endpointKey = "folio.cloudSync.endpoint"
 
     var isEnabled: Bool {
         didSet {
@@ -25,9 +24,6 @@ final class FolioCloudSync {
         }
     }
     private(set) var code: String
-    var endpoint: String {
-        didSet { UserDefaults.standard.set(endpoint, forKey: Self.endpointKey) }
-    }
 
     private(set) var syncing = false
     private(set) var lastSync: Date?
@@ -52,7 +48,6 @@ final class FolioCloudSync {
     private init() {
         let env = ProcessInfo.processInfo.environment
         let defaults = UserDefaults.standard
-        endpoint = env["FOLIO_SYNC_ENDPOINT"] ?? defaults.string(forKey: Self.endpointKey) ?? Self.defaultEndpoint
         if let c = env["FOLIO_SYNC_CODE"].flatMap(CloudSyncMerge.normalizedCode) {
             code = c
         } else if let c = defaults.string(forKey: Self.codeKey), !c.isEmpty {
@@ -137,13 +132,14 @@ final class FolioCloudSync {
     // MARK: One round
 
     func syncNow() async {
-        guard isEnabled, !syncing, let base = URL(string: endpoint), base.scheme?.hasPrefix("http") == true else { return }
+        guard isEnabled, !syncing else { return }
         syncing = true
         defer { syncing = false }
         let store = LibraryStore.shared
-        let url = base.appendingPathComponent("v1").appendingPathComponent(code)
+        let code = code
+        let url = Self.store.appendingPathComponent(CloudSyncBox.slot(for: code))
         do {
-            let channel = try await Self.fetch(url)
+            let channel = try await Self.fetch(url, code: code)
             let local = CloudSyncMerge.stamp(store.books.map { ($0.id, Self.record($0, store)) }, state: &state, now: Date())
             let peerDocs = channel.devices.filter { $0.key != state.deviceID }.map(\.value)
             let changes = CloudSyncMerge.incoming(local: local, peers: peerDocs, skipping: openBooks)
@@ -175,7 +171,13 @@ final class FolioCloudSync {
             // Push when this device's entry on the server differs: after a
             // change here, or when another device's write replaced it.
             if !(channel.devices[state.deviceID].map { $0.sameContent(as: mine) } ?? false) {
-                try await Self.put(mine, to: url.appendingPathComponent(state.deviceID))
+                // The whole document is rewritten, so read it again just
+                // before, to keep what other devices wrote in the meantime.
+                var latest = (try? await Self.fetch(url, code: code)) ?? channel
+                latest.devices[state.deviceID] = mine
+                let cutoff = Date().addingTimeInterval(-180 * 24 * 3600)
+                latest.devices = latest.devices.filter { $0.key == state.deviceID || $0.value.savedAt > cutoff }
+                try await Self.put(latest, to: url, code: code)
                 lastPushed = mine
                 lastPushAt = Date()
             }
@@ -187,7 +189,7 @@ final class FolioCloudSync {
             lastError = nil
             if applied > 0 { FolioLog.log("Folio Sync: updated \(applied) book(s) from another device", "sync") }
         } catch {
-            lastError = error.localizedDescription
+            lastError = error is URLError ? "Offline" : error.localizedDescription
             FolioLog.log("Folio Sync failed: \(error.localizedDescription)", "sync")
         }
     }
@@ -257,7 +259,7 @@ final class FolioCloudSync {
     struct ServerError: LocalizedError {
         let status: Int
         var errorDescription: String? {
-            status == 413 ? "The library is too large to sync." : "The sync server answered \(status)."
+            status == 413 ? "Library too large to sync" : "Sync unavailable (\(status))"
         }
     }
 
@@ -268,21 +270,27 @@ final class FolioCloudSync {
         return URLSession(configuration: c)
     }()
 
-    nonisolated static func fetch(_ url: URL) async throws -> CloudSyncChannel {
+    nonisolated static func fetch(_ url: URL, code: String) async throws -> CloudSyncChannel {
         var request = URLRequest(url: url)
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("text/plain", forHTTPHeaderField: "Accept")
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         if status == 404 { return CloudSyncChannel() }
         guard status == 200 else { throw ServerError(status: status) }
-        return try JSONDecoder.folioSync.decode(CloudSyncChannel.self, from: data)
+        do {
+            return try CloudSyncBox.open(String(decoding: data, as: UTF8.self), code: code)
+        } catch {
+            // Unreadable (a write cut short): start the document over.
+            FolioLog.log("Folio Sync: the synced document was unreadable, rewriting it", "sync")
+            return CloudSyncChannel()
+        }
     }
 
-    nonisolated static func put(_ doc: CloudSyncDeviceDoc, to url: URL) async throws {
+    nonisolated static func put(_ channel: CloudSyncChannel, to url: URL, code: String) async throws {
         var request = URLRequest(url: url)
-        request.httpMethod = "PUT"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder.folioSync.encode(doc)
+        request.httpMethod = "POST"
+        request.setValue("text/plain", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data(try CloudSyncBox.seal(channel, code: code).utf8)
         let (_, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else { throw ServerError(status: status) }
