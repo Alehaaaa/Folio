@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.85",
+          "buildVersion": "86",
+          "date": "2026-11-25",
+          "localizedDescription": "1.0.85: tabs fold into More only when the bar can't fit them",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.85-86.ipa",
+          "size": 5981173,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.84",
           "buildVersion": "85",
           "date": "2026-11-25",
