@@ -208,6 +208,11 @@ private final class ExtensionBrowserPage: NSObject, WKNavigationDelegate, WKUIDe
         if let web { return web }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
+        // WebKit resolves names in its own process; with Encrypted DNS on, send
+        // it through Folio's local tunnel so source pages use that DNS too.
+        if FolioEncryptedDNS.shared.enabled {
+            configuration.websiteDataStore.proxyConfigurations = await FolioEncryptedDNSWebProxy.shared.proxyConfigurations()
+        }
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         try await installBlocker(into: configuration)
         let view = WKWebView(frame: .init(x: 0, y: 0, width: 1024, height: 768), configuration: configuration)

@@ -29,6 +29,7 @@ SHARED = [
     "DefaultSources",
     "Extensions",
     "EncryptedDNS",
+    "EncryptedDNSWebProxy",
     "ExtensionBrowser",
     "WidgetShared",
     "WidgetBridge",
