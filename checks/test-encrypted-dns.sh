@@ -42,11 +42,17 @@ import Foundation
         for url in hosts {
             var request = URLRequest(url: URL(string: url)!)
             request.timeoutInterval = 12
-            do {
-                let (_, response) = try await URLSession(configuration: .ephemeral).data(for: request)
-                print("FETCH \(name) \(URL(string: url)!.host!) HTTP \((response as! HTTPURLResponse).statusCode)")
-            } catch {
-                print("FETCH \(name) \(URL(string: url)!.host!) error \((error as NSError).code)")
+            // One retry: a slow site (Open Library times out now and then) isn't a DNS failure.
+            for attempt in 1...2 {
+                do {
+                    let (_, response) = try await URLSession(configuration: .ephemeral).data(for: request)
+                    print("FETCH \(name) \(URL(string: url)!.host!) HTTP \((response as! HTTPURLResponse).statusCode)")
+                } catch let error as NSError where error.code == NSURLErrorTimedOut && attempt == 1 {
+                    continue
+                } catch {
+                    print("FETCH \(name) \(URL(string: url)!.host!) error \((error as NSError).code)")
+                }
+                break
             }
         }
         for key in [FolioEncryptedDNS.key, FolioEncryptedDNS.providerKey, FolioEncryptedDNS.nextDNSKey, FolioEncryptedDNS.customKey] {
@@ -107,6 +113,7 @@ for line in (root / 'expected.txt').read_text().split('\n'):
     encrypted = any('need-encryption' in l for l in mine)
     if want == 'active' and not encrypted: fails.append(f'{name}: lookups were not encrypted: {mine}')
     if want != 'active' and encrypted: fails.append(f'{name}: used encryption while {want}: {mine}')
+    if any(f.startswith(name + ':') for f in fails): continue
     print(f'PASS {name}: {want}, every host answers, ' + ('lookups encrypted' if want == 'active' else 'network DNS'))
 if fails:
     print('\n'.join('FAIL ' + f for f in fails)); sys.exit(1)

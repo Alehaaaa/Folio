@@ -16,6 +16,7 @@ struct SourceResult {
 }
 enum ExtensionStore {
     struct Copy {
+        var id: String { sourceID + "|" + result.id }
         let sourceID: String
         let result: SourceResult
     }

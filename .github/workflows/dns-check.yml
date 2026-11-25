@@ -10,3 +10,5 @@ jobs:
       - uses: actions/checkout@v4
       - run: swiftc --version
       - run: zsh checks/test-encrypted-dns.sh
+      - run: |
+          swiftc -swift-version 5 app/Sources/Folio/BookAutoMatch.swift app/Sources/Folio/BookFlow/AutomaticEPUBChoice.swift checks/test-automatic-epub-ranking.swift -o /tmp/rank && /tmp/rank
