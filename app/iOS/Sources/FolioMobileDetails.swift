@@ -49,6 +49,7 @@ struct FolioMobileBookDetail: View {
     @State private var editingRemote = false
     @State private var inspectingCover = false
     @State private var overrides = FolioBookOverrides.shared
+    @State private var ratings = FolioMyRatings.shared
     @State private var choosingHardcover = false
     @State private var choosingSource = false
     @State private var deletingLocal = false
@@ -708,12 +709,12 @@ struct FolioMobileBookDetail: View {
                     progressLabel
                 }
                 progressSlider
-                if canSyncHardcover, let myHardcoverBook {
+                if currentStatus != nil {
                     Divider()
                     HStack {
                         Text("Your rating").font(.subheadline).foregroundStyle(.secondary)
                         Spacer()
-                        ratingStars(myHardcoverBook)
+                        FolioRatingControl(rating: myRating) { rate($0) }
                     }
                 }
             }
@@ -805,27 +806,31 @@ struct FolioMobileBookDetail: View {
         }
     }
 
-    private func ratingStars(_ item: HCUserBook) -> some View {
-        HStack(spacing: 6) {
-            ForEach(1...5, id: \.self) { number in
-                Button {
-                    myHardcoverBook?.rating = Double(number)
-                    Task {
-                        await hardcover.setRating(userBookID: item.id, rating: Double(number))
-                        if let linkedID {
-                            myHardcoverBook = try? await hardcover.userBook(bookID: linkedID)
-                            saveSnapshot()
-                        }
-                    }
-                } label: {
-                    Image(systemName: number <= Int((item.rating ?? 0).rounded()) ? "star.fill" : "star")
-                        .font(.title3)
-                        .foregroundStyle(FolioTheme.caution)
+    /// The exact rating kept here, or Hardcover's when it has none.
+    private var myRating: Double? {
+        _ = ratings.values
+        return ratings.rating(for: shownBook, hardcover: myHardcoverBook?.rating)
+    }
+
+    /// Keeps the exact rating, sends Hardcover the nearest half star and the
+    /// synced services (Goodreads) the closest value they take.
+    private func rate(_ value: Double?) {
+        let book = shownBook
+        ratings.set(value, for: book)
+        let sent = value.map(FolioMyRatings.half)
+        if canSyncHardcover, let item = myHardcoverBook {
+            myHardcoverBook?.rating = sent
+            saveSnapshot()
+            Task {
+                await hardcover.setRating(userBookID: item.id, rating: sent)
+                if let linkedID, let fresh = try? await hardcover.userBook(bookID: linkedID) {
+                    myHardcoverBook = fresh
+                    saveSnapshot()
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Rate \(number) stars")
             }
         }
+        let localID = local?.id
+        Task { await FolioShelfSync.shared.rate(value, for: book, localID: localID) }
     }
 
     private func choose(_ status: HCStatus) {

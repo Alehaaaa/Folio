@@ -278,7 +278,7 @@ struct FolioAuthorPortrait: View {
     }
 }
 
-/// Five stars filled to a rating, with halves.
+/// Five stars filled to a rating, to the fraction (3.8 fills most of the fourth).
 struct FolioStars: View {
     let rating: Double
     var size: CGFloat = 13
@@ -286,9 +286,7 @@ struct FolioStars: View {
     var body: some View {
         HStack(spacing: size * 0.15) {
             ForEach(1...5, id: \.self) { n in
-                let value = rating - Double(n - 1)
-                Image(systemName: value >= 0.75 ? "star.fill" : value >= 0.25 ? "star.leadinghalf.filled" : "star")
-                    .font(.system(size: size))
+                FolioPartialStar(fill: rating - Double(n - 1), size: size)
             }
         }
         .foregroundStyle(FolioTheme.caution)

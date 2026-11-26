@@ -199,6 +199,35 @@ final class FolioShelfSync {
         }
     }
 
+    /// Sends your rating to Goodreads, which takes quarter stars since October
+    /// 2026; an account still on whole stars gets the nearest whole star.
+    func rate(_ rating: Double?, for book: HCBook, localID: UUID?, library: LibraryStore = .shared) async {
+        guard isConnected(.goodreads), automatic[.goodreads] == true,
+              let p = provider(.goodreads) as? GoodreadsShelfProvider else { return }
+        let tracked = library.trackedMatch(hardcoverBookID: book.id > 0 ? book.id : nil, author: book.authors, title: book.title)
+        let itemKey = localID?.uuidString ?? (book.id > 0 ? "hc-\(book.id)" : "t-" + BookMatch.key(author: book.authors, title: book.title))
+        let keys = [localID?.uuidString, book.id > 0 ? "hc-\(book.id)" : nil, itemKey].compactMap { $0 }
+        let linked = keys.compactMap { links[ShelfService.goodreads.rawValue]?[$0] }
+        do {
+            var gid = tracked?.goodreadsID ?? linked.compactMap(\.id).first
+            if gid == nil {
+                let item = Item(key: itemKey, title: book.title, author: book.authors,
+                                hardcoverBookID: book.id > 0 ? book.id : nil, status: .read)
+                let link = try await find(item, with: p)
+                store(link, for: itemKey, on: .goodreads)
+                gid = link.id
+            }
+            guard let gid else { return }
+            try await p.setRating(rating, bookID: gid)
+            if errors[.goodreads] != nil { errors[.goodreads] = nil }
+        } catch let e as ShelfError {
+            errors[.goodreads] = e.message
+        } catch is CancellationError {
+        } catch {
+            errors[.goodreads] = error.localizedDescription
+        }
+    }
+
     /// Whether Clear Status has a Goodreads copy to take off.
     func hasGoodreadsCopy(_ book: HCBook, localID: UUID?, library: LibraryStore = .shared) -> Bool {
         guard isConnected(.goodreads) else { return false }

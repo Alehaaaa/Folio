@@ -815,6 +815,26 @@ final class GoodreadsShelfProvider: ShelfProvider {
         guard d.ok else { throw ShelfError(message: "Goodreads didn't remove the book (HTTP \(d.code)).") }
     }
 
+    /// Rates the book (0 clears it). Quarter stars first; if Goodreads turns
+    /// the fraction down, the nearest whole star.
+    func setRating(_ rating: Double?, bookID id: String) async throws {
+        func send(_ value: String) async throws -> ShelfHTTP.Reply {
+            try await post("/review/rate/\(id)?rating=\(value)&stars_click=true", fields: [("rating", value)])
+        }
+        guard let rating, rating > 0 else {
+            let r = try await send("0")
+            guard r.ok else { throw ShelfError(message: "Goodreads didn't clear the rating (HTTP \(r.code)).") }
+            return
+        }
+        let quarter = FolioMyRatings.quarter(rating)
+        if quarter != quarter.rounded() {
+            let r = try await send(String(format: "%.2f", quarter))
+            if r.ok { return }
+        }
+        let r = try await send(String(FolioMyRatings.whole(quarter)))
+        guard r.ok else { throw ShelfError(message: "Goodreads didn't take the rating (HTTP \(r.code)).") }
+    }
+
     func setProgress(percent: Int, link: inout ShelfLink) async throws {
         guard let id = link.id else { return }
         let r = try await post("/user_status.json", fields: [
