@@ -27,10 +27,6 @@ struct FolioMobileFindSourceView: View {
     @State private var copies: [ExtensionStore.Copy] = []
     @State private var problems: [String] = []
     @State private var messages: [String] = []
-    @State private var workingCopyID: String?
-    @State private var downloadStatus = ""
-    @State private var errorMessage: String?
-    @State private var importedBookID: UUID?
 
     /// The automatic queue requires a specific language. A person choosing an
     /// edition can deliberately broaden that search, but never silently.
@@ -86,17 +82,17 @@ struct FolioMobileFindSourceView: View {
                         TextField("Title", text: $queryTitle)
                             .textInputAutocapitalization(.words)
                             .textFieldStyle(.roundedBorder)
-                            .disabled(searching || workingCopyID != nil)
+                            .disabled(searching)
                         TextField("Author", text: $queryAuthor)
                             .textInputAutocapitalization(.words)
                             .textFieldStyle(.roundedBorder)
-                            .disabled(searching || workingCopyID != nil)
+                            .disabled(searching)
                         Picker("Edition language", selection: $selectedLanguage) {
                             ForEach(Self.languages) { language in
                                 Text(language.label).tag(language.code)
                             }
                         }
-                        .disabled(searching || workingCopyID != nil)
+                        .disabled(searching)
                         Text(selectedLanguage.isEmpty
                              ? "Showing editions in any language. Check the edition before importing."
                              : "Prioritizing \(languageName(selectedLanguage)) editions; unverified editions are labeled below.")
@@ -117,7 +113,7 @@ struct FolioMobileFindSourceView: View {
                         FolioGlassButton(title: "Search Sources", systemImage: "magnifyingglass", prominent: true, fullWidth: true) {
                             Task { await search() }
                         }
-                        .disabled(searching || workingCopyID != nil || queryTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .disabled(searching || queryTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                     .padding(15)
                     .folioCard(cornerRadius: 20)
@@ -132,7 +128,7 @@ struct FolioMobileFindSourceView: View {
                         .accessibilityIdentifier("folio.findSource.searching")
                     }
 
-                    if let id = importedBookID ?? library.localCopy(author: queryAuthor, title: queryTitle)?.id {
+                    if let id = library.localCopy(author: queryAuthor, title: queryTitle)?.id {
                         VStack(alignment: .leading, spacing: 10) {
                             Label("This book is already in your library.", systemImage: "checkmark.circle.fill")
                                 .foregroundStyle(.green)
@@ -166,26 +162,7 @@ struct FolioMobileFindSourceView: View {
                         }
                     }
 
-                    if let errorMessage, !errorMessage.isEmpty {
-                        VStack(alignment: .leading, spacing: 9) {
-                            Label("Download failed", systemImage: "exclamationmark.triangle.fill")
-                                .font(.headline)
-                                .foregroundStyle(FolioTheme.danger)
-                            Text(errorMessage)
-                                .font(.subheadline)
-                                .foregroundStyle(.primary)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
-                            if let last = messages.last { Text(last).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled) }
-                            Button { copyDiagnostics() } label: {
-                                Label("Copy Error Details", systemImage: "doc.on.doc")
-                            }
-                            .folioGlassPill()
-                        }
-                        .padding(14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(FolioTheme.danger.opacity(0.08), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-                    }
+
                     if !problems.isEmpty && !searching {
                         if copies.isEmpty {
                             Label("\(problems.count) source\(problems.count == 1 ? "" : "s") could not complete the search. See the source errors below.",
@@ -204,7 +181,7 @@ struct FolioMobileFindSourceView: View {
                         }
                     }
                     if !messages.isEmpty {
-                        if let latest = messages.last, searching || workingCopyID != nil {
+                        if let latest = messages.last, searching {
                             Text(latest)
                                 .font(.caption.monospaced())
                                 .foregroundStyle(.secondary)
@@ -294,21 +271,13 @@ struct FolioMobileFindSourceView: View {
                 }
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-                if workingCopyID == copy.id {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text(downloadStatus.isEmpty ? "Downloading…" : downloadStatus)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
                 FolioGlassButton(
-                    title: "Get \((copy.result.preferred?.format ?? "book").uppercased()) & Read",
+                    title: "Get \((copy.result.preferred?.format ?? "book").uppercased())",
                     systemImage: "arrow.down.circle", prominent: copy.exact
                 ) {
-                    Task { await download(copy) }
+                    download(copy)
                 }
-                .disabled(searching || workingCopyID != nil || copy.result.preferred == nil)
+                .disabled(searching || copy.result.preferred == nil)
                 .padding(.top, 3)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -320,7 +289,7 @@ struct FolioMobileFindSourceView: View {
 
     @MainActor
     private func search() async {
-        guard !searching, workingCopyID == nil else { return }
+        guard !searching else { return }
         let wantedTitle = queryTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let wantedAuthor = queryAuthor.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !wantedTitle.isEmpty else { return }
@@ -330,7 +299,6 @@ struct FolioMobileFindSourceView: View {
         copies = []
         problems = []
         messages = []
-        errorMessage = nil
         defer {
             searching = false
             hasSearched = true
@@ -363,46 +331,12 @@ struct FolioMobileFindSourceView: View {
     }
 
     @MainActor
-    private func download(_ copy: ExtensionStore.Copy) async {
-        guard workingCopyID == nil else { return }
-        workingCopyID = copy.id
-        errorMessage = nil
-        downloadStatus = "Connecting to \(copy.sourceName)…"
-        appendMessage("Selected \(copy.sourceName), record \(copy.result.id), format \(copy.result.preferred?.format.uppercased() ?? "unknown"), source language \(copy.result.language ?? "unverified"), search language \(selectedLanguage.isEmpty ? "any" : selectedLanguage)")
-        defer { workingCopyID = nil }
-        do {
-            let id = try await extensions.download(copy.result, from: copy.sourceID, into: library,
-                onEvent: { event in
-                    Task { @MainActor in
-                        switch event {
-                        case .status(let line):
-                            downloadStatus = line
-                            appendMessage("\(copy.sourceName): \(line)")
-                        case .log(let line):
-                            appendMessage("\(copy.sourceName): \(line)")
-                        case .transfer(let received, let expected):
-                            let amount = expected > 0
-                                ? "\(min(100, Int(received * 100 / expected)))%"
-                                : ByteCountFormatter.string(fromByteCount: received, countStyle: .file)
-                            let base = downloadStatus.components(separatedBy: " · ").first ?? downloadStatus
-                            downloadStatus = "\(base) · \(amount)"
-                        }
-                    }
-                })
-            library.update(id) { book in
-                if let hardcoverBookID {
-                    book.hardcoverBookID = hardcoverBookID
-                    book.hardcoverPages = hardcoverPages ?? book.hardcoverPages
-                }
-                if book.author.isEmpty { book.author = queryAuthor }
-            }
-            if let failedJobID { DownloadQueue.shared.dismiss(failedJobID) }
-            importedBookID = id
-            openReader(id)
-        } catch {
-            errorMessage = FolioMobileSourceDiagnostics.describe(error, source: copy.sourceName)
-            appendMessage("ERROR: \(errorMessage ?? "Download failed")")
-        }
+    private func download(_ copy: ExtensionStore.Copy) {
+        DownloadQueue.shared.enqueueSourceCopy(copy, cover: copy.result.cover ?? cover, fallbackAuthor: queryAuthor,
+                                               hardcoverBookID: hardcoverBookID, hardcoverPages: hardcoverPages,
+                                               replacing: failedJobID)
+        dismiss()
+        navigation.openDownloads()
     }
 
     @MainActor
@@ -431,7 +365,6 @@ struct FolioMobileFindSourceView: View {
             "Edition language filter: \(selectedLanguage.isEmpty ? "any" : selectedLanguage)",
             "Enabled sources: \(extensions.enabled.map(\.id).joined(separator: ", "))",
             "Search results: \(copies.count)",
-            "Failure: \(errorMessage ?? "none")",
             "Source problems: \(problems.joined(separator: " | "))",
             "Activity:"
         ] + messages).joined(separator: "\n")

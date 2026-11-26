@@ -189,11 +189,27 @@ struct EPUBPackage {
               LibraryStore.shared.books.contains(where: { $0.title == "Aleación de ley" }) else {
             fatalError("Translated target title was not searched or imported")
         }
+        let selected = SourceResult(id: "manual-edition", title: "Selected Edition", author: "Autor clásico",
+                                    language: "es", downloadCount: nil,
+                                    preferred: SourceDownload(format: "epub", url: base))
+        let copy = ExtensionStore.Copy(sourceID: "local", sourceName: "Local test fixture", result: selected)
+        let manual = queue.enqueueSourceCopy(copy, cover: nil, fallbackAuthor: selected.author,
+                                             hardcoverBookID: 43, hardcoverPages: nil, replacing: nil)
+        let duplicate = queue.enqueueSourceCopy(copy, cover: nil, fallbackAuthor: selected.author,
+                                                hardcoverBookID: 43, hardcoverPages: nil, replacing: nil)
+        guard duplicate == manual else { fatalError("Duplicate manual selection queued twice") }
+        try await wait(queue: queue, id: manual, stage: .completed, timeout: 12)
+        let savedJobs = try JSONDecoder().decode([DownloadJob].self,
+            from: Data(contentsOf: root.appendingPathComponent("download-queue.json")))
+        guard let job = savedJobs.first(where: { $0.id == manual }), job.sourceName == copy.sourceName,
+              let bookID = job.importedBookID, LibraryStore.shared.book(bookID)?.hardcoverBookID == 43 else {
+            fatalError("Selected source copy was not saved in completed Downloads history")
+        }
         let elapsed = Date().timeIntervalSince(cancelStart)
         print("PASS: cancelled real in-flight localhost HTTP transfer; no import; stage stayed cancelled")
         print("PASS: first HTTP 503 failed; retry() requeued and HTTP 200 completed verified import")
         print("PASS: translated Spanish edition found with its localized title, English-title search intentionally empty")
-        print("PASS: 2 successful imports, 0 cancelled imports; retry log persisted")
+        print("PASS: 3 successful imports, 0 cancelled imports; retry log and selected source history persisted")
         print(String(format: "METRIC: cancellation through successful retry and validation %.2fs", elapsed))
     }
     @MainActor static func wait(queue: DownloadQueue, id: UUID, stage: DownloadJob.Stage, timeout: TimeInterval) async throws {

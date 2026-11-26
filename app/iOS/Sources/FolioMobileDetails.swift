@@ -18,6 +18,7 @@ struct FolioMobileBookDetail: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.dismiss) private var dismiss
     @State private var downloads = DownloadQueue.shared
+    @State private var selectedVersionID: UUID?
     @State private var remoteDetails: HCBook?
     @State private var myHardcoverBook: HCUserBook?
     @State private var bookSeries: [HCBookSeries] = []
@@ -89,6 +90,7 @@ struct FolioMobileBookDetail: View {
     }
 
     private var local: LocalBook? {
+        if let selectedVersionID, let selected = library.book(selectedVersionID) { return selected }
         if let localBookID { return library.book(localBookID) }
         guard let remote = initialRemote else { return nil }
         return overrides.libraryCopy(of: remote)
@@ -453,6 +455,33 @@ struct FolioMobileBookDetail: View {
         )
     }
 
+    private func versions(of book: LocalBook) -> [LocalBook] {
+        library.books.filter { candidate in
+            if candidate.id == book.id { return true }
+            if let work = book.hardcoverBookID, let other = candidate.hardcoverBookID { return work == other }
+            return !book.author.isEmpty && BookMatch.key(author: candidate.author, title: candidate.title)
+                == BookMatch.key(author: book.author, title: book.title)
+        }
+    }
+
+    private func versionPicker(_ versions: [LocalBook], current: LocalBook) -> some View {
+        Menu {
+            ForEach(versions) { version in
+                let language = BookLanguage.code(version.language).map(BookLanguage.displayName)
+                let metadata = [language, version.publishedYear.map(String.init), version.format.rawValue.uppercased()]
+                    .compactMap { $0 }.joined(separator: " · ")
+                let label = "\(overrides.downloadedTitle(version)) · \(metadata)"
+                Button { selectedVersionID = version.id } label: {
+                    if version.id == current.id { Label(label, systemImage: "checkmark") }
+                    else { Text(label) }
+                }
+            }
+        } label: {
+            Label("Versions (\(versions.count))", systemImage: "books.vertical")
+        }
+        .folioGlassPill()
+    }
+
     private var primaryActions: some View {
         VStack(spacing: 10) {
             if let local {
@@ -461,6 +490,8 @@ struct FolioMobileBookDetail: View {
                     navigation.read(local.id)
                 }
                 .accessibilityIdentifier("folio.readBook")
+                let copies = versions(of: local)
+                if copies.count > 1 { versionPicker(copies, current: local) }
             } else {
                 // Like picking an edition in a bookstore: the button says which
                 // language you'll get, and the globe lists the others this book

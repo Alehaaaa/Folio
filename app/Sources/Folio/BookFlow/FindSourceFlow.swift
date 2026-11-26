@@ -42,15 +42,11 @@ struct ManualCopyPicker: View {
     var failedJobID: UUID? = nil
 
     @Environment(ExtensionStore.self) private var exts
-    @Environment(LibraryStore.self) private var store
-    @Environment(\.openWindow) private var openWindow
 
     @State private var searching = true
     @State private var asking = ""
     @State private var copies: [ExtensionStore.Copy] = []
     @State private var problems: [String] = []
-    @State private var working: String?
-    @State private var failure: String?
     @State private var searchingFor: String?
 
     private var requestKey: String { "\(title)\u{0}\(author)" }
@@ -80,18 +76,14 @@ struct ManualCopyPicker: View {
                                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer()
-                        if working == c.id {
-                            ProgressView().controlSize(.small)
-                        } else if let d = c.result.preferred {
-                            Button { Task { await get(c) } } label: { Label("Get \(d.format.uppercased()) & Read", systemImage: "arrow.down.circle") }
+                        if let d = c.result.preferred {
+                            Button { get(c) } label: { Label("Get \(d.format.uppercased())", systemImage: "arrow.down.circle") }
                                 .buttonStyle(.glassProminent)
                                 .controlSize(.small)
-                                .disabled(working != nil)
                         }
                     }
                 }
             }
-            if let failure { Label(failure, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.red) }
             if !problems.isEmpty && !searching {
                 Text(problems.joined(separator: "\n")).font(.caption).foregroundStyle(.secondary)
             }
@@ -101,17 +93,11 @@ struct ManualCopyPicker: View {
 
     private func search() async {
         let key = requestKey
-        guard searchingFor != key, working == nil else { return }
+        guard searchingFor != key else { return }
         searchingFor = key
         defer { if searchingFor == key { searchingFor = nil } }
-        if let local = store.localCopy(author: author, title: title) {
-            openWindow(id: "reader", value: local.id)
-            PopupCenter.shared.close()
-            return
-        }
         searching = true
         asking = ""
-        failure = nil
         copies = []
         let r = await exts.findCopies(title: title, author: author) { name in asking = name }
         guard !Task.isCancelled, searchingFor == key else { return }
@@ -120,27 +106,12 @@ struct ManualCopyPicker: View {
         searching = false
     }
 
-    private func get(_ c: ExtensionStore.Copy) async {
-        guard working == nil else { return }
-        working = c.id
-        failure = nil
-        do {
-            let id = try await exts.download(c.result, from: c.sourceID, into: store)
-            if let failedJobID { DownloadQueue.shared.dismiss(failedJobID) }
-            openDownloadedBook(id)
-        } catch {
-            failure = error.localizedDescription
-        }
-        working = nil
-    }
-
-    private func openDownloadedBook(_ id: UUID) {
-        store.update(id) { b in
-            if let hcID = hardcoverBookID { b.hardcoverBookID = hcID; b.hardcoverPages = hardcoverPages ?? b.hardcoverPages }
-            if b.author.isEmpty { b.author = author }
-        }
-        openWindow(id: "reader", value: id)
+    private func get(_ copy: ExtensionStore.Copy) {
+        DownloadQueue.shared.enqueueSourceCopy(copy, cover: copy.result.cover ?? cover, fallbackAuthor: author,
+                                               hardcoverBookID: hardcoverBookID, hardcoverPages: hardcoverPages,
+                                               replacing: failedJobID)
         PopupCenter.shared.close()
+        NotificationCenter.default.post(name: .folioShowDownloads, object: nil)
     }
 }
 
