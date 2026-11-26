@@ -18,6 +18,7 @@ struct FolioIOSApp: App {
     init() {
         FolioLog.start()
         FolioEncryptedDNS.shared.start()
+        DownloadQueue.networkNote = { FolioEncryptedDNS.shared.logNote }
         FolioTheme.applyAppearance()
         FolioShelfSync.install()
     }

@@ -91,6 +91,17 @@ final class FolioEncryptedDNS {
         customURL = defaults.string(forKey: Self.customKey) ?? ""
     }
 
+    /// One activity-log line saying how source lookups resolve names.
+    var logNote: String {
+        switch (enabled, status) {
+        case (false, _): "Encrypted DNS: off (network DNS)"
+        case (true, .active): "Encrypted DNS: \(provider.label), active"
+        case (true, .unavailable): "Encrypted DNS: \(provider.label) unreachable; using network DNS"
+        case (true, .needsSetup): "Encrypted DNS: \(provider.label) needs setup; using network DNS"
+        case (true, _): "Encrypted DNS: \(provider.label), still checking"
+        }
+    }
+
     private var pending: Task<Void, Never>?
 
     private func changed(_ didChange: Bool, key: String, value: Any) {

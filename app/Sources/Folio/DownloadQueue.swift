@@ -505,6 +505,10 @@ final class DownloadQueue {
         return text
     }
 
+    /// Set at app launch to describe how source names
+    /// are resolved; kept as a hook so this file builds on its own in checks.
+    static var networkNote: (@MainActor () -> String?)?
+
     private func startWorker() {
         guard jobs.contains(where: { $0.stage == .queued }) else { return }
         if !didLoadSources {
@@ -599,14 +603,7 @@ final class DownloadQueue {
         append(id, "Automatic EPUB language requirement: \(language) (edition metadata must agree)")
         // Whether source lookups used encrypted DNS: a timeout with it active
         // is not a DNS problem, and a 403 is always the server's own answer.
-        let dns = FolioEncryptedDNS.shared
-        switch (dns.enabled, dns.status) {
-        case (false, _): append(id, "Encrypted DNS: off (network DNS)")
-        case (true, .active): append(id, "Encrypted DNS: \(dns.provider.label), active")
-        case (true, .unavailable): append(id, "Encrypted DNS: \(dns.provider.label) unreachable; using network DNS")
-        case (true, .needsSetup): append(id, "Encrypted DNS: \(dns.provider.label) needs setup; using network DNS")
-        case (true, _): append(id, "Encrypted DNS: \(dns.provider.label), still checking")
-        }
+        if let note = Self.networkNote?() { append(id, note) }
         // Editions in another language often carry their own title ("Dune"
         // is "Duna" in Catalan). Search with Hardcover's edition title for the
         // chosen language too, and accept a copy under either title.

@@ -139,6 +139,7 @@ struct FolioApp: App {
     init() {
         FolioLog.start()
         FolioEncryptedDNS.shared.start()
+        DownloadQueue.networkNote = { FolioEncryptedDNS.shared.logNote }
         FolioShelfSync.install()
     }
 
