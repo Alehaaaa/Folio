@@ -59,6 +59,17 @@ final class DownloadQueue {
     // Avoid hammering denied or rate-limited edition endpoints across queued jobs.
     private var hardcoverEditionCache: [String: (title: String?, expires: Date)] = [:]
 
+    /// The first writer of a credit that lists several people ("William
+    /// Golding, E.L. Epstein" is William Golding). A comma-inverted single name
+    /// ("Golding, William") stays whole.
+    static func primaryAuthor(_ credit: String) -> String {
+        let people = credit.components(separatedBy: CharacterSet(charactersIn: ",;&"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !BookAutoMatch.words($0).isEmpty }
+        guard people.count > 1, people.allSatisfy({ BookAutoMatch.words($0).count >= 2 }) else { return credit }
+        return people[0]
+    }
+
     static func isStandaloneEditionTitle(_ value: String) -> Bool {
         let words = BookAutoMatch.words(value)
         guard !words.isEmpty, words.count <= 24, value.count <= 180 else { return false }
@@ -445,6 +456,10 @@ final class DownloadQueue {
         // partner wait and final download, and explicitly closed afterwards.
         let language = BookLanguage.code(job.expectedLanguage) ?? BookLanguage.reading
         mutate(id) { $0.expectedLanguage = language }
+        // Hardcover credits editors and translators too ("William Golding,
+        // E.L. Epstein"); sources list the writer alone.
+        let author = Self.primaryAuthor(job.author)
+        if author != job.author { append(id, "Matching sources by the writer \(author) (credit: \(job.author))") }
         append(id, "Automatic EPUB language requirement: \(language) (edition metadata must agree)")
         // Editions in another language often carry their own title ("Dune"
         // is "Duna" in Catalan). Search with Hardcover's edition title for the
@@ -477,7 +492,7 @@ final class DownloadQueue {
             }
         }
         if (editionTitle?.isEmpty ?? true) || BookAutoMatch.sameTitle(job.title, editionTitle ?? "") {
-            if let translated = await openLibraryEditionTitle(title: job.title, author: job.author,
+            if let translated = await openLibraryEditionTitle(title: job.title, author: author,
                                                              language: language) {
                 editionTitle = BookAutoMatch.localizedEditionTitle(translated, original: job.title)
                 append(id, "Verified translated title from Open Library metadata: \(editionTitle ?? translated)")
@@ -495,7 +510,7 @@ final class DownloadQueue {
         // its own OPF title; don't download a duplicate because of that label.
         for local in store.books where
             knownTitle(local.title) &&
-            AutomaticEPUBChoice.sameAuthor(job.author, local.author) {
+            AutomaticEPUBChoice.sameAuthor(author, local.author) {
             let package = local.format == .epub
                 ? try? EPUBPackage.load(root: store.extractedURL(local)) : nil
             if BookLanguage.matches(package?.language, expected: language) == true {
@@ -509,7 +524,7 @@ final class DownloadQueue {
         state(id, .searching, "Searching enabled sources…")
         var names: (copies: [ExtensionStore.Copy], problems: [String]) = ([], [])
         for title in titles {
-            let found = await sourceSession.findCopies(title: title, author: job.author,
+            let found = await sourceSession.findCopies(title: title, author: author,
                 expectedLanguage: language,
                 progress: { [weak self] name in
                     self?.state(id, .searching, titles.count > 1 ? "Searching \(name) for \(title)…" : "Searching \(name)…")
@@ -527,7 +542,7 @@ final class DownloadQueue {
             if title != job.title && names.copies.contains(where: {
                 $0.result.preferred?.format == "epub" &&
                 BookAutoMatch.sameTitle(title, $0.result.title) &&
-                AutomaticEPUBChoice.sameAuthor(job.author, $0.result.author) &&
+                AutomaticEPUBChoice.sameAuthor(author, $0.result.author) &&
                 BookLanguage.matches($0.result.language, expected: language) != false
             }) {
                 append(id, "Exact EPUB found under edition title \(title); skipping unrelated original-title search")
@@ -542,7 +557,7 @@ final class DownloadQueue {
         let identityMatches = names.copies.filter {
             $0.result.preferred?.format == "epub" &&
             knownTitle($0.result.title) &&
-            AutomaticEPUBChoice.sameAuthor(job.author, $0.result.author)
+            AutomaticEPUBChoice.sameAuthor(author, $0.result.author)
         }
         for choice in identityMatches where
             BookLanguage.matches(choice.result.language, expected: language) == false {
@@ -551,7 +566,7 @@ final class DownloadQueue {
         // Copies under the edition title first, then under the original title.
         var ranked: [ExtensionStore.Copy] = []
         for title in titles {
-            for copy in AutomaticEPUBChoice.ranked(names.copies, title: title, author: job.author,
+            for copy in AutomaticEPUBChoice.ranked(names.copies, title: title, author: author,
                                                    expectedLanguage: language)
             where !ranked.contains(where: { $0.id == copy.id }) {
                 ranked.append(copy)
@@ -640,7 +655,7 @@ final class DownloadQueue {
                 let package = store.book(imported).flatMap { try? EPUBPackage.load(root: store.extractedURL($0)) }
                 guard let package,
                       knownTitle(package.title),
-                      AutomaticEPUBChoice.sameAuthor(job.author, package.author) else {
+                      AutomaticEPUBChoice.sameAuthor(author, package.author) else {
                     store.remove(imported)
                     let error = "Imported EPUB metadata did not match \(job.title) - \(job.author)"
                     reasons.append(error)
