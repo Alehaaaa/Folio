@@ -35,25 +35,30 @@ final class FolioReadBooks {
         let marker = "\(user.id)-\(hardcover.revision)"
         guard loadedFor != marker else { return }
         loadedFor = marker
-        guard let read = try? await hardcover.shelf(.read) else {
-            loadedFor = nil
+        guard let read = try? await hardcover.readHistory() else {
+            if loadedFor == marker { loadedFor = nil }
             return
         }
+        guard loadedFor == marker, hardcover.user?.id == user.id else { return }
         FolioSync.adopt(read)
         hardcoverIDs = Set(read.map(\.book.id))
-        hardcoverKeys = Set(read.map { BookMatch.key(author: $0.book.authors, title: $0.book.title) })
+        hardcoverKeys = Set(read.flatMap { entry in
+            Self.matchKeys(author: entry.book.authors, title: entry.book.title)
+                + (entry.workTitle.map { Self.matchKeys(author: entry.book.authors, title: $0) } ?? [])
+        })
         save(userID: user.id)
     }
 
     /// Record a status change right away, before Hardcover is asked again.
     func set(_ book: HCBook, read: Bool) {
-        let key = BookMatch.key(author: book.authors, title: book.title)
+        let keys = Self.matchKeys(author: book.authors, title: book.title)
+            + (book.editionTitle.map { Self.matchKeys(author: book.authors, title: $0) } ?? [])
         if read {
             if book.id > 0 { hardcoverIDs.insert(book.id) }
-            hardcoverKeys.insert(key)
+            hardcoverKeys.formUnion(keys)
         } else {
             hardcoverIDs.remove(book.id)
-            hardcoverKeys.remove(key)
+            hardcoverKeys.subtract(keys)
         }
         save(userID: HardcoverClient.shared.user?.id)
     }
@@ -64,8 +69,14 @@ final class FolioReadBooks {
 
     private func isRead(id: Int?, title: String, author: String, local: (ids: Set<Int>, keys: Set<String>)) -> Bool {
         if let id, id > 0, hardcoverIDs.contains(id) || local.ids.contains(id) { return true }
-        let key = BookMatch.key(author: author, title: title)
-        return hardcoverKeys.contains(key) || local.keys.contains(key)
+        return Self.matchKeys(author: author, title: title).contains {
+            hardcoverKeys.contains($0) || local.keys.contains($0)
+        }
+    }
+
+    private static func matchKeys(author: String, title: String) -> [String] {
+        let credited = FolioAuthorNames.split(author).filter { $0.split(whereSeparator: \.isWhitespace).count > 1 }
+        return ([author] + credited).map { BookMatch.key(author: $0, title: title) }
     }
 
     @ObservationIgnored private var localCache: (version: Int, ids: Set<Int>, keys: Set<String>)?
@@ -77,9 +88,9 @@ final class FolioReadBooks {
         if let cache = localCache, cache.version == library.changeCount { return (cache.ids, cache.keys) }
         let finished = library.books.filter { $0.status == .finished }
         let tracked = library.data.tracked.filter { $0.status == .read }
-        let ids = Set(finished.compactMap(\.hardcoverBookID))
-        let keys = Set(finished.map { BookMatch.key(author: $0.author, title: $0.title) }
-                       + tracked.map { BookMatch.key(author: $0.author, title: $0.title) })
+        let ids = Set(finished.compactMap(\.hardcoverBookID) + tracked.compactMap(\.hardcoverBookID))
+        let keys = Set(finished.flatMap { Self.matchKeys(author: $0.author, title: $0.title) }
+                       + tracked.flatMap { Self.matchKeys(author: $0.author, title: $0.title) })
         localCache = (library.changeCount, ids, keys)
         return (ids, keys)
     }
@@ -94,7 +105,12 @@ final class FolioReadBooks {
     func unread(_ books: [HCBook]) -> [HCBook] {
         // Check the library once per list, not once per book.
         let local = localIndex(.shared)
-        return books.filter { !isRead(id: $0.id, title: $0.title, author: $0.authors, local: local) }
+        return books.filter { book in
+            guard !isRead(id: book.id, title: book.title, author: book.authors, local: local) else { return false }
+            return book.editionTitle.map {
+                !isRead(id: nil, title: $0, author: book.authors, local: local)
+            } ?? true
+        }
     }
 
     private func save(userID: Int?) {

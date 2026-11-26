@@ -893,32 +893,34 @@ struct FolioMobileBookTile: View {
         return book.author.isEmpty ? "Unknown Author" : book.author
     }
 
-    /// Every tile has the same parts at the same heights: the cover, two lines of title,
-    /// the author, and a footer row for the progress bar, so a row of tiles lines up.
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             FolioMobileCover(book: book)
                 .aspectRatio(0.7, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .shadow(color: .black.opacity(0.14), radius: 6, x: 1, y: 4)
-            Text(FolioBookOverrides.shared.downloadedTitle(book))
-                .font(.system(.subheadline, design: .serif))
-                .foregroundStyle(FolioTheme.ink)
-                .lineLimit(2, reservesSpace: true)
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                .overlay(alignment: .topTrailing) {
+                    if finished {
+                        Image(systemName: "checkmark")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 28, height: 28)
+                            .background(Color(red: 0.16, green: 0.23, blue: 0.17), in: Circle())
+                            .overlay { Circle().strokeBorder(.white.opacity(0.8), lineWidth: 1) }
+                            .padding(8)
+                            .transition(.scale.combined(with: .opacity))
+                            .accessibilityHidden(true)
+                    }
+                }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(FolioBookOverrides.shared.downloadedTitle(book))
+                    .font(.system(.subheadline, design: .serif))
+                    .foregroundStyle(FolioTheme.ink)
+                    .lineLimit(2)
                 Text(caption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Spacer(minLength: 0)
-                // A read book shows a plain check by its author, not a full bar.
-                if finished {
-                    Image(systemName: "checkmark")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(FolioTheme.olive)
-                        .transition(.scale(scale: 0.3).combined(with: .opacity))
-                        .accessibilityHidden(true)
-                }
             }
             // Marking a book read collapses its bar toward the start and hides it; the
             // empty row stays so the grid keeps its alignment.
