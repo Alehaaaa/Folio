@@ -229,13 +229,18 @@ struct FolioMobileBookshelf: View {
         #if os(iOS)
         .sensoryFeedback(.impact(weight: .light, intensity: 0.6), trigger: pressHeld) { _, new in new }
         .sensoryFeedback(.impact(weight: .medium, intensity: 0.7), trigger: held?.id) { _, new in new != nil }
-        .sensoryFeedback(.selection, trigger: dropSpot) { old, new in
-            old != nil && new != nil && old != .away && new != .away
-        }
+        .sensoryFeedback(.selection, trigger: dropSpot, condition: Self.gapMoved)
         .sensoryFeedback(.impact(weight: .heavy, intensity: 0.8), trigger: nook.overBin) { _, new in new }
         #endif
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Bookshelf")
+    }
+
+    /// A tick as the gap moves between places on the shelf, but not when
+    /// it first opens or when the book heads for the bin.
+    private static func gapMoved(_ old: FolioNookDropSpot?, _ new: FolioNookDropSpot?) -> Bool {
+        guard let old, let new else { return false }
+        return old != FolioNookDropSpot.away && new != FolioNookDropSpot.away
     }
 
     // MARK: The pile
@@ -463,8 +468,8 @@ struct FolioMobileBookshelf: View {
         if let held {
             FolioMobileSpine(item: held.item, shelfHeight: shelfHeight)
                 // Over the bin it shrinks toward it, and drops in on release.
-                .scaleEffect(held.discarded ? 0.12 : nook.overBin ? 0.55 : held.lifted ? 1.07 : 1)
-                .opacity(held.discarded ? 0 : nook.overBin ? 0.85 : 1)
+                .scaleEffect(heldScale(held))
+                .opacity(held.discarded ? 0.0 : (nook.overBin ? 0.85 : 1.0))
                 .shadow(color: .black.opacity(held.lifted ? 0.26 : 0), radius: held.lifted ? 16 : 2,
                         y: held.lifted ? 12 : 1)
                 .modifier(FolioNookHandPose(hand: hand, grab: held.grab))
@@ -472,6 +477,12 @@ struct FolioMobileBookshelf: View {
                 .accessibilityHidden(true)
                 .transition(.identity)
         }
+    }
+
+    private func heldScale(_ held: FolioNookHeld) -> CGFloat {
+        if held.discarded { return 0.12 }
+        if nook.overBin { return 0.55 }
+        return held.lifted ? 1.07 : 1
     }
 
     #if os(iOS)
