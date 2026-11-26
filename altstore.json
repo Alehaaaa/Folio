@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.97",
+          "buildVersion": "98",
+          "date": "2026-11-26",
+          "localizedDescription": "1.0.97: every nook book can be reordered",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.97-98.ipa",
+          "size": 6114955,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.96",
           "buildVersion": "97",
           "date": "2026-11-26",
