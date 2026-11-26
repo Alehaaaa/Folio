@@ -269,16 +269,21 @@ struct FolioMobileBookDetail: View {
             }
         }
         .confirmationDialog(
-            "Remove this book from your Hardcover shelves?",
+            "Remove this book from your shelves?",
             isPresented: $removingHardcoverShelf,
             titleVisibility: .visible
         ) {
             Button("Remove from Shelves", role: .destructive) {
-                guard let item = myHardcoverBook else { return }
+                let item = hardcover.isConnected ? myHardcoverBook : nil
+                let book = shownBook
+                let localID = local?.id
                 Task {
                     busy = true
-                    await hardcover.remove(userBookID: item.id)
-                    myHardcoverBook = nil
+                    if let item {
+                        await hardcover.remove(userBookID: item.id)
+                        myHardcoverBook = nil
+                    }
+                    await FolioShelfSync.shared.clearGoodreads(book, localID: localID)
                     busy = false
                 }
             }
@@ -663,8 +668,9 @@ struct FolioMobileBookDetail: View {
                 if let url = remote?.webURL {
                     Link(destination: url) { Label("Open on Hardcover", systemImage: "arrow.up.right.square") }
                 }
-                if let myHardcoverBook, hardcover.isConnected, myHardcoverBook.id > 0 {
-                    Button("Remove from Hardcover Shelves", systemImage: "minus.circle", role: .destructive) {
+                if (hardcover.isConnected && (myHardcoverBook?.id ?? 0) > 0)
+                    || FolioShelfSync.shared.hasGoodreadsCopy(shownBook, localID: local?.id) {
+                    Button("Remove from Shelves", systemImage: "minus.circle", role: .destructive) {
                         removingHardcoverShelf = true
                     }
                 }
@@ -848,7 +854,10 @@ struct FolioMobileBookDetail: View {
     private func clearStatus() {
         FolioReadBooks.shared.set(shownBook, read: false)
         if let local { library.setStatus(local.id, .none) }
-        if myHardcoverBook != nil, hardcover.isConnected { removingHardcoverShelf = true }
+        if (myHardcoverBook != nil && hardcover.isConnected)
+            || FolioShelfSync.shared.hasGoodreadsCopy(shownBook, localID: local?.id) {
+            removingHardcoverShelf = true
+        }
     }
 
     private func savePages(_ page: Int) {

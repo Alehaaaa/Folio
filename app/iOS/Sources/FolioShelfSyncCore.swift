@@ -807,6 +807,14 @@ final class GoodreadsShelfProvider: ShelfProvider {
         guard r.ok else { throw ShelfError(message: "Goodreads didn't take the shelf (HTTP \(r.code)).") }
     }
 
+    /// Takes the book off every Goodreads shelf.
+    func remove(bookID id: String, shelf: String) async throws {
+        let r = try await post("/shelf/add_to_shelf", fields: [("book_id", id), ("name", shelf), ("a", "remove")])
+        if r.ok { return }
+        let d = try await post("/review/destroy/\(id)", fields: [("_method", "delete")])
+        guard d.ok else { throw ShelfError(message: "Goodreads didn't remove the book (HTTP \(d.code)).") }
+    }
+
     func setProgress(percent: Int, link: inout ShelfLink) async throws {
         guard let id = link.id else { return }
         let r = try await post("/user_status.json", fields: [

@@ -176,6 +176,37 @@ final class FolioShelfSync {
                                   forKey: Self.lastSyncKey)
     }
 
+    /// Clear Status also takes the book off Goodreads' shelves.
+    func clearGoodreads(_ book: HCBook, localID: UUID?, library: LibraryStore = .shared) async {
+        let tracked = library.trackedMatch(hardcoverBookID: book.id > 0 ? book.id : nil, author: book.authors, title: book.title)
+        let keys = [localID?.uuidString, book.id > 0 ? "hc-\(book.id)" : nil].compactMap { $0 }
+        let linked = keys.compactMap { links[ShelfService.goodreads.rawValue]?[$0] }
+        guard let gid = tracked?.goodreadsID ?? linked.compactMap(\.id).first,
+              let p = provider(.goodreads) as? GoodreadsShelfProvider else { return }
+        let shelf = tracked?.shelf ?? linked.compactMap(\.status).first
+            .flatMap(HCStatus.init(rawValue:)).map(GoodreadsCSV.shelf(for:)) ?? "to-read"
+        do {
+            try await p.remove(bookID: gid, shelf: shelf)
+            if let tracked { library.removeTracked(tracked.id) }
+            for key in keys where links[ShelfService.goodreads.rawValue]?[key] != nil {
+                links[ShelfService.goodreads.rawValue]?[key]?.status = nil
+            }
+            saveLinks()
+        } catch let e as ShelfError {
+            errors[.goodreads] = e.message
+        } catch {
+            errors[.goodreads] = error.localizedDescription
+        }
+    }
+
+    /// Whether Clear Status has a Goodreads copy to take off.
+    func hasGoodreadsCopy(_ book: HCBook, localID: UUID?, library: LibraryStore = .shared) -> Bool {
+        guard isConnected(.goodreads) else { return false }
+        if library.trackedMatch(hardcoverBookID: book.id > 0 ? book.id : nil, author: book.authors, title: book.title) != nil { return true }
+        let keys = [localID?.uuidString, book.id > 0 ? "hc-\(book.id)" : nil].compactMap { $0 }
+        return keys.contains { links[ShelfService.goodreads.rawValue]?[$0]?.status != nil }
+    }
+
     // MARK: Two-way Goodreads sync
 
     /// Library books whose Goodreads shelf changed after their Folio status take the Goodreads one.

@@ -935,6 +935,11 @@ final class LibraryStore {
         return data.tracked.first { BookMatch.key(author: $0.author, title: $0.title) == key }
     }
 
+    func removeTracked(_ id: UUID) {
+        data.tracked.removeAll { $0.id == id }
+        save()
+    }
+
     /// Puts the Goodreads copy on the shelf Goodreads just took, ahead of the next shelf sync.
     func moveTracked(goodreadsID: String?, hardcoverBookID: Int?, author: String, title: String, to status: HCStatus) {
         let match = goodreadsID.flatMap { id in data.tracked.first { $0.goodreadsID == id } }
