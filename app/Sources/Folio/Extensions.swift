@@ -145,6 +145,10 @@ final class SourceRuntime: @unchecked Sendable {
     /// silently start another JS engine or hidden browser after cancellation.
     private var closed = false
     private let lock = NSLock()
+    /// Set (under `lock`) as soon as close() starts. A search Folio stopped
+    /// waiting for can still be running JavaScript; its next request must fail
+    /// at once instead of touching a URLSession that is being invalidated.
+    private var stopping = false
     private var configHosts: Set<String> = []
     private var fixedHosts: Set<String> = []
     private var config: [String: Any] = [:]
@@ -303,12 +307,34 @@ final class SourceRuntime: @unchecked Sendable {
             guard let self else { return nil }
             let options = (try? JSONSerialization.jsonObject(with: Data(optionsJSON.utf8))) as? [String: Any]
             let headers = (options?["headers"] as? [String: String]) ?? [:]
-            do { return try self.blockingFetch(urlString, headers: headers) } catch {
+            let timeout = (options?["timeout"] as? NSNumber)?.doubleValue
+            do { return try self.blockingFetch(urlString, headers: headers, timeout: timeout) } catch {
                 JSContext.current()?.exception = JSValue(newErrorFromMessage: error.localizedDescription, in: JSContext.current())
                 return nil
             }
         }
         folio.setObject(fetchWith, forKeyedSubscript: "fetchWith" as NSString)
+        // folio.fetchFirst(JSON.stringify([url, …]), JSON.stringify({timeout: 12}))
+        // asks every address at once and returns JSON {url, text} for the first
+        // that answers. Used to race a source's equivalent mirrors instead of
+        // waiting out each one's timeout in turn. If all fail, it throws one
+        // error listing "host: reason" for each, separated by " | ".
+        let fetchFirst: @convention(block) (String, String) -> String? = { [weak self] urlsJSON, optionsJSON in
+            guard let self else { return nil }
+            let urls = ((try? JSONSerialization.jsonObject(with: Data(urlsJSON.utf8))) as? [String]) ?? []
+            let options = (try? JSONSerialization.jsonObject(with: Data(optionsJSON.utf8))) as? [String: Any]
+            let headers = (options?["headers"] as? [String: String]) ?? [:]
+            let timeout = (options?["timeout"] as? NSNumber)?.doubleValue
+            do {
+                let (url, text) = try self.blockingFetchFirst(urls, headers: headers, timeout: timeout)
+                let data = try JSONSerialization.data(withJSONObject: ["url": url, "text": text])
+                return String(data: data, encoding: .utf8)
+            } catch {
+                JSContext.current()?.exception = JSValue(newErrorFromMessage: error.localizedDescription, in: JSContext.current())
+                return nil
+            }
+        }
+        folio.setObject(fetchFirst, forKeyedSubscript: "fetchFirst" as NSString)
         // folio.decodeHTML("Mu&ntilde;oz") -> "Muñoz": every HTML character
         // reference, so scrapers needn't keep their own partial tables.
         let decodeHTML: @convention(block) (String) -> String = { $0.decodingHTMLEntities }
@@ -334,34 +360,90 @@ final class SourceRuntime: @unchecked Sendable {
         context = ctx
     }
 
-    /// Runs on the extension's own queue, so this blocking request never touches the app's main thread.
-    private func blockingFetch(_ urlString: String, headers: [String: String] = [:]) throws -> String {
+    private func makeRequest(_ urlString: String, headers: [String: String], timeout: TimeInterval) throws -> (URL, URLRequest) {
         guard let url = URL(string: urlString) else { throw ExtensionError(message: "Bad address: \(urlString)") }
         guard let key = Self.hostKey(url), allowedHosts.contains(key) else {
             throw ExtensionError(message: "Blocked: this extension may only reach the servers in its settings (\(url.host ?? urlString)).")
         }
         var req = URLRequest(url: url)
-        req.timeoutInterval = 30
+        req.timeoutInterval = timeout
         req.setValue("Folio / demeter-compatible", forHTTPHeaderField: "User-Agent")
         for (name, value) in headers { req.setValue(value, forHTTPHeaderField: name) }
+        return (url, req)
+    }
+
+    /// Turns one finished request into page text or a short, readable error.
+    private static func pageResult(_ url: URL, _ data: Data?, _ resp: URLResponse?, _ err: Error?) -> Result<String, Error> {
+        if let err { return .failure(err) }
+        if let http = resp as? HTTPURLResponse, http.statusCode >= 400 {
+            return .failure(ExtensionError(message: "\(url.host ?? "server") answered \(http.statusCode)"))
+        }
+        guard let data, data.count <= 20_000_000 else { return .failure(ExtensionError(message: "Answer too large")) }
+        // Honor the page's declared character set; Spanish and other
+        // Latin pages are not always UTF-8.
+        let contentType = (resp as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type")
+        return .success(FolioWebText.string(from: data, contentType: contentType))
+    }
+
+    private var isStopping: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return stopping
+    }
+
+    /// Runs on the extension's own queue, so this blocking request never touches the app's main thread.
+    /// `timeout` (seconds) bounds the whole request, so a source can probe a
+    /// slow mirror briefly; without it a page gets the usual 30 seconds.
+    private func blockingFetch(_ urlString: String, headers: [String: String] = [:],
+                               timeout: TimeInterval? = nil) throws -> String {
+        guard !isStopping else { throw ExtensionError(message: "Search stopped") }
+        let limit = min(max(timeout ?? 30, 3), 30)
+        let (url, req) = try makeRequest(urlString, headers: headers, timeout: limit)
         let sem = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var result: Result<String, Error> = .failure(ExtensionError(message: "Timed out"))
-        session.dataTask(with: req) { data, resp, err in
-            if let err { result = .failure(err) }
-            else if let http = resp as? HTTPURLResponse, http.statusCode >= 400 {
-                result = .failure(ExtensionError(message: "\(url.host ?? "server") answered \(http.statusCode)"))
-            } else if let data, data.count <= 20_000_000 {
-                // Honor the page's declared character set; Spanish and other
-                // Latin pages are not always UTF-8.
-                let contentType = (resp as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type")
-                result = .success(FolioWebText.string(from: data, contentType: contentType))
-            } else {
-                result = .failure(ExtensionError(message: "Answer too large"))
-            }
+        let box = FetchBox()
+        let task = session.dataTask(with: req) { data, resp, err in
+            box.set(Self.pageResult(url, data, resp, err))
             sem.signal()
-        }.resume()
-        _ = sem.wait(timeout: .now() + 35)
-        return try result.get()
+        }
+        task.resume()
+        if sem.wait(timeout: .now() + limit + 2) == .timedOut {
+            task.cancel()
+            throw ExtensionError(message: "Timed out")
+        }
+        return try (box.get() ?? .failure(ExtensionError(message: "Timed out"))).get()
+    }
+
+    /// Asks every address at once; the first readable page wins and the rest
+    /// are cancelled. Fails only when every address failed or none answered
+    /// within `timeout` seconds.
+    private func blockingFetchFirst(_ urls: [String], headers: [String: String],
+                                    timeout: TimeInterval?) throws -> (String, String) {
+        guard !isStopping else { throw ExtensionError(message: "Search stopped") }
+        guard !urls.isEmpty else { throw ExtensionError(message: "No addresses") }
+        let limit = min(max(timeout ?? 15, 3), 30)
+        let sem = DispatchSemaphore(value: 0)
+        let race = FetchRace(count: urls.count)
+        var tasks: [URLSessionDataTask] = []
+        for (index, address) in urls.enumerated() {
+            do {
+                let (url, req) = try makeRequest(address, headers: headers, timeout: limit)
+                let task = session.dataTask(with: req) { data, resp, err in
+                    if race.finish(index, Self.pageResult(url, data, resp, err)) { sem.signal() }
+                }
+                tasks.append(task)
+            } catch {
+                if race.finish(index, .failure(error)) { sem.signal() }
+            }
+        }
+        tasks.forEach { $0.resume() }
+        let timedOut = sem.wait(timeout: .now() + limit + 2) == .timedOut
+        tasks.forEach { $0.cancel() }
+        if let won = race.winner { return (urls[won.0], won.1) }
+        let reasons = urls.enumerated().map { index, address in
+            let host = URL(string: address)?.host ?? address
+            let reason = race.error(index).map { $0.localizedDescription } ?? (timedOut ? "Timed out" : "No answer")
+            return "\(host): \(reason)"
+        }
+        throw ExtensionError(message: reasons.joined(separator: " | "))
     }
 
     func manifest() async throws -> SourceManifest {
@@ -409,6 +491,7 @@ final class SourceRuntime: @unchecked Sendable {
     /// busy JS queue), then waits for its own queue to release its JSContext.
     /// This also removes the isolated iOS offscreen UIView from its window.
     func close() async {
+        lock.lock(); stopping = true; lock.unlock()
         // URLSession retains its RedirectGuard delegate until it reports
         // invalidation. Wait for that handoff before this ephemeral runtime
         // can release its delegate/URLSession; otherwise Foundation callbacks
@@ -1134,26 +1217,60 @@ final class ExtensionStore {
         // the first edition's final file transfer fails.
         let shortTitle = title.components(separatedBy: ":").first ?? title
         let query = "\(shortTitle) \(lastName)".trimmingCharacters(in: .whitespaces)
+        //
+        // A job's automatic search stops waiting once one source has a
+        // verified exact EPUB (same title, author and language): the others
+        // get a short grace period, then Folio moves on and their remaining
+        // events are muted. Manual searches (no job) still wait for everyone,
+        // because the person is choosing from the full list.
+        let muted = SearchMute()
+        let (stream, feed) = AsyncStream<SourceSearchBatch?>.makeStream()
+        for (index, id, name) in eligible {
+            Task { [self] in
+                progress(name)
+                let report: (SourceEvent) -> Void = { event in
+                    if !muted.isMuted(name) { onEvent(name, event) }
+                }
+                do {
+                    let results = try await self.search(id, query: query,
+                                                        expectedLanguage: expectedLanguage,
+                                                        expectedTitle: title, expectedAuthor: author,
+                                                        using: jobSession, onEvent: report)
+                    feed.yield(SourceSearchBatch(index: index, sourceID: id, sourceName: name,
+                                                 results: results, failure: nil))
+                } catch {
+                    feed.yield(SourceSearchBatch(index: index, sourceID: id, sourceName: name,
+                                                 results: [], failure: Self.readableFailure(error.localizedDescription)))
+                }
+            }
+        }
         var batches: [SourceSearchBatch] = []
-        await withTaskGroup(of: SourceSearchBatch.self) { group in
-            for (index, id, name) in eligible {
-                group.addTask { [self] in
-                    await MainActor.run { progress(name) }
-                    do {
-                        let results = try await self.search(id, query: query,
-                                                            expectedLanguage: expectedLanguage,
-                                                            expectedTitle: title, expectedAuthor: author,
-                                                            using: jobSession,
-                                                            onEvent: { event in onEvent(name, event) })
-                        return SourceSearchBatch(index: index, sourceID: id, sourceName: name,
-                                                 results: results, failure: nil)
-                    } catch {
-                        return SourceSearchBatch(index: index, sourceID: id, sourceName: name,
-                                                 results: [], failure: error.localizedDescription)
+        var graceTimer: Task<Void, Never>?
+        if !eligible.isEmpty {
+            for await item in stream {
+                guard let batch = item else { break }  // grace period over
+                batches.append(batch)
+                if batches.count == eligible.count { break }
+                if jobSession != nil, graceTimer == nil,
+                   batch.results.contains(where: { Self.verifiedExact($0, title: title, author: author,
+                                                                     language: expectedLanguage) }) {
+                    onEvent(batch.sourceName, .log("Exact EPUB found; giving the other sources \(Int(Self.exactMatchGrace)) more seconds"))
+                    graceTimer = Task {
+                        try? await Task.sleep(for: .seconds(Self.exactMatchGrace))
+                        feed.yield(nil)
                     }
                 }
             }
-            for await batch in group { batches.append(batch) }
+        }
+        graceTimer?.cancel()
+        feed.finish()
+        let finished = Set(batches.map(\.index))
+        let pending = eligible.filter { !finished.contains($0.0) }.map { $0.2 }
+        if !pending.isEmpty {
+            pending.forEach(muted.mute)
+            // The job's runtimes keep their own queues; closing the job
+            // session afterwards cancels whatever they are still waiting on.
+            onEvent(pending.joined(separator: ", "), .log("Not waiting any longer: an exact EPUB was already found"))
         }
         // Deterministic catalog ordering regardless of network completion
         // order; the existing edition ranking still decides which EPUB wins.
@@ -1192,6 +1309,26 @@ final class ExtensionStore {
             return a.result.id < b.result.id
         }
         return (copies, problems)
+    }
+
+    /// How long other sources may still answer once one has an exact EPUB.
+    static let exactMatchGrace: Double = 4
+
+    /// An EPUB whose title, author and listed language all match the request.
+    static func verifiedExact(_ r: SourceResult, title: String, author: String, language: String?) -> Bool {
+        guard r.preferred?.format == "epub",
+              BookMatch.key(author: r.author, title: r.title) == BookMatch.key(author: author, title: title)
+        else { return false }
+        guard let language else { return true }
+        return BookLanguage.matches(r.language, expected: language) == true
+    }
+
+    /// "Error: Error: Timed out" from a JavaScript exception reads as
+    /// "Timed out" in the activity log.
+    static func readableFailure(_ message: String) -> String {
+        var text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        while text.hasPrefix("Error: ") { text.removeFirst("Error: ".count) }
+        return text.replacingOccurrences(of: ": Error: ", with: ": ")
     }
 
     static func simpleTitle(_ t: String) -> String {
@@ -1321,7 +1458,8 @@ final class ExtensionStore {
             } catch {
                 if Task.isCancelled || error is CancellationError { throw CancellationError() }
                 lastError = error
-                onEvent(.log("\(c.url.host ?? "Source") link \(index + 1): \(error.localizedDescription)"))
+                let next = index + 1 < candidates.count ? "; trying link \(index + 2)" : ""
+                onEvent(.log("\(c.url.host ?? "Source") link \(index + 1): \(Self.readableFailure(error.localizedDescription))\(next)"))
             }
         }
         guard let tmp = fetched else { throw lastError }
@@ -1372,4 +1510,51 @@ enum BookMatch {
         let combined = (last + " " + t).folding(options: .diacriticInsensitive, locale: nil)
         return combined.filter { $0.isLetter || $0.isNumber }
     }
+}
+
+/// One request's outcome, handed from URLSession's queue to the waiting
+/// extension queue.
+private final class FetchBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Result<String, Error>?
+    func set(_ result: Result<String, Error>) { lock.lock(); value = result; lock.unlock() }
+    func get() -> Result<String, Error>? { lock.lock(); defer { lock.unlock() }; return value }
+}
+
+/// Collects a mirror race: the first success wins; the waiter is woken by that
+/// success or once every request has failed.
+private final class FetchRace: @unchecked Sendable {
+    private let lock = NSLock()
+    private let count: Int
+    private var errors: [Int: Error] = [:]
+    private var won: (Int, String)?
+    private var signalled = false
+
+    init(count: Int) { self.count = count }
+
+    /// Records an outcome; true exactly once, when the waiter should wake.
+    func finish(_ index: Int, _ result: Result<String, Error>) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !signalled else { return false }
+        switch result {
+        case .success(let text):
+            won = (index, text)
+            signalled = true
+        case .failure(let error):
+            errors[index] = error
+            signalled = errors.count == count
+        }
+        return signalled
+    }
+
+    var winner: (Int, String)? { lock.lock(); defer { lock.unlock() }; return won }
+    func error(_ index: Int) -> Error? { lock.lock(); defer { lock.unlock() }; return errors[index] }
+}
+
+/// Sources whose search Folio stopped waiting for; their late events are dropped.
+private final class SearchMute: @unchecked Sendable {
+    private let lock = NSLock()
+    private var names: Set<String> = []
+    func mute(_ name: String) { lock.lock(); names.insert(name); lock.unlock() }
+    func isMuted(_ name: String) -> Bool { lock.lock(); defer { lock.unlock() }; return names.contains(name) }
 }

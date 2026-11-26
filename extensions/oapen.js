@@ -4,7 +4,7 @@ var source = {
   id: "oapen",
   name: "OAPEN",
   description: "Open-access academic books from the OAPEN Library, free to download as EPUB or PDF.",
-  version: "1.0.0",
+  version: "1.1.0",
   languages: ["*"],
   allowedHosts: ["https://library.oapen.org"],
   settings: [],
@@ -68,11 +68,29 @@ var source = {
     };
   },
 
+  // OAPEN is under heavy bot traffic and sometimes refuses (403) or stalls.
+  // Folio respects a refusal: one short request, then a short readable reason,
+  // and no retry within this search. Other sources carry on.
+  fetchItems: function (url) {
+    try {
+      var text = typeof folio.fetchWith === "function"
+        ? folio.fetchWith(url, JSON.stringify({headers: {"Accept": "application/json"}, timeout: 15}))
+        : folio.fetchText(url);
+      return JSON.parse(text);
+    } catch (e) {
+      var message = String((e && e.message) || e).replace(/^Error: /, "");
+      if (/\b(?:403|429)\b/.test(message)) throw new Error("OAPEN is turning away automated searches right now; skipped.");
+      if (/timed? ?out/i.test(message)) throw new Error("OAPEN did not answer in time; skipped.");
+      if (/JSON|Unexpected token/i.test(message)) throw new Error("OAPEN sent an unexpected page instead of results; skipped.");
+      throw new Error(message);
+    }
+  },
+
   search: function (query, page, preferredLanguage, expectedTitle) {
     var term = String(expectedTitle || query || "").trim();
     if (!term) return [];
     var offset = Math.max(0, parseInt(page, 10) || 0) * this.pageSize;
-    var items = folio.fetchJSON(this.host + "/rest/search?query=" + encodeURIComponent(term)
+    var items = this.fetchItems(this.host + "/rest/search?query=" + encodeURIComponent(term)
       + "&expand=metadata,bitstreams&limit=" + this.pageSize + "&offset=" + offset);
     var results = [];
     for (var i = 0; i < (items || []).length; i++) {

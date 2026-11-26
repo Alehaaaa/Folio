@@ -4,7 +4,7 @@ var source = {
   id: "lectulandia",
   name: "Lectulandia",
   description: "Spanish-language books listed by Lectulandia, with its published EPUB and PDF links.",
-  version: "1.0.1",
+  version: "1.1.0",
   languages: ["es"],
   allowedHosts: [
     "https://ww3.lectulandia.com",
@@ -334,9 +334,19 @@ var source = {
       this.status("Antupload provided the final book file link");
       return "https://www.antupload.com" + href;
     } catch (error) {
-      this.log("Download preparation failed: " + mirror + ": " + error);
-      throw new Error("Lectulandia download preparation failed on " + mirror + ": " + error);
+      // Folio logs this once and moves on to the other mirror's link.
+      throw new Error(this.shortFailure(error));
     }
+  },
+
+  // One short reason for the activity log instead of a nested error chain.
+  shortFailure: function (error) {
+    var message = String((error && error.message) || error || "").replace(/^(?:Error: )+/, "");
+    if (/secure connection|tls|ssl|certificate/i.test(message)) return "secure connection failed (TLS)";
+    if (/timed? ?out/i.test(message)) return "the download page did not answer in time";
+    if (/could not be found|could not resolve|dns/i.test(message)) return "the mirror's address could not be found (DNS)";
+    if (/connection (?:was )?(?:lost|reset|refused)|network/i.test(message)) return "the connection dropped";
+    return message;
   },
 
   recent: function (page) {

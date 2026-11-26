@@ -484,9 +484,9 @@ final class DownloadQueue {
                 job.statusText = line
                 if before != line { job.transferReceived = nil; job.transferExpected = nil }
             }
-            if before != line { append(id, "\(source): \(line)") }
+            if before != line { append(id, "\(source): \(Self.withoutSourceName(line, source))") }
         case .log(let details):
-            append(id, "\(source): \(details)")
+            append(id, "\(source): \(Self.withoutSourceName(details, source))")
         case .transfer(let received, let expected):
             // Updated in memory only: progress changes several times a second
             // and is meaningless after a relaunch.
@@ -494,6 +494,15 @@ final class DownloadQueue {
             jobs[index].transferReceived = received
             jobs[index].transferExpected = expected > 0 ? expected : nil
         }
+    }
+
+    /// Sources often name themselves in their own messages; the log already
+    /// prefixes the name, so "Lectulandia: Lectulandia: …" reads once.
+    nonisolated static func withoutSourceName(_ message: String, _ source: String) -> String {
+        var text = message
+        if text.hasPrefix("\(source): ") { text.removeFirst(source.count + 2) }
+        while text.hasPrefix("Error: ") { text.removeFirst("Error: ".count) }
+        return text
     }
 
     private func startWorker() {
@@ -680,7 +689,7 @@ final class DownloadQueue {
         }
         guard !Task.isCancelled,
               jobs.first(where: { $0.id == id })?.stage.isActive == true else { return }
-        for problem in names.problems { append(id, problem) }
+        // Each source's failure was already logged once as it happened.
 
         state(id, .choosing, "Checking editions for language \(language)…")
         let identityMatches = names.copies.filter {

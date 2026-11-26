@@ -7,7 +7,7 @@ var source = {
   id: "annas-archive-free",
   name: "Anna's Archive",
   description: "Free EPUB search and published Slow Partner file delivery after a normal background countdown. No paid API or keys.",
-  version: "1.3.13",
+  version: "1.4.0",
   languages: ["*"],
   allowedHosts: [
     "https://raw.githubusercontent.com",
@@ -30,6 +30,9 @@ var source = {
   // about any official mirror, and never persisted across independent jobs.
   mirrorCooldowns: {},
   maxResults: 12,
+  // The first search page is asked of every official mirror at once; one
+  // that has not answered within this many seconds is treated as down.
+  probeSeconds: 15,
 
   // Folio displays status immediately and retains log entries for diagnostics.
   // Older Folio versions only have folio.log, so status is deliberately optional.
@@ -126,6 +129,25 @@ var source = {
     if (/network connection was lost|connection (?:was )?(?:lost|closed|refused|reset)|\b-1005\b|\b-1004\b|\b-1009\b|network is unreachable/i.test(message))
       return "network connection";
     return null;
+  },
+
+  // "annas-archive.gl: The request timed out." ×3 reads as
+  // "gl, pk, gd: timed out" in the activity log.
+  failureSummary: function (failures) {
+    var groups = {}, order = [];
+    for (var i = 0; i < failures.length; i++) {
+      var text = String(failures[i]).replace(/(?:Error: )+/g, "");
+      var cut = text.indexOf(": ");
+      var host = cut > 0 ? text.slice(0, cut).replace(/^annas-archive\./, "") : "";
+      var reason = cut > 0 ? text.slice(cut + 2) : text;
+      var kind = this.transportFailure(reason);
+      reason = kind === "connection timeout" ? "timed out"
+        : kind === "TLS or connection security" ? "secure connection failed"
+        : kind === "DNS resolution" ? "address not found" : reason.replace(/\.$/, "");
+      if (!groups[reason]) { groups[reason] = []; order.push(reason); }
+      groups[reason].push(host);
+    }
+    return order.map(function (reason) { return groups[reason].join(", ") + ": " + reason; }).join("; ");
   },
 
   rememberTransportFailure: function (host, error) {
@@ -730,14 +752,62 @@ var source = {
     var failures = [];
     var transportFailures = 0;
     var unavailableCatalogMessage = null;
+    var searchPath = "/search?q=" + encodeURIComponent(query) + "&display=table&ext=epub&page=" + (page + 1);
+    // Race the mirrors instead of waiting out each one's timeout in turn
+    // (three unreachable mirrors used to cost about two minutes on mobile
+    // data). The fastest answer goes first; mirrors that failed on transport
+    // are dropped, and any that answered with an HTTP denial or a browser
+    // check keep their normal browser fallback below.
+    var prefetched = null;
+    if (hosts.length > 1 && typeof folio.fetchFirst === "function") {
+      this.progress("Searching free EPUB listings…",
+        "Asking " + hosts.join(", ") + " at once for " + JSON.stringify(query) + " (page " + (page + 1) + ").");
+      try {
+        var answer = JSON.parse(folio.fetchFirst(JSON.stringify(hosts.map(function (h) {
+          return "https://" + h + searchPath;
+        })), JSON.stringify({timeout: this.probeSeconds})));
+        var winner = String(answer.url).replace(/^https:\/\//, "").split("/")[0];
+        prefetched = {host: winner, html: answer.text};
+        hosts.splice(hosts.indexOf(winner), 1);
+        hosts.unshift(winner);
+      } catch (raceError) {
+        var reasons = String(raceError && raceError.message || raceError).replace(/^Error: /, "").split(" | ");
+        var remaining = [];
+        for (var r = 0; r < hosts.length; r++) {
+          var reason = null;
+          for (var q = 0; q < reasons.length; q++)
+            if (reasons[q].indexOf(hosts[r] + ": ") === 0) reason = reasons[q].slice(hosts[r].length + 2);
+          if (reason && this.transportFailure(reason)) {
+            failures.push(hosts[r] + ": " + reason);
+            transportFailures++;
+            this.mirrorCooldowns[hosts[r]] = {until: Date.now() + 60000, kind: this.transportFailure(reason)};
+          } else {
+            remaining.push(hosts[r]);
+          }
+        }
+        if (!remaining.length) {
+          var summary = this.failureSummary(failures);
+          this.progress("Official mirrors unreachable; skipped.", "No official mirror answered: " + summary);
+          throw new Error("No mirror answered (" + summary + ").");
+        }
+        hosts = remaining;
+      }
+    }
     for (var i = 0; i < hosts.length; i++) {
       var host = hosts[i];
       try {
-        this.progress("Searching free EPUB listings…",
-          "Searching " + host + " for " + JSON.stringify(query) + " (page " + (page + 1) + ").");
         var origin = "https://" + host;
-        var url = origin + "/search?q=" + encodeURIComponent(query) + "&display=table&ext=epub&page=" + (page + 1);
-        var initialCards = this.searchCards(this.fetchPage(url));
+        var url = origin + searchPath;
+        var html;
+        if (prefetched && prefetched.host === host) {
+          html = prefetched.html;
+          this.diagnostic("Using " + host + ", the first mirror to answer.");
+        } else {
+          this.progress("Searching free EPUB listings…",
+            "Searching " + host + " for " + JSON.stringify(query) + " (page " + (page + 1) + ").");
+          html = this.fetchPage(url);
+        }
+        var initialCards = this.searchCards(html);
         this.diagnostic("Parsed " + initialCards.length + " EPUB record(s) from " + host + ".");
         // Native-provided title/author are trusted query intent even when no
         // language preference was supplied. Older two-argument manual calls
@@ -886,7 +956,7 @@ var source = {
       ? "Official mirrors unreachable (network, DNS or TLS)."
       : "Free search unavailable; mirror verification or network access may be required.",
       "All official mirrors failed: " + failures.join("; "));
-    throw new Error("Anna's Archive free search is unavailable. " + failures.join("; "));
+    throw new Error("Free search is unavailable (" + this.failureSummary(failures) + ").");
   },
 
   // A blank query is not sent to a scrape server; Folio asks search(query) when

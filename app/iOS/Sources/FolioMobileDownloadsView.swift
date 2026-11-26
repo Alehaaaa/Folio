@@ -297,8 +297,8 @@ struct FolioMobileDownloadsView: View {
 
             Spacer(minLength: 2)
 
-            HStack(spacing: 5) {
-                if job.stage.isActive { ProgressView().controlSize(.mini) }
+            HStack(alignment: .center, spacing: 5) {
+                if job.stage.isActive { ProgressView().controlSize(.mini).frame(width: 14, height: 14) }
                 Group {
                     if job.stage.isActive {
                         Text(job.transferLabel.map { "\(stageName(job.stage)) \($0)" } ?? stageName(job.stage))
@@ -371,13 +371,20 @@ struct FolioMobileDownloadsView: View {
     /// The stage, what it is doing now, and the error when there is one.
     private func jobStatus(_ job: DownloadJob) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                if job.stage.isActive {
-                    if job.transferFraction == nil { ProgressView().controlSize(.small) }
-                } else {
-                    Image(systemName: stageSymbol(job.stage))
-                        .foregroundStyle(stageColor(job.stage))
+            // A spinner has no text baseline, so baseline alignment dropped it
+            // below the words. A fixed square slot centred on the row keeps
+            // spinner, symbol and text on one line in every state.
+            HStack(alignment: .center, spacing: 10) {
+                Group {
+                    if job.stage.isActive && job.transferFraction == nil {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: job.stage.isActive ? "arrow.down.circle" : stageSymbol(job.stage))
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(job.stage.isActive ? FolioTheme.olive : stageColor(job.stage))
+                    }
                 }
+                .frame(width: 20, height: 20)
                 Text(statusHeadline(job))
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(job.stage.isActive ? FolioTheme.ink : stageColor(job.stage))

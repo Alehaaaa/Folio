@@ -12,7 +12,7 @@ These three are bundled with iOS builds and switched on by default. All three se
 
 ## Library Genesis
 
-`libgen.js` is bundled but switched off until the person turns it on. It tries the official mirrors in order (`libgen.li`, `.gl`, `.vg`, `.la`, `.bz`) and remembers the one that answered. A mirror that answers 403 or a challenge page is skipped. When every mirror is blocked, the search fails with one clear message that names each mirror's answer, and the other sources carry on. `node checks/test-libgen-extension.cjs` covers parsing, link validation and mirror failover.
+`libgen.js` is bundled but switched off until the person turns it on. On Folio 1.0.114 and later its first search asks every official mirror (`libgen.li`, `.gl`, `.vg`, `.la`, `.bz`) at once, keeps the first that answers within 12 seconds and uses it for the rest of the job; older Folio versions try them in order. A mirror that answers 403 or a challenge page is skipped. When every mirror is blocked, the search fails with one clear message that names each mirror's answer, and the other sources carry on. `node checks/test-libgen-extension.cjs` covers parsing, link validation and mirror failover.
 
 ## Lectulandia (Spanish)
 
@@ -45,5 +45,8 @@ The extension uses GitHub's `guillem-gelabert/annas-mcp` `OFFICIAL_MIRRORS` decl
 - **No CAPTCHA bypass, keys, payment, membership, third-party catalog, or fraudulent mirrors.** Restrictions and waiting mechanisms imposed by the source remain in place. If a free EPUB can be downloaded by hand, it can still be imported into Folio normally.
 
 ## Regression checks
+
+`node checks/test-source-failures-sandbox.cjs` replays the source failures from a real phone log (stalled mirrors, 403 refusals, TLS and DNS failures) against every bundled source on a simulated network and prints how long each takes before and after mirror racing.
+
 
 From the project root, run `node checks/test-anna-folio-extension.cjs`, `swift checks/test-anna-jscore.swift`, and `swift build -c debug` in `app/`. The browser probe uses the Swift source at `app/Sources/Folio/ExtensionBrowser.swift` and a local HTTP fixture. The live integration probe `checks/test-anna-runtime.swift` can compile against Folio's exact `SourceRuntime`, but requires external Anna's Archive availability and is not an offline pass/fail indicator for a real EPUB.

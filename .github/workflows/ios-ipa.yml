@@ -39,6 +39,7 @@ jobs:
           node checks/test-lectulandia-source-behavior.cjs
           node checks/test-libgen-extension.cjs
           node checks/test-open-sources-extensions.cjs
+          node checks/test-source-failures-sandbox.cjs
           node checks/test-amazon-metadata.cjs
           python3 checks/check-extension-versions.py
           zsh checks/test-hardcover-rate-gate.sh

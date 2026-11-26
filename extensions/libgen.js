@@ -3,7 +3,7 @@ var source = {
   id: "libgen",
   name: "Library Genesis",
   description: "Search Library Genesis for EPUB and PDF editions.",
-  version: "1.1.0",
+  version: "1.2.0",
   languages: ["*"],
   // The same catalogue answers on several official mirrors. Networks often
   // block one (libgen.li answering 403) while another still works.
@@ -11,6 +11,11 @@ var source = {
   allowedHosts: ["https://libgen.li", "https://libgen.gl", "https://libgen.vg", "https://libgen.la", "https://libgen.bz"],
   settings: [],
   host: "https://libgen.li",
+  // True once a mirror answered in this source session; later requests go
+  // straight to it instead of racing every mirror again.
+  confirmed: false,
+  // A mirror that does not answer within this many seconds is skipped.
+  probeSeconds: 12,
 
   log: function (message) {
     if (typeof folio.log === "function") folio.log("Library Genesis: " + message);
@@ -61,32 +66,80 @@ var source = {
     return { url: host + path, hash: digest[0].slice(4).toLowerCase() };
   },
 
+  usable: function (html) {
+    return typeof html === "string" && html.trim() &&
+      !/<title>\s*(?:Site Unavailable|Access Denied|Just a moment)/i.test(html);
+  },
+
   fetch: function (url) {
     var html = folio.fetchText(url);
-    if (typeof html !== "string" || !html.trim() || /<title>\s*(?:Site Unavailable|Access Denied|Just a moment)/i.test(html)) {
-      throw new Error("Library Genesis is unavailable on this network.");
-    }
+    if (!this.usable(html)) throw new Error("Library Genesis is unavailable on this network.");
     return html;
   },
 
-  // Tries the mirror that last worked first, then the others. A blocked
-  // mirror (403, a challenge page, no answer) just moves on to the next.
+  // "libgen.li: The request timed out." ×5 reads as "li, gl, …: timed out".
+  summary: function (problems) {
+    var groups = {}, order = [];
+    for (var i = 0; i < problems.length; i++) {
+      var text = String(problems[i]).replace(/(?:Error: )+/g, "").replace(/https:\/\//g, "");
+      var cut = text.indexOf(": ");
+      var host = cut > 0 ? text.slice(0, cut).replace(/^libgen\./, "") : "";
+      var reason = (cut > 0 ? text.slice(cut + 2) : text).replace(/^libgen\.[a-z]+ /, "").replace(/\.$/, "");
+      if (/timed? ?out/i.test(reason)) reason = "timed out";
+      else if (/secure connection|tls|ssl/i.test(reason)) reason = "secure connection failed";
+      else if (/hostname could not be found|could not resolve/i.test(reason)) reason = "address not found";
+      if (!groups[reason]) { groups[reason] = []; order.push(reason); }
+      groups[reason].push(host);
+    }
+    return order.map(function (reason) { return groups[reason].join(", ") + ": " + reason; }).join("; ");
+  },
+
+  short: function (mirror) { return mirror.replace("https://", ""); },
+
+  // The first search asks every mirror at once and keeps the first one that
+  // answers, so one slow or blocked mirror (libgen.li timing out on mobile
+  // data) costs a few seconds instead of half a minute. Later requests use
+  // that mirror directly. Without folio.fetchFirst (older Folio), or when the
+  // fastest answer is a challenge page, mirrors are tried one by one.
   fetchAny: function (path) {
+    if (this.confirmed) {
+      try { return this.fetch(this.host + path); }
+      catch (e) {
+        this.log(this.short(this.host) + " stopped answering; checking the other mirrors.");
+        this.confirmed = false;
+      }
+    }
     var order = [this.host].concat(this.mirrors.filter(function (m) { return m !== this.host; }, this));
+    if (typeof folio.fetchFirst === "function") {
+      var answer = null;
+      try {
+        answer = JSON.parse(folio.fetchFirst(JSON.stringify(order.map(function (m) { return m + path; })),
+          JSON.stringify({timeout: this.probeSeconds})));
+      } catch (e) {
+        throw new Error("No mirror answered (" + this.summary(String((e && e.message) || e).split(" | ")) + ").");
+      }
+      var winner = this.mirrorFor(answer.url);
+      if (winner && this.usable(answer.text)) {
+        if (winner !== this.mirrors[0]) this.log("using " + this.short(winner) + ".");
+        this.host = winner;
+        this.confirmed = true;
+        return answer.text;
+      }
+      order = order.filter(function (m) { return m !== winner; });
+    }
     var problems = [];
     for (var i = 0; i < order.length; i++) {
       try {
         var html = this.fetch(order[i] + path);
-        if (order[i] !== this.host) this.log("using " + order[i].replace("https://", "") + ".");
+        if (order[i] !== this.mirrors[0]) this.log("using " + this.short(order[i]) + ".");
         this.host = order[i];
+        this.confirmed = true;
         return html;
       } catch (e) {
-        var message = String((e && e.message) || e);
-        problems.push(order[i].replace("https://", "") + ": " + message);
-        this.log(order[i].replace("https://", "") + " failed: " + message);
+        problems.push(this.short(order[i]) + ": " + String((e && e.message) || e));
       }
     }
-    throw new Error("Library Genesis is unavailable on this network (" + problems.join("; ") + ").");
+    throw new Error("No mirror answered (" + this.summary(problems) + ").");
   },
 
   search: function (query, page, preferredLanguage, expectedTitle) {

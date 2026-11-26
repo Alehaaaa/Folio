@@ -56,5 +56,33 @@ assert.equal(source.host, "https://libgen.vg");
 assert.ok(mirrored[0].downloads[0].url.startsWith("https://libgen.vg/ads.php?md5="));
 assert.equal(source.prepareDownload(mirrored[0].downloads[0].url), `https://libgen.vg/get.php?md5=${hash}&key=mirror`);
 context.folio.fetchText = () => { throw new Error("answered 403"); };
-assert.throws(() => source.search("Pride"), /unavailable on this network.*403/);
+assert.throws(() => source.search("Pride"), /No mirror answered.*403/);
 console.log("PASS LibGen mirror failover after a 403 and a clear error when every mirror is blocked");
+
+// With folio.fetchFirst, every mirror is asked at once; the first readable
+// answer wins and later requests go straight to that mirror.
+source.host = "https://libgen.li";
+source.confirmed = false;
+const raced = [];
+context.folio.fetchFirst = (urlsJSON, optionsJSON) => {
+  const urls = JSON.parse(urlsJSON);
+  raced.push({ urls, options: JSON.parse(optionsJSON) });
+  const url = urls.find((u) => u.startsWith("https://libgen.gl/"));
+  return JSON.stringify({ url, text: search });
+};
+context.folio.fetchText = (url) => {
+  if (url.includes("/index.php?")) return search;
+  return `<a href="get.php?md5=${hash}&amp;key=raced">GET</a>`;
+};
+const fast = source.search("Pride and Prejudice", 0, "en", "Pride and Prejudice");
+assert.equal(fast.length, 1);
+assert.equal(raced.length, 1);
+assert.equal(raced[0].urls.length, 5);
+assert.equal(raced[0].options.timeout, 12);
+assert.equal(source.host, "https://libgen.gl");
+source.search("Pride and Prejudice", 0, "en", "Pride and Prejudice");
+assert.equal(raced.length, 1, "a confirmed mirror is used directly");
+source.confirmed = false;
+context.folio.fetchFirst = () => { throw new Error("libgen.li: Timed out | libgen.gl: Timed out"); };
+assert.throws(() => source.search("Pride"), /No mirror answered \(li, gl: timed out\)/);
+console.log("PASS LibGen races its mirrors and keeps the fastest");

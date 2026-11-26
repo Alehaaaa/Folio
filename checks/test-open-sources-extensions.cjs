@@ -112,3 +112,20 @@ function load(file, fetchText) {
   ]);
   console.log("PASS OAPEN search, metadata, cover and EPUB/PDF links on the library's own host");
 }
+
+// OAPEN failures from a real phone log: a 403 refusal and a stall each end
+// the OAPEN search at once with one short reason, and are not retried.
+{
+  for (const [failure, expected] of [
+    ["library.oapen.org answered 403", /turning away automated searches/],
+    ["The request timed out.", /did not answer in time/],
+    ["library.oapen.org answered 429", /turning away automated searches/],
+  ]) {
+    const { source, requests } = load("oapen.js", () => { throw new Error(failure); });
+    assert.throws(() => source.search("Sistemas críticos", 0), expected);
+    assert.equal(requests.length, 1, "one request, no retry storm");
+  }
+  const html = load("oapen.js", () => "<html>Just a moment…</html>");
+  assert.throws(() => html.source.search("Sistemas críticos", 0), /unexpected page/);
+  console.log("PASS OAPEN refusals, timeouts and challenge pages fail fast with one readable reason");
+}

@@ -13,7 +13,7 @@ const hash = '51d2b22ca12a8b470b51f543298b34c9';
 const official = ['annas-archive.gl', 'annas-archive.pk', 'annas-archive.gd'];
 const githubConfig = 'export const OFFICIAL_MIRRORS = ["annas-archive.gl", "annas-archive.pk", "annas-archive.gd"] as const;';
 
-function harness(fetch, browser, withStatus = true, clock = Date) {
+function harness(fetch, browser, withStatus = true, clock = Date, fetchFirst = null) {
   const requested = [];
   const statuses = [];
   const logs = [];
@@ -32,11 +32,12 @@ function harness(fetch, browser, withStatus = true, clock = Date) {
   };
   if (withStatus) context.folio.status = message => statuses.push(message);
   if (browser) context.folio.browser = browser;
+  if (fetchFirst) context.folio.fetchFirst = fetchFirst;
   vm.createContext(context);
   vm.runInContext(script, context, {timeout: 5000});
   assert.equal(context.source.name, "Anna's Archive");
   assert.equal(context.source.id, 'annas-archive-free');
-  assert.equal(context.source.version, '1.3.13');
+  assert.equal(context.source.version, '1.4.0');
   assert.equal(context.source.allowedHosts.length, 5);
   return {source: context.source, requested, statuses, logs};
 }
@@ -795,4 +796,48 @@ assert.ok(legacy.logs.length > 0, 'older Folio versions still receive diagnostic
   assert.equal(stalled.logs.filter(line => /monitoring the page/.test(line)).length, 1);
 }
 
-console.log('PASS: Folio extension v1.3.13, paced partner-link polling, bounded transient transport retry, runtime-local mirror cooldown, source availability diagnostics, Want subtitle matches, language safeguards, and free countdown without verified-query resets.');
+console.log('PASS: Folio extension v1.4.0, paced partner-link polling, bounded transient transport retry, runtime-local mirror cooldown, source availability diagnostics, Want subtitle matches, language safeguards, and free countdown without verified-query resets.');
+
+
+// Folio 1.0.114+: the first search page is raced across every official
+// mirror, so unreachable mirrors cost one short probe instead of ~40 s each.
+{
+  const races = [];
+  const raced = harness(url => {
+    if (url.includes('raw.githubusercontent.com')) return githubConfig;
+    if (url === `https://annas-archive.pk/md5/${hash}`) return detailPage;
+    throw new Error('unexpected sequential URL ' + url);
+  }, null, true, Date, (urlsJSON, optionsJSON) => {
+    const urls = JSON.parse(urlsJSON);
+    races.push({urls, options: JSON.parse(optionsJSON)});
+    return JSON.stringify({url: urls.find(u => u.startsWith('https://annas-archive.pk/')), text: searchPage});
+  });
+  const found = raced.source.search('Pride and Prejudice Jane Austen', 0);
+  assert.equal(found.length, 1);
+  assert.equal(races.length, 1);
+  assert.equal(races[0].urls.length, 3);
+  assert.equal(races[0].options.timeout, 15);
+  assert.ok(!raced.requested.some(u => u.includes('/search?')), 'the raced page is not fetched again');
+  assert.equal(raced.source.preferredMirror, 'annas-archive.pk');
+
+  const down = harness(url => {
+    if (url.includes('raw.githubusercontent.com')) return githubConfig;
+    throw new Error('unexpected sequential URL ' + url);
+  }, null, true, Date, () => {
+    throw new Error('Error: annas-archive.gl: The request timed out. | annas-archive.pk: The request timed out. | annas-archive.gd: A TLS error caused the secure connection to fail.');
+  });
+  assert.throws(() => down.source.search('Pride and Prejudice Jane Austen', 0), /No mirror answered \(gl, pk: timed out; gd: secure connection failed\)/);
+  assert.equal(Object.keys(down.source.mirrorCooldowns).length, 3);
+
+  const denied = harness(url => {
+    if (url.includes('raw.githubusercontent.com')) return githubConfig;
+    if (url.startsWith('https://annas-archive.gd/search?')) return searchPage;
+    if (url === `https://annas-archive.gd/md5/${hash}`) return detailPage;
+    throw new Error('unexpected URL ' + url);
+  }, null, true, Date, () => {
+    throw new Error('annas-archive.gl: The request timed out. | annas-archive.pk: The request timed out. | annas-archive.gd: annas-archive.gd answered 403');
+  });
+  const fallback = denied.source.search('Pride and Prejudice Jane Austen', 0);
+  assert.equal(fallback.length, 1, 'an HTTP denial keeps its normal sequential/browser fallback');
+  console.log('PASS: mirror race keeps the fastest mirror, fails fast when none answers, and keeps fallback for HTTP denials.');
+}
