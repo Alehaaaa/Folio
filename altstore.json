@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.105",
+          "buildVersion": "106",
+          "date": "2026-11-26",
+          "localizedDescription": "Merge pull request #13 from Alehaaaa/fix/manage-book-versions",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.105-106.ipa",
+          "size": 6221042,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.103",
           "buildVersion": "104",
           "date": "2026-11-26",
