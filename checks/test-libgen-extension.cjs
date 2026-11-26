@@ -108,3 +108,14 @@ console.log("PASS LibGen races its mirrors and keeps the fastest");
   assert.equal(found[0].id, md5);
   console.log("PASS LibGen titles ignore tooltip markup, series links and badges");
 }
+
+// Every result offers the download page on every mirror, the answering one
+// first, so Folio can switch mirrors when a transfer stalls or crawls.
+{
+  source.host = "https://libgen.la";
+  const links = source.mirrorLinks("epub", "https://libgen.la/ads.php?md5=" + hash);
+  assert.deepEqual([...links].map((l) => l.url.split("/ads.php")[0]),
+    ["https://libgen.la", "https://libgen.li", "https://libgen.gl", "https://libgen.vg", "https://libgen.bz"]);
+  assert.ok(links.every((l) => l.url.endsWith("/ads.php?md5=" + hash) && l.format === "epub"));
+  console.log("PASS LibGen offers every mirror's download page, fastest first");
+}

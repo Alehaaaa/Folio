@@ -3,7 +3,7 @@ var source = {
   id: "libgen",
   name: "Library Genesis",
   description: "Search Library Genesis for EPUB and PDF editions.",
-  version: "1.2.1",
+  version: "1.3.0",
   languages: ["*"],
   // The same catalogue answers on several official mirrors. Networks often
   // block one (libgen.li answering 403) while another still works.
@@ -112,6 +112,16 @@ var source = {
     return order.map(function (reason) { return groups[reason].join(", ") + ": " + reason; }).join("; ");
   },
 
+  // The same download page on every mirror, the one that answered first.
+  // Folio moves to the next link when a mirror's transfer stalls, drops or
+  // crawls, so one slow mirror no longer holds the book.
+  mirrorLinks: function (format, url) {
+    var own = this.mirrorFor(url) || this.host;
+    var path = url.slice(own.length);
+    return [own].concat(this.mirrors.filter(function (m) { return m !== own; }))
+      .map(function (m) { return { format: format, url: m + path }; });
+  },
+
   short: function (mirror) { return mirror.replace("https://", ""); },
 
   // The first search asks every mirror at once and keeps the first one that
@@ -193,7 +203,7 @@ var source = {
       results.push({
         id: landing.hash, title: title, authors: authors, language: language || null,
         year: year > 0 ? year : null, origin: landing.url,
-        downloads: [{ format: format, url: landing.url }]
+        downloads: this.mirrorLinks(format, landing.url)
       });
     }
     return results;

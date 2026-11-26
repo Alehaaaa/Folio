@@ -573,27 +573,50 @@ final class FileTransfer: NSObject, URLSessionDownloadDelegate, @unchecked Senda
     private var lastReport = Date.distantPast
     private var lastPercent = -1
     private let report: (Int64, Int64) -> Void
+    /// Bytes per second below which a transfer is abandoned (0: never).
+    private let minimumRate: Double
+    private var firstByteAt: Date?
+    private var tooSlow = false
 
-    private init(report: @escaping (Int64, Int64) -> Void) { self.report = report }
+    private init(report: @escaping (Int64, Int64) -> Void, minimumRate: Double) {
+        self.report = report
+        self.minimumRate = minimumRate
+    }
 
     static let idleTimeout: TimeInterval = 60
     static let totalTimeout: TimeInterval = 30 * 60
 
-    /// Downloads `request`, retrying twice after a dropped or stalled
-    /// connection and resuming from the bytes already received when the
-    /// server allows it.
-    static func download(_ request: URLRequest,
+    /// The host is sending, but so slowly that another copy will be faster.
+    struct TooSlow: LocalizedError {
+        let bytesPerSecond: Double
+        var errorDescription: String? {
+            "Too slow (\(Int(bytesPerSecond / 1024)) KB/s)"
+        }
+    }
+
+    /// Downloads `request`, retrying after a dropped or stalled connection
+    /// and resuming from the bytes already received when the server allows it.
+    ///
+    /// With `hasAlternative` (another copy or mirror is waiting), a bad host is
+    /// given up on quickly: 20 s without data counts as a stall, one retry
+    /// only, and a transfer averaging under 16 KB/s after 20 s with minutes
+    /// still to go is dropped so the next link can start. The last link keeps
+    /// the patient settings: 60 s idle, two retries, no speed floor.
+    static func download(_ request: URLRequest, hasAlternative: Bool = false,
                          progress: @escaping (Int64, Int64) -> Void,
                          onRetry: @escaping (String) -> Void = { _ in }) async throws -> (URL, URLResponse) {
         var resumeData: Data?
         var attempt = 0
+        let retries = hasAlternative ? 1 : 2
+        let idle: TimeInterval = hasAlternative ? 20 : idleTimeout
         while true {
             do {
-                return try await FileTransfer(report: progress).run(request, resumeData: resumeData)
-            } catch let error as URLError where attempt < 2 && retryable(error.code) {
+                return try await FileTransfer(report: progress, minimumRate: hasAlternative ? 16 * 1024 : 0)
+                    .run(request, resumeData: resumeData, idle: idle)
+            } catch let error as URLError where attempt < retries && retryable(error.code) {
                 attempt += 1
                 resumeData = error.downloadTaskResumeData
-                onRetry("\(error.localizedDescription) Retrying (\(attempt) of 2)" +
+                onRetry("\(error.localizedDescription) Retrying (\(attempt) of \(retries))" +
                         (resumeData == nil ? " from the start." : " from where it stopped."))
                 try await Task.sleep(for: .seconds(2 * attempt))
             }
@@ -605,17 +628,17 @@ final class FileTransfer: NSObject, URLSessionDownloadDelegate, @unchecked Senda
          .dnsLookupFailed, .cannotFindHost, .secureConnectionFailed].contains(code)
     }
 
-    private func run(_ request: URLRequest, resumeData: Data?) async throws -> (URL, URLResponse) {
+    private func run(_ request: URLRequest, resumeData: Data?, idle: TimeInterval) async throws -> (URL, URLResponse) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil
         configuration.urlCache = nil
         configuration.waitsForConnectivity = true
-        configuration.timeoutIntervalForRequest = Self.idleTimeout
+        configuration.timeoutIntervalForRequest = idle
         configuration.timeoutIntervalForResource = Self.totalTimeout
         let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         var request = request
-        request.timeoutInterval = Self.idleTimeout
+        request.timeoutInterval = idle
         let task = resumeData.map { session.downloadTask(withResumeData: $0) } ?? session.downloadTask(with: request)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -645,8 +668,20 @@ final class FileTransfer: NSObject, URLSessionDownloadDelegate, @unchecked Senda
         // At most a few updates a second, and only when the number shown changes.
         let due = now.timeIntervalSince(lastReport) >= 0.25 && (percent != lastPercent || expected < 0)
         if due { lastReport = now; lastPercent = percent }
+        if firstByteAt == nil { firstByteAt = now }
+        var giveUp = false
+        if minimumRate > 0, !tooSlow, let start = firstByteAt {
+            let elapsed = now.timeIntervalSince(start)
+            let rate = Double(totalBytesWritten) / max(elapsed, 0.001)
+            let remaining = expected > 0 ? Double(expected - totalBytesWritten) / max(rate, 1) : .infinity
+            if elapsed >= 20, rate < minimumRate, remaining > 120 {
+                tooSlow = true
+                giveUp = true
+            }
+        }
         lock.unlock()
         if due { report(totalBytesWritten, expected) }
+        if giveUp { downloadTask.cancel() }
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
@@ -665,9 +700,12 @@ final class FileTransfer: NSObject, URLSessionDownloadDelegate, @unchecked Senda
         lock.lock()
         let continuation = self.continuation
         self.continuation = nil
-        let result = finished, moveError = moveError
+        let result = finished, moveError = moveError, slow = tooSlow
+        let written = task.countOfBytesReceived
+        let elapsed = firstByteAt.map { Date().timeIntervalSince($0) } ?? 1
         lock.unlock()
         guard let continuation else { return }
+        if slow { return continuation.resume(throwing: TooSlow(bytesPerSecond: Double(written) / max(elapsed, 1))) }
         if let error { return continuation.resume(throwing: error) }
         if let moveError { return continuation.resume(throwing: moveError) }
         if let result { return continuation.resume(returning: result) }
@@ -1426,7 +1464,7 @@ final class ExtensionStore {
                 // The file gets its own long-lived transfer (see FileTransfer),
                 // still in-app, so encrypted DNS covers it.
                 let host = actual.host ?? "the file host"
-                let (tmp, resp) = try await FileTransfer.download(req,
+                let (tmp, resp) = try await FileTransfer.download(req, hasAlternative: index + 1 < candidates.count,
                     progress: { received, expected in onEvent(.transfer(received: received, expected: expected)) },
                     onRetry: { note in
                         onEvent(.log("\(host) link \(index + 1): \(note)"))

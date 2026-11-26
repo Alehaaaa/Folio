@@ -294,6 +294,23 @@ for (const [name, rule, pattern] of [
   assert.ok(later.requests > 0, "mirrors are probed again once the note expires");
 }
 
+// 16. A slow, dropping file host (third phone log: libgen.la kept dropping
+// and resuming). Models FileTransfer: with another mirror waiting, a link
+// that averages under 16 KB/s after 20 s with minutes to go, or sends
+// nothing for 20 s, is dropped and the next mirror starts.
+{
+  const size = 900 * 1024;
+  const mirrors = [{ rate: 6 * 1024, dropsEvery: 40 }, { rate: 400 * 1024 }];
+  // Before: 60 s idle limit, two resumes, then the whole copy failed.
+  const slow = mirrors[0];
+  const beforeSeconds = Math.min(size / slow.rate, 3 * slow.dropsEvery + 2 * 60 + 6);
+  // After: give up on mirror 1 at 20 s, then mirror 2 at full speed.
+  const afterSeconds = 20 + size / mirrors[1].rate;
+  rows.push(["File download: slow, dropping mirror (log 3)", Math.round(beforeSeconds), Math.round(afterSeconds),
+    "switches to the next mirror after 20 s"]);
+  assert.ok(afterSeconds < 25);
+}
+
 const pad = (v, n) => String(v).padEnd(n);
 console.log(pad("Case", 64) + pad("before s", 10) + pad("after s", 9) + "result");
 for (const [name, before, after, result] of rows) console.log(pad(name, 64) + pad(before, 10) + pad(after, 9) + result);
