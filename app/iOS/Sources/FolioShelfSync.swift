@@ -149,6 +149,15 @@ final class FolioShelfSync {
         runs[s] = Run(done: 0, total: books.count)
         errors[s] = nil
         defer { runs[s] = nil }
+        // Goodreads syncs both ways: the newest change wins, for library
+        // books and for books only on your Hardcover shelves.
+        var hardcoverOnly: [HCUserBook] = []
+        if s == .goodreads {
+            await GoodreadsClient.shared.syncAll(into: library)
+            pullFromGoodreads(library: library)
+            hardcoverOnly = await hardcoverOnlyBooks(library: library)
+            runs[s]?.total += hardcoverOnly.count
+        }
         for book in books {
             guard let current = library.book(book.id) else { continue }
             let result = await sync(current, on: s, retryMissing: true)
@@ -156,9 +165,90 @@ final class FolioShelfSync {
             if result == .signedOut { return }
             if result == .sent { try? await Task.sleep(nanoseconds: 400_000_000) }
         }
+        for item in hardcoverOnly {
+            let result = await reconcile(item, library: library)
+            runs[s]?.done += 1
+            if result == .signedOut { return }
+            if result == .sent { try? await Task.sleep(nanoseconds: 400_000_000) }
+        }
         lastSync[s] = Date()
         UserDefaults.standard.set(Dictionary(uniqueKeysWithValues: lastSync.map { ($0.key.rawValue, $0.value.timeIntervalSince1970) }),
                                   forKey: Self.lastSyncKey)
+    }
+
+    // MARK: Two-way Goodreads sync
+
+    /// Library books whose Goodreads shelf changed after their Folio status take the Goodreads one.
+    private func pullFromGoodreads(library: LibraryStore) {
+        for book in library.books {
+            guard let t = library.trackedMatch(hardcoverBookID: book.hardcoverBookID, author: book.author, title: book.title),
+                  let theirs = t.status, [HCStatus.wantToRead, .reading, .read].contains(theirs),
+                  book.status.hardcover != theirs,
+                  let changed = Self.goodreadsDate(t), changed > Self.folioDate(book) else { continue }
+            library.setStatus(book.id, theirs.local, hardcover: HardcoverClient.shared)
+        }
+    }
+
+    /// Books on your Hardcover shelves with no copy in the library.
+    private func hardcoverOnlyBooks(library: LibraryStore) async -> [HCUserBook] {
+        let hardcover = HardcoverClient.shared
+        guard hardcover.isConnected, let all = try? await hardcover.allUserBooks() else { return [] }
+        return all.filter { ub in
+            guard ub.status != nil else { return false }
+            if library.books.contains(where: { $0.hardcoverBookID == ub.book.id }) { return false }
+            return library.localCopy(author: ub.book.authors, title: ub.workTitle ?? ub.book.title) == nil
+                && library.localCopy(author: ub.book.authors, title: ub.book.title) == nil
+        }
+    }
+
+    /// Hardcover and Goodreads agree on a Hardcover-only book: the newer change wins.
+    private func reconcile(_ ub: HCUserBook, library: LibraryStore) async -> Outcome {
+        guard let status = ub.status else { return .skipped }
+        let book = ub.book
+        let t = library.trackedMatch(hardcoverBookID: book.id, author: book.authors, title: ub.workTitle ?? book.title)
+            ?? library.trackedMatch(hardcoverBookID: nil, author: book.authors, title: book.title)
+        if let t, let theirs = t.status, theirs != status,
+           let changed = Self.goodreadsDate(t), changed > Self.hardcoverDate(ub) {
+            _ = await HardcoverClient.shared.setStatus(bookID: book.id, status: theirs)
+            return .sent
+        }
+        if t?.status == status { return .skipped }
+        let key = "hc-\(book.id)"
+        return await send(Item(key: key, title: ub.workTitle ?? book.title, author: book.authors,
+                               hardcoverBookID: book.id, status: status),
+                          on: .goodreads, retryMissing: false)
+    }
+
+    private static func folioDate(_ book: LocalBook) -> Date {
+        book.statusChangedAt ?? (book.status == .finished ? book.finishedAt : nil) ?? book.addedAt
+    }
+
+    private static func goodreadsDate(_ t: TrackedBook) -> Date? {
+        t.shelfChangedAt ?? parseDate(t.dateRead) ?? parseDate(t.dateAdded)
+    }
+
+    private static func hardcoverDate(_ ub: HCUserBook) -> Date {
+        parseDate(ub.updatedAt) ?? parseDate(ub.finishedAt) ?? parseDate(ub.startedAt) ?? parseDate(ub.dateAdded) ?? .distantPast
+    }
+
+    /// Hardcover's timestamps and dates, and the date styles Goodreads feeds use.
+    static func parseDate(_ text: String?) -> Date? {
+        guard let text = text?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { return nil }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = iso.date(from: text) { return d }
+        iso.formatOptions = [.withInternetDateTime]
+        if let d = iso.date(from: text) { return d }
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        for format in ["yyyy-MM-dd'T'HH:mm:ss.SSSSSSZZZZZ", "yyyy-MM-dd'T'HH:mm:ssZZZZZ", "yyyy-MM-dd'T'HH:mm:ss",
+                       "yyyy-MM-dd", "yyyy/MM/dd", "EEE, dd MMM yyyy HH:mm:ss Z", "EEE MMM dd HH:mm:ss Z yyyy",
+                       "MMM dd, yyyy", "MMM d, yyyy"] {
+            f.dateFormat = format
+            if let d = f.date(from: text) { return d }
+        }
+        return nil
     }
 
     private func percent(_ book: LocalBook) -> Int { Int((min(1, max(0, book.progress)) * 100).rounded(.down)) }

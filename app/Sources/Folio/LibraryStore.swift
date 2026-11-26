@@ -804,6 +804,7 @@ final class LibraryStore {
 
     func setStatus(_ id: UUID, _ status: ReadingStatus, hardcover: HardcoverClient? = nil) {
         update(id) { b in
+            if b.status != status { b.statusChangedAt = Date() }
             b.status = status
             if status == .finished { b.finishedAt = Date(); b.progress = max(b.progress, 1) }
         }
@@ -904,6 +905,16 @@ final class LibraryStore {
                 r.dateRead = r.dateRead ?? old.dateRead
                 r.coverURL = r.coverURL ?? old.coverURL
                 r.goodreadsID = r.goodreadsID ?? old.goodreadsID
+                r.folioShelvedAt = old.folioShelvedAt
+                r.shelfChangedAt = old.shelfChangedAt
+                if r.shelf != old.shelf {
+                    // Right after Folio moved it, the feed may still show the old shelf.
+                    if let moved = old.folioShelvedAt, Date().timeIntervalSince(moved) < 3600 {
+                        r.shelf = old.shelf
+                    } else {
+                        r.shelfChangedAt = Date()
+                    }
+                }
                 data.tracked[i] = r
             } else {
                 data.tracked.append(r)
@@ -932,6 +943,8 @@ final class LibraryStore {
         guard let match, match.shelf != shelf,
               let i = data.tracked.firstIndex(where: { $0.id == match.id }) else { return }
         data.tracked[i].shelf = shelf
+        data.tracked[i].shelfChangedAt = Date()
+        data.tracked[i].folioShelvedAt = Date()
         save()
     }
 

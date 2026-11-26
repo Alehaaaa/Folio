@@ -307,6 +307,8 @@ struct HCUserBook: Identifiable, Hashable, Codable {
     var startedAt: String?
     var finishedAt: String?
     var dateAdded: String?
+    /// When the shelf entry last changed (status, progress), for two-way syncs.
+    var updatedAt: String? = nil
     /// The edition on the reader's shelf (e.g. a Spanish translation), if one was chosen.
     var editionID: Int? = nil
     var workTitle: String? = nil
@@ -332,6 +334,7 @@ struct HCUserBook: Identifiable, Hashable, Codable {
             startedAt: read["started_at"].string,
             finishedAt: read["finished_at"].string,
             dateAdded: j["date_added"].string,
+            updatedAt: j["updated_at"].string,
             editionID: j["edition_id"].int,
             workTitle: workTitle
         )
@@ -761,7 +764,7 @@ final class HardcoverClient {
     #endif
 
     static let bookFields = "id title slug pages release_year rating ratings_count description cached_contributors image { url }"
-    static let userBookFields = "id status_id rating date_added edition_id edition { title pages image { url } } book { \(bookFields) } user_book_reads(order_by: {id: desc}, limit: 1) { id progress_pages started_at finished_at }"
+    static let userBookFields = "id status_id rating date_added updated_at edition_id edition { title pages image { url } } book { \(bookFields) } user_book_reads(order_by: {id: desc}, limit: 1) { id progress_pages started_at finished_at }"
 
     // MARK: Reads
 

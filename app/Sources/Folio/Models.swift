@@ -111,6 +111,8 @@ struct LocalBook: Codable, Identifiable, Hashable {
     var position = ReadingPosition()
     var status: ReadingStatus = .none
     var finishedAt: Date?
+    /// When the status last changed, so two-way syncs keep the newest one.
+    var statusChangedAt: Date?
     var collections: Set<UUID> = []
     var coverFileName: String?
     var hardcoverBookID: Int?
@@ -174,6 +176,10 @@ struct TrackedBook: Codable, Identifiable, Hashable {
     var coverURL: String?
     var averageRating: Double?
     var link: String?
+    /// When Folio saw this book change shelf on Goodreads, or moved it there.
+    var shelfChangedAt: Date?
+    /// When Folio itself last moved it, so a stale shelf feed can't move it back.
+    var folioShelvedAt: Date?
 
     var status: HCStatus? {
         switch shelf {
