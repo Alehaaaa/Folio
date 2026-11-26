@@ -225,7 +225,7 @@ struct FolioMobileBookshelf: View {
             FolioLog.log("open the pile (\(pile.count))", "nook")
             withAnimation(.smooth(duration: 0.42)) { expanded = true }
         } label: {
-            HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .bottom, spacing: 12) {
                 HStack(alignment: .bottom, spacing: 3) {
                     ForEach(Array(stacks.enumerated()), id: \.offset) { _, stack in
                         VStack(spacing: 0.5) {
@@ -245,7 +245,7 @@ struct FolioMobileBookshelf: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, sidePadding)
-            .padding(.vertical, 6)
+            .padding(.top, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(shelfBack)
             .contentShape(Rectangle())
