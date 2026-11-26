@@ -386,6 +386,8 @@ struct FolioMobileHomeView: View {
                     // edge; the nook keeps the width its shelves were designed for.
                     FolioMobileBookshelf(items: FolioNookStore.shared.arranged(items))
                         .frame(maxWidth: 900, alignment: .leading)
+                        // The book in the hand floats over the rows below it.
+                        .zIndex(FolioNookStore.shared.holding ? 1 : 0)
                         .task(id: nookKey(items)) {
                             FolioNookStore.shared.register(items)
                             FolioSpinePalettes.shared.prepare(items)
@@ -411,6 +413,8 @@ struct FolioMobileHomeView: View {
         }
         // A book in the hand on the shelf holds the page still.
         .scrollDisabled(FolioNookStore.shared.holding)
+        // Drop a book from the shelf here to take it off.
+        .overlay(alignment: .bottom) { FolioNookBin() }
         // Books in the rows can be dragged onto the shelf.
         .environment(\.folioNookDragSource, true)
         .refreshable {

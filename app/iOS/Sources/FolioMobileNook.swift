@@ -265,6 +265,16 @@ final class FolioNookStore {
     /// A book is in the hand on the Home shelf: the page holds still under it.
     var holding = false
 
+    /// The held book has come out of its place, so the remove bin shows.
+    var carrying = false
+    /// The held book hovers over the remove bin.
+    var overBin = false
+    /// Where the remove bin sits on screen, in global coordinates. Kept out
+    /// of observation: the shelf reads it while dragging, nothing draws from it.
+    @ObservationIgnored var binFrame: CGRect = .zero
+    /// The last book dropped in the bin, kept for a moment so it can come back.
+    private(set) var removal: FolioNookRemoval?
+
     /// Books put on the shelf by hand, dragged in from a Home row.
     private(set) var pinned: [HCBook]
 
@@ -438,6 +448,28 @@ final class FolioNookStore {
         let byline = item.author.isEmpty ? item.title : "\(item.title) · \(item.author)"
         hidden[item.id] = byline
         save()
+    }
+
+    /// Takes a book off the shelf from the remove bin: the same as the menu's
+    /// Hide or Remove, but remembered so Undo can put everything back.
+    func remove(_ item: FolioNookItem) {
+        let before = FolioNookRemoval(title: item.title, order: order, hidden: hidden, pinned: pinned)
+        hide(item)
+        removal = before
+    }
+
+    /// Puts back the book the bin just took, in its old place.
+    func undoRemoval() {
+        guard let removal else { return }
+        order = removal.order
+        hidden = removal.hidden
+        pinned = removal.pinned
+        save()
+        self.removal = nil
+    }
+
+    func forgetRemoval(_ id: UUID) {
+        if removal?.id == id { removal = nil }
     }
 
     func unhide(_ key: String) {
@@ -838,4 +870,13 @@ enum FolioSpineMetrics {
         let mix: [FolioSpineBinding] = [.cloth, .paperback, .jacket, .leather, .cloth]
         return mix[Int(h % 5)]
     }
+}
+
+/// The shelf as it stood before a book went in the bin, for Undo.
+struct FolioNookRemoval: Identifiable {
+    let id = UUID()
+    let title: String
+    let order: [String]
+    let hidden: [String: String]
+    let pinned: [HCBook]
 }

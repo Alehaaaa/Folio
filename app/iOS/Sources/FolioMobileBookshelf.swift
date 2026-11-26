@@ -33,6 +33,12 @@ struct FolioMobileBookshelf: View {
     /// Whether a press on a spine is still going, to notice a press the
     /// system took away (a menu opening, a call coming in).
     @GestureState private var pressing = false
+    /// A finger has rested on a spine long enough to pick it up: the page
+    /// holds still, and moving in any direction lifts the book.
+    @GestureState private var pressHeld = false
+    /// Where the bookcase sits on screen, to find the remove bin from the
+    /// hand. A plain reference, so scrolling never redraws the shelves.
+    @State private var place = FolioNookPlace()
     @State private var bounds: CGSize = .zero
     /// A book dragged in from a Home row, shown as a spine in the gap where
     /// it would go.
@@ -198,6 +204,21 @@ struct FolioMobileBookshelf: View {
         // The book in the hand, drawn above every shelf so nothing clips it.
         // It sits outside the shelf's own animation: only the hand moves it.
         .overlay(alignment: .topLeading) { heldBook }
+        .onGeometryChange(for: CGPoint.self) { $0.frame(in: .global).origin } action: { origin in
+            place.origin = origin
+        }
+        .onChange(of: pressHeld) { _, held in
+            if held {
+                nook.holding = true
+            } else {
+                // Let go, or the menu took the press: a book still in the
+                // hand goes home, and a press that never moved frees the page.
+                DispatchQueue.main.async {
+                    if self.held?.phase == .carried { putBack() }
+                    if self.held == nil { nook.holding = false }
+                }
+            }
+        }
         .onChange(of: pressing) { _, pressed in
             // The system ended the press without a release (a menu opened):
             // the book goes home. A real release settles it first.
@@ -206,8 +227,12 @@ struct FolioMobileBookshelf: View {
             DispatchQueue.main.async { if held?.phase == .carried { putBack() } }
         }
         #if os(iOS)
+        .sensoryFeedback(.impact(weight: .light, intensity: 0.6), trigger: pressHeld) { _, new in new }
         .sensoryFeedback(.impact(weight: .medium, intensity: 0.7), trigger: held?.id) { _, new in new != nil }
-        .sensoryFeedback(.selection, trigger: dropSpot) { old, new in old != nil && new != nil }
+        .sensoryFeedback(.selection, trigger: dropSpot) { old, new in
+            old != nil && new != nil && old != .away && new != .away
+        }
+        .sensoryFeedback(.impact(weight: .heavy, intensity: 0.8), trigger: nook.overBin) { _, new in new }
         #endif
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Bookshelf")
@@ -225,7 +250,9 @@ struct FolioMobileBookshelf: View {
             FolioLog.log("open the pile (\(pile.count))", "nook")
             withAnimation(.smooth(duration: 0.42)) { expanded = true }
         } label: {
-            HStack(alignment: .bottom, spacing: 12) {
+            // The pile rests on the plank, while the label and arrow sit in
+            // the middle of the whole row, headroom included.
+            HStack(alignment: .center, spacing: 12) {
                 HStack(alignment: .bottom, spacing: 3) {
                     ForEach(Array(stacks.enumerated()), id: \.offset) { _, stack in
                         VStack(spacing: 0.5) {
@@ -236,6 +263,9 @@ struct FolioMobileBookshelf: View {
                         }
                     }
                 }
+                .padding(.top, 6)
+                // Never shorter than the label, so a small pile still sits low.
+                .frame(minHeight: 32, alignment: .bottom)
                 Text("\(pile.count) more")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -245,7 +275,6 @@ struct FolioMobileBookshelf: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, sidePadding)
-            .padding(.top, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(shelfBack)
             .contentShape(Rectangle())
@@ -415,6 +444,9 @@ struct FolioMobileBookshelf: View {
             .contentShape(Rectangle())
             .folioNookMenu(item)
             .simultaneousGesture(carry(item, lean: lean, shelves: shelves, widths: widths, leans: leans))
+            #if os(iOS)
+            .simultaneousGesture(pickUp(item, lean: lean, shelves: shelves, widths: widths, leans: leans))
+            #endif
             .accessibilityLabel(accessibilityLabel(item))
             .accessibilityHint("Opens book details. Long press for more.")
             .accessibilityAction(named: "Move left") { shift(item, by: -1) }
@@ -430,7 +462,9 @@ struct FolioMobileBookshelf: View {
     private var heldBook: some View {
         if let held {
             FolioMobileSpine(item: held.item, shelfHeight: shelfHeight)
-                .scaleEffect(held.lifted ? 1.07 : 1)
+                // Over the bin it shrinks toward it, and drops in on release.
+                .scaleEffect(held.discarded ? 0.12 : nook.overBin ? 0.55 : held.lifted ? 1.07 : 1)
+                .opacity(held.discarded ? 0 : nook.overBin ? 0.85 : 1)
                 .shadow(color: .black.opacity(held.lifted ? 0.26 : 0), radius: held.lifted ? 16 : 2,
                         y: held.lifted ? 12 : 1)
                 .modifier(FolioNookHandPose(hand: hand, grab: held.grab))
@@ -456,6 +490,33 @@ struct FolioMobileBookshelf: View {
             }
             .onEnded { drag in
                 swipe.reset()
+                release(item.id, at: drag.location)
+            }
+    }
+
+    /// Touch and hold: after a short rest the book is ready to come out, and
+    /// the first move in any direction lifts it, down to the remove bin too.
+    /// Holding still a little longer still opens the menu, which takes the
+    /// press away before anything is lifted.
+    private func pickUp(_ item: FolioNookItem, lean: FolioSpineLean, shelves: [[FolioNookItem]],
+                        widths: [String: CGFloat], leans: [[String: FolioSpineLean]]) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.25, maximumDistance: 10)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space)))
+            .updating($pressHeld) { value, state, _ in
+                if case .second(true, _) = value { state = true }
+            }
+            .onChanged { value in
+                guard case .second(true, let drag?) = value else { return }
+                // Only a real move lifts it, so the menu's preview never
+                // finds an empty slot.
+                if held == nil {
+                    let moved = hypot(drag.translation.width, drag.translation.height)
+                    guard moved >= 6 else { return }
+                }
+                follow(item, lean: lean, drag: drag, shelves: shelves, widths: widths, leans: leans)
+            }
+            .onEnded { value in
+                guard case .second(true, let drag?) = value else { return }
                 release(item.id, at: drag.location)
             }
     }
@@ -503,6 +564,7 @@ struct FolioMobileBookshelf: View {
             held?.lifted = true
             hand.sway = 0
         }
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.8)) { nook.carrying = true }
     }
 
     private func follow(_ item: FolioNookItem, lean: FolioSpineLean, drag: DragGesture.Value,
@@ -525,7 +587,15 @@ struct FolioMobileBookshelf: View {
 
         let center = CGPoint(x: drag.location.x - current.grab.width, y: drag.location.y - current.grab.height)
         let over = CGRect(origin: .zero, size: bounds).insetBy(dx: -24, dy: -24)
-        if over.contains(drag.location) {
+        let onScreen = CGPoint(x: place.origin.x + drag.location.x, y: place.origin.y + drag.location.y)
+        let binned = !nook.binFrame.isEmpty && nook.binFrame.insetBy(dx: -28, dy: -36).contains(onScreen)
+        if binned != nook.overBin {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.62)) { nook.overBin = binned }
+        }
+        if binned {
+            // Over the bin, the shelf closes up as if the book were gone.
+            if dropSpot != .away { withAnimation(Self.slide) { dropSpot = .away } }
+        } else if over.contains(drag.location) {
             hover(center, shelves: shelves, widths: widths, leans: leans)
         } else if dropSpot != nil {
             // Off the bookcase the gap closes; the book still waits in the hand.
@@ -546,7 +616,8 @@ struct FolioMobileBookshelf: View {
             hand.point = location
             held?.phase = .settling
         }
-        guard let spot = dropSpot else { return settle(at: current.home, angle: current.homeAngle) }
+        if nook.overBin { return discard(current) }
+        guard let spot = dropSpot, spot != .away else { return settle(at: current.home, angle: current.homeAngle) }
 
         let widths = Dictionary(items.map { ($0.id, FolioSpineMetrics.width(for: $0)) },
                                 uniquingKeysWith: { a, _ in a })
@@ -579,6 +650,34 @@ struct FolioMobileBookshelf: View {
         settle(at: CGPoint(x: place.x + shift.width, y: place.y + shift.height), angle: lean.angle)
     }
 
+    /// Letting go over the bin: the book drops into it, shrinking away, and
+    /// the shelf closes the gap it left. Undo brings it back.
+    private func discard(_ current: FolioNookHeld) {
+        let key = current.id
+        FolioLog.log("remove \"\(current.item.title)\" from the shelf", "nook")
+        let bin = nook.binFrame
+        let target = CGPoint(x: bin.midX - place.origin.x, y: bin.midY - place.origin.y)
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+            hand.point = CGPoint(x: target.x + current.grab.width, y: target.y + current.grab.height)
+            hand.sway = 0
+            held?.discarded = true
+        } completion: {
+            guard held?.id == key else { return }
+            var still = Transaction()
+            still.disablesAnimations = true
+            withTransaction(still) {
+                held = nil
+                dropSpot = nil
+            }
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+                nook.remove(current.item)
+                nook.carrying = false
+                nook.overBin = false
+            }
+            nook.holding = false
+        }
+    }
+
     /// Puts the book in the hand back where it came from.
     private func putBack() {
         guard let current = held, current.phase == .carried else { return }
@@ -593,6 +692,10 @@ struct FolioMobileBookshelf: View {
         guard let current = held else { return }
         let key = current.id
         withAnimation(Self.slide) { dropSpot = nil }
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.8)) {
+            nook.carrying = false
+            nook.overBin = false
+        }
         withAnimation(.spring(response: 0.36, dampingFraction: 0.8)) {
             hand.point = CGPoint(x: point.x + current.grab.width, y: point.y + current.grab.height)
             hand.sway = angle
@@ -1291,10 +1394,12 @@ struct FolioNookHeld: Equatable {
     let homeAngle: Double
     var lifted = false
     var phase = Phase.carried
+    /// Dropped in the remove bin.
+    var discarded = false
     var id: String { item.id }
 
     static func == (a: Self, b: Self) -> Bool {
-        a.id == b.id && a.lifted == b.lifted && a.phase == b.phase
+        a.id == b.id && a.lifted == b.lifted && a.phase == b.phase && a.discarded == b.discarded
     }
 }
 
@@ -1321,6 +1426,15 @@ final class FolioNookSwayRest {
 struct FolioNookDropSpot: Equatable {
     let shelf: Int
     let position: Int
+
+    /// Over the remove bin: the shelf closes up and opens no gap.
+    static let away = FolioNookDropSpot(shelf: -1, position: .max)
+}
+
+/// Where the bookcase sits on screen, updated as the page scrolls without
+/// redrawing anything.
+final class FolioNookPlace {
+    var origin: CGPoint = .zero
 }
 
 /// A spine's offset and tilt as one animatable effect.
@@ -1369,5 +1483,69 @@ struct FolioPiledBook: View {
         .shadow(color: .black.opacity(0.18), radius: 0.6, y: 0.6)
         .offset(x: nudge)
         .accessibilityHidden(true)
+    }
+}
+
+/// The remove bin that rises at the bottom of Home while a book is in the
+/// hand, and the Undo notice once one has gone in.
+struct FolioNookBin: View {
+    @State private var nook = FolioNookStore.shared
+
+    var body: some View {
+        ZStack {
+            if nook.carrying {
+                bin
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            } else if let removal = nook.removal {
+                undo(removal)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .task(id: removal.id) {
+                        try? await Task.sleep(for: .seconds(4))
+                        withAnimation(.smooth(duration: 0.3)) { nook.forgetRemoval(removal.id) }
+                    }
+            }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.82), value: nook.carrying)
+        .animation(.spring(response: 0.4, dampingFraction: 0.82), value: nook.removal?.id)
+        .padding(.bottom, 14)
+    }
+
+    private var bin: some View {
+        let hot = nook.overBin
+        return HStack(spacing: 8) {
+            Image(systemName: hot ? "trash.fill" : "trash")
+                .contentTransition(.symbolEffect(.replace))
+            Text("Remove")
+        }
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(hot ? Color.white : FolioTheme.danger)
+        .padding(.horizontal, 22)
+        .padding(.vertical, 14)
+        .background { Capsule().fill(FolioTheme.danger).opacity(hot ? 1 : 0) }
+        .folioCreamGlass(in: Capsule())
+        .scaleEffect(hot ? 1.14 : 1)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: hot)
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { nook.binFrame = $0 }
+        .onDisappear { nook.binFrame = .zero }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func undo(_ removal: FolioNookRemoval) -> some View {
+        HStack(spacing: 14) {
+            Text("Removed from shelf")
+                .foregroundStyle(FolioTheme.ink)
+            Button("Undo") {
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) { nook.undoRemoval() }
+            }
+            .fontWeight(.semibold)
+            .foregroundStyle(FolioTheme.olive)
+            .buttonStyle(.plain)
+            .accessibilityHint("Puts \(removal.title) back on the shelf")
+        }
+        .font(.subheadline)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 13)
+        .folioCreamGlass(in: Capsule())
     }
 }
