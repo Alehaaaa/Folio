@@ -112,11 +112,21 @@ private struct FolioMobileBookContextMenu<Extra: View>: ViewModifier {
     }
 }
 
-/// Environment-free preview for the book context menu.
-private struct FolioMobileBookMenuPreview: View {
+/// Environment-free preview for a book's long-press menu: the cover alone,
+/// at its own shape, so the system lifts and enlarges it while the screen
+/// behind blurs and dims, with no box around it.
+struct FolioMobileBookMenuPreview: View {
     let image: UIImage?
     let title: String
     let author: String
+
+    private static let width: CGFloat = 240
+
+    private var aspect: CGFloat {
+        guard let image, image.size.width > 0, image.size.height > 0 else { return 0.69 }
+        // Keep odd scans within a book-like shape.
+        return min(1.0, max(0.5, image.size.width / image.size.height))
+    }
 
     var body: some View {
         Group {
@@ -126,10 +136,10 @@ private struct FolioMobileBookMenuPreview: View {
                     .scaledToFill()
             } else {
                 ZStack {
-                    Color.indigo.opacity(0.78)
+                    Color(red: 0.25, green: 0.34, blue: 0.25)
                     VStack(spacing: 8) {
                         Text(title)
-                            .font(.system(size: 18, weight: .bold, design: .serif))
+                            .font(.system(size: 20, weight: .semibold, design: .serif))
                             .multilineTextAlignment(.center)
                             .lineLimit(4)
                         if !author.isEmpty {
@@ -144,8 +154,8 @@ private struct FolioMobileBookMenuPreview: View {
                 }
             }
         }
-        .frame(width: 220, height: 320)
-        .clipped()
+        .frame(width: Self.width, height: Self.width / aspect)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -166,6 +176,15 @@ private struct FolioMobileShelfEntryContextMenu<Extra: View>: ViewModifier {
 
     func body(content: Content) -> some View {
         content.contextMenu {
+            menu
+        } preview: {
+            FolioMobileBookMenuPreview(image: entry.cover.flatMap { FolioImageCache.shared.cached($0) },
+                                       title: entry.title, author: entry.author)
+        }
+    }
+
+    @ViewBuilder
+    private var menu: some View {
             if let local {
                 Button { navigation.read(local.id) } label: {
                     Label("Read", systemImage: "book.fill")
@@ -211,11 +230,88 @@ private struct FolioMobileShelfEntryContextMenu<Extra: View>: ViewModifier {
             if let link = entry.goodreads?.link, let url = URL(string: link) {
                 Link(destination: url) { Label("Open on Goodreads", systemImage: "safari") }
             }
+    }
+}
+
+/// Long-press menu for a book from Hardcover shown in a row (For you,
+/// Because you read, an author's books...).
+private struct FolioMobileRemoteBookContextMenu: ViewModifier {
+    let book: HCBook
+    @Environment(LibraryStore.self) private var library
+    @Environment(HardcoverClient.self) private var hardcover
+    @Environment(FolioMobileNavigation.self) private var navigation
+    @State private var nook = FolioNookStore.shared
+
+    private var local: LocalBook? {
+        if book.id > 0, let linked = library.books.first(where: { $0.hardcoverBookID == book.id }) { return linked }
+        return library.localCopy(author: book.authors, title: book.title)
+    }
+
+    func body(content: Content) -> some View {
+        content.contextMenu {
+            menu
+        } preview: {
+            let shown = FolioBookOverrides.shared.apply(book)
+            FolioMobileBookMenuPreview(image: shown.imageURL.flatMap { FolioImageCache.shared.cached($0) },
+                                       title: shown.title, author: shown.authors)
         }
+    }
+
+    @ViewBuilder
+    private var menu: some View {
+            if let local {
+                Button { navigation.read(local.id) } label: {
+                    Label("Read", systemImage: "book.fill")
+                }
+            } else {
+                Button {
+                    FolioMobileDownloadNotice.enqueue(
+                        title: book.title, author: book.authors,
+                        hardcoverBookID: book.id > 0 ? book.id : nil,
+                        hardcoverPages: book.pages, cover: book.imageURL
+                    )
+                } label: {
+                    Label("Find Source", systemImage: "arrow.down.circle")
+                }
+            }
+
+            if !nook.pinned.contains(where: { $0.id == book.id && $0.title == book.title }) {
+                Button {
+                    withAnimation(.snappy) {
+                        nook.pin(book, keys: FolioNookShelf.keys(for: book), after: nook.order.last ?? "")
+                    }
+                } label: {
+                    Label("Put on Home Shelf", systemImage: "books.vertical")
+                }
+            }
+
+            if hardcover.isConnected, book.id > 0 {
+                Menu {
+                    ForEach(HCStatus.allCases) { status in
+                        Button {
+                            Task { _ = await hardcover.setStatus(bookID: book.id, status: status) }
+                        } label: {
+                            Label(status.label, systemImage: status.symbol)
+                        }
+                    }
+                } label: {
+                    Label("Add to Shelf", systemImage: "bookmark")
+                }
+            }
+
+            if let url = book.webURL {
+                Divider()
+                Link(destination: url) { Label("Open on Hardcover", systemImage: "arrow.up.right.square") }
+            }
     }
 }
 
 extension View {
+    /// The long-press menu for a Hardcover book in a row.
+    func folioRemoteBookContextMenu(_ book: HCBook) -> some View {
+        modifier(FolioMobileRemoteBookContextMenu(book: book))
+    }
+
     func folioBookContextMenu(_ book: LocalBook) -> some View {
         modifier(FolioMobileBookContextMenu(bookID: book.id, extra: EmptyView()))
     }
@@ -246,7 +342,11 @@ private struct FolioNookMenu: ViewModifier {
             } else if let entry = item.entry {
                 content.modifier(FolioMobileShelfEntryContextMenu(entry: entry, extra: section))
             } else {
-                content.contextMenu { section }
+                content.contextMenu { section } preview: {
+                    FolioMobileBookMenuPreview(
+                        image: item.remoteCover.flatMap { FolioImageCache.shared.cached($0) },
+                        title: item.title, author: item.author)
+                }
             }
         }
         .alert("Update Progress", isPresented: $updating) {

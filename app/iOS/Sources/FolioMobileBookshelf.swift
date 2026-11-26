@@ -38,6 +38,10 @@ struct FolioMobileBookshelf: View {
     /// A book dragged in from a Home row, shown as a spine in the gap where
     /// it would go.
     @State private var incoming: FolioNookItem?
+    /// SwiftUI reports a drag leaving the shelf just before the drop itself,
+    /// so the gap closes only a moment after the drag leaves, and a drop
+    /// that follows still lands where it was shown.
+    @State private var leaving = FolioNookSwayRest()
     @State private var swayRest = FolioNookSwayRest()
     @Namespace private var shelfSpace
     @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 186
@@ -118,9 +122,11 @@ struct FolioMobileBookshelf: View {
             hovered: { location in hoverIncoming(location, shelves: standing, widths: widths, leans: standingLeans) },
             left: {
                 guard incoming != nil else { return }
-                withAnimation(Self.slide) {
-                    incoming = nil
-                    dropSpot = nil
+                leaving.schedule(after: 0.15) {
+                    withAnimation(Self.slide) {
+                        incoming = nil
+                        dropSpot = nil
+                    }
                 }
             },
             dropped: { dropIncoming() }
@@ -630,6 +636,7 @@ struct FolioMobileBookshelf: View {
     private func hoverIncoming(_ location: CGPoint, shelves: [[FolioNookItem]], widths: [String: CGFloat],
                                leans: [[String: FolioSpineLean]]) {
         guard held == nil, let book = nook.incoming else { return }
+        leaving.cancel()
         let existing = copy(of: book)
         let bookKeys = FolioNookShelf.keys(for: book)
         if incoming.map({ !Set($0.keys).isDisjoint(with: bookKeys) }) != true {
@@ -650,6 +657,7 @@ struct FolioMobileBookshelf: View {
     /// Runs inside the drop itself: right after it the system reports the
     /// drag leaving the shelf, which clears the gap.
     private func dropIncoming() {
+        leaving.cancel()
         defer { nook.incoming = nil }
         guard let book = nook.incoming else {
             withAnimation(Self.slide) { incoming = nil; dropSpot = nil }

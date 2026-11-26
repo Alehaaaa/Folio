@@ -5,11 +5,15 @@ import SwiftUI
 struct FolioMobileRemoteBookTile: View {
     private let original: HCBook
     var width: CGFloat? = nil
+    /// Whether the tile brings its own long-press menu; rows from a reading
+    /// shelf pass false and add their shelf's menu instead.
+    var menu = true
     @State private var overrides = FolioBookOverrides.shared
 
-    init(book: HCBook, width: CGFloat? = nil) {
+    init(book: HCBook, width: CGFloat? = nil, menu: Bool = true) {
         original = book
         self.width = width
+        self.menu = menu
     }
 
     /// The book with the reader's own edits; navigation keeps the Hardcover record.
@@ -51,6 +55,7 @@ struct FolioMobileRemoteBookTile: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .modifier(FolioRemoteTileMenu(book: original, enabled: menu))
         // On Home, it can be dragged onto the shelf.
         .modifier(FolioNookDragSource(book: original))
         .accessibilityElement(children: .combine)
@@ -91,5 +96,19 @@ enum FolioMobileDiscoverySections {
     static func unique(_ books: [HCBook]) -> [HCBook] {
         var ids = Set<Int>()
         return books.filter { ids.insert($0.id).inserted }
+    }
+}
+
+/// The tile's own long-press menu, unless the row gives it another one.
+private struct FolioRemoteTileMenu: ViewModifier {
+    let book: HCBook
+    let enabled: Bool
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.folioRemoteBookContextMenu(book)
+        } else {
+            content
+        }
     }
 }
