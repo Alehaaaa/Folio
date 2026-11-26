@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.116",
+          "buildVersion": "117",
+          "date": "2026-11-26",
+          "localizedDescription": "Keep DownloadQueue free of the DNS type so its standalone checks build",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.116-117.ipa",
+          "size": 6326753,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.114",
           "buildVersion": "115",
           "date": "2026-11-26",
