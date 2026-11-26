@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.94",
+          "buildVersion": "95",
+          "date": "2026-11-26",
+          "localizedDescription": "1.0.94: a quieter, more visual pile; smoother dragging; shorter shelves",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.94-95.ipa",
+          "size": 6078769,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.93",
           "buildVersion": "94",
           "date": "2026-11-26",
