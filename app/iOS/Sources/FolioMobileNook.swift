@@ -788,14 +788,14 @@ enum FolioSpineMetrics {
             if item.format == .comic { return 12 + jitter }
             // Page counts arrive a moment after Home opens. Until then a book
             // keeps the width it had last time, so the shelves don't reflow.
-            if let known = FolioSpineWidths.known(item.id) { return known }
+            if let known = FolioSpineWidths.known(item.id) { return min(62, known) }
             // Unknown length: anything from a slim novella to a doorstop.
-            return 14 + CGFloat(hash(item.id) % 54)
+            return 14 + CGFloat(hash(item.id) % 40)
         }
         // Straight proportion to the page count, so a 600 page book is
         // about two and a half times as thick as a 250 page one,
         // and a novella is a sliver beside a doorstop.
-        let width = min(98, max(10, 4 + CGFloat(pages) * 0.1 + jitter))
+        let width = min(62, max(10, 6 + CGFloat(pages) * 0.075 + jitter))
         FolioSpineWidths.remember(item.id, width)
         return width
     }

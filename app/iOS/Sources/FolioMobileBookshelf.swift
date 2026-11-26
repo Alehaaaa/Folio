@@ -23,10 +23,9 @@ struct FolioMobileBookshelf: View {
     @State private var held: FolioNookHeld?
     /// Where the hand is, in the bookcase's space. Kept apart from `held` so
     /// following the hand never animates while the tilt and lift do.
-    @State private var hand: CGPoint = .zero
-    /// The tilt of the book in the hand: it sways with the motion and
-    /// straightens when the hand rests.
-    @State private var sway: Double = 0
+    /// Held in its own observed object that only the floating book reads,
+    /// so following the finger never redraws the shelves.
+    @State private var hand = FolioNookHand()
     /// Where the held book would land. While a book is in the hand the shelf
     /// only slides books aside to open a gap there; nothing re-packs or
     /// re-tilts until it's let go, so the books stay calm.
@@ -55,6 +54,13 @@ struct FolioMobileBookshelf: View {
     private let sidePadding: CGFloat = 14
 
     private var shelfHeight: CGFloat { min(rowHeight, 250) }
+    /// Room above the tallest book for its ribbon and a finger.
+    private let headroom: CGFloat = 12
+    /// Each shelf is only as tall as the tallest book on the bookcase.
+    private var boxHeight: CGFloat {
+        let tallest = items.map { FolioSpineMetrics.heightFactor(for: $0) }.max() ?? 0.9
+        return shelfHeight * tallest + headroom
+    }
     private var innerWidth: CGFloat { max(120, width - frameInset * 2 - sidePadding * 2) }
 
     var body: some View {
@@ -101,6 +107,12 @@ struct FolioMobileBookshelf: View {
                                 anchor: lean.anchor
                             ))
                             .matchedGeometryEffect(id: item.id, in: shelfSpace)
+                            // A book leaving sinks quickly instead of lingering as a ghost.
+                            .transition(.asymmetric(
+                                insertion: .opacity.animation(.easeOut(duration: 0.2)),
+                                removal: .scale(scale: 0.85, anchor: .bottom)
+                                    .combined(with: .opacity)
+                                    .animation(.easeIn(duration: 0.14))))
                             .padding(.leading, lean.before)
                             .padding(.trailing, lean.after)
                             .zIndex(abs(lean.angle) > 3 ? 1 : 0)
@@ -113,8 +125,7 @@ struct FolioMobileBookshelf: View {
                     Spacer(minLength: 0)
                 }
                 .padding(.horizontal, sidePadding)
-                .padding(.top, 24)
-                .frame(height: shelfHeight + 24, alignment: .bottom)
+                .frame(height: boxHeight, alignment: .bottom)
                 // Books stepping aside for a gap slide behind the frame, not over it.
                 .clipped()
                 .background(shelfBack)
@@ -195,51 +206,40 @@ struct FolioMobileBookshelf: View {
 
     // MARK: The pile
 
-    /// The books past the shelf limit, as a low drawer under the shelves:
-    /// small books lying flat in their colors, stacked a few high. A tap
-    /// opens the bookcase out to every book.
+    /// The books past the shelf limit, as a low pile under the shelves:
+    /// small books lying flat in their colors, stacked like a real pile. A
+    /// tap opens the bookcase out to every book.
     private func pileDrawer(_ pile: [FolioNookItem], widths: [String: CGFloat]) -> some View {
-        let stacks = stride(from: 0, to: min(pile.count, 40), by: 4).map { Array(pile[$0..<min($0 + 4, pile.count)]) }
+        let shown = Array(pile.prefix(18))
+        let stacks = stride(from: 0, to: shown.count, by: 3).map { Array(shown[$0..<min($0 + 3, shown.count)]) }
         return Button {
             FolioLog.log("open the pile (\(pile.count))", "nook")
             withAnimation(.spring(response: 0.45, dampingFraction: 0.86)) { expanded = true }
         } label: {
-            HStack(alignment: .bottom, spacing: 10) {
-                HStack(alignment: .bottom, spacing: 4) {
-                    ForEach(Array(stacks.prefix(8).enumerated()), id: \.offset) { _, stack in
-                        VStack(spacing: 1) {
+            HStack(alignment: .bottom, spacing: 12) {
+                HStack(alignment: .bottom, spacing: 3) {
+                    ForEach(Array(stacks.enumerated()), id: \.offset) { _, stack in
+                        VStack(spacing: 0.5) {
                             ForEach(stack.reversed()) { item in
-                                let palette = FolioSpinePalettes.shared.palette(for: item)
-                                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                                    .fill(palette.baseColor)
-                                    .overlay(alignment: .leading) {
-                                        palette.accentColor.frame(width: 3)
-                                    }
-                                    .clipShape(RoundedRectangle(cornerRadius: 1.5, style: .continuous))
-                                    .frame(width: 26 + 18 * FolioSpineMetrics.heightFactor(for: item) - 9,
-                                           height: max(5, min(10, (widths[item.id] ?? 40) * 0.17)))
-                                    .shadow(color: .black.opacity(0.15), radius: 0.5, y: 0.5)
+                                FolioPiledBook(item: item, length: 34 + 22 * (FolioSpineMetrics.heightFactor(for: item) - 0.7),
+                                               thickness: max(7, min(13, (widths[item.id] ?? 40) * 0.24)))
                             }
                         }
                     }
                 }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(pile.count == 1 ? "1 more book" : "\(pile.count) more books")
-                        .font(.subheadline.weight(.semibold))
-                    Text("Tap to see and arrange them")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text("\(pile.count) more")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 1)
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.down")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.bottom, 4)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .padding(.bottom, 3)
             }
-            .foregroundStyle(.primary)
             .padding(.horizontal, sidePadding)
-            .padding(.top, 12)
-            .padding(.bottom, 10)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(shelfBack)
             .contentShape(Rectangle())
@@ -256,13 +256,13 @@ struct FolioMobileBookshelf: View {
         } label: {
             HStack(spacing: 6) {
                 Text("Show less")
-                    .font(.subheadline.weight(.semibold))
+                    .font(.footnote)
                 Image(systemName: "chevron.up")
                     .font(.footnote.weight(.semibold))
             }
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
+            .padding(.vertical, 8)
             .background(shelfBack)
             .contentShape(Rectangle())
         }
@@ -427,8 +427,7 @@ struct FolioMobileBookshelf: View {
                 .scaleEffect(held.lifted ? 1.07 : 1)
                 .shadow(color: .black.opacity(held.lifted ? 0.26 : 0), radius: held.lifted ? 16 : 2,
                         y: held.lifted ? 12 : 1)
-                .rotationEffect(.degrees(sway))
-                .position(x: hand.x - held.grab.width, y: hand.y - held.grab.height)
+                .modifier(FolioNookHandPose(hand: hand, grab: held.grab))
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
                 .transition(.identity)
@@ -484,8 +483,8 @@ struct FolioMobileBookshelf: View {
         withTransaction(still) {
             held = FolioNookHeld(item: item, grab: CGSize(width: start.x - seen.x, height: start.y - seen.y),
                                  home: home, homeAngle: lean.angle)
-            hand = start
-            sway = lean.angle
+            hand.point = start
+            hand.sway = lean.angle
             // The gap opens where the book was, so nothing moves yet.
             let flat = shelves.flatMap { $0 }
             if let from = flat.firstIndex(where: { $0.id == item.id }),
@@ -496,7 +495,7 @@ struct FolioMobileBookshelf: View {
         nook.holding = true
         withAnimation(.spring(response: 0.3, dampingFraction: 0.66)) {
             held?.lifted = true
-            sway = 0
+            hand.sway = 0
         }
     }
 
@@ -506,16 +505,16 @@ struct FolioMobileBookshelf: View {
         guard let current = held, current.id == item.id, current.phase == .carried else { return }
         var still = Transaction()
         still.disablesAnimations = true
-        withTransaction(still) { hand = drag.location }
+        withTransaction(still) { hand.point = drag.location }
 
         // The book swings a little with the motion, like a book held near the top.
         let target = max(-10, min(10, Double(drag.velocity.width) / 110))
-        if abs(target - sway) > 0.6 {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.62)) { sway = target }
+        if abs(target - hand.sway) > 0.6 {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.62)) { hand.sway = target }
         }
         swayRest.schedule {
             guard held?.phase == .carried else { return }
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) { sway = 0 }
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) { hand.sway = 0 }
         }
 
         let center = CGPoint(x: drag.location.x - current.grab.width, y: drag.location.y - current.grab.height)
@@ -538,7 +537,7 @@ struct FolioMobileBookshelf: View {
         var still = Transaction()
         still.disablesAnimations = true
         withTransaction(still) {
-            hand = location
+            hand.point = location
             held?.phase = .settling
         }
         guard let spot = dropSpot else { return settle(at: current.home, angle: current.homeAngle) }
@@ -586,8 +585,8 @@ struct FolioMobileBookshelf: View {
         let key = current.id
         withAnimation(Self.slide) { dropSpot = nil }
         withAnimation(.spring(response: 0.36, dampingFraction: 0.8)) {
-            hand = CGPoint(x: point.x + current.grab.width, y: point.y + current.grab.height)
-            sway = angle
+            hand.point = CGPoint(x: point.x + current.grab.width, y: point.y + current.grab.height)
+            hand.sway = angle
             held?.lifted = false
         } completion: {
             guard held?.id == key else { return }
@@ -595,7 +594,7 @@ struct FolioMobileBookshelf: View {
             still.disablesAnimations = true
             withTransaction(still) {
                 held = nil
-                sway = 0
+                hand.sway = 0
             }
             nook.holding = false
         }
@@ -650,14 +649,14 @@ struct FolioMobileBookshelf: View {
     }
 
     private var plankHeight: CGFloat { 13 }
-    private func shelfTop(_ shelf: Int) -> CGFloat { frameInset + CGFloat(shelf) * (shelfHeight + 24 + plankHeight) }
+    private func shelfTop(_ shelf: Int) -> CGFloat { frameInset + CGFloat(shelf) * (boxHeight + plankHeight) }
 
     /// Picks the gap from where the held book is: the shelf under its
     /// center, and how many of that shelf's other books stand left of it.
     private func hover(_ location: CGPoint, shelves: [[FolioNookItem]], widths: [String: CGFloat],
                        leans: [[String: FolioSpineLean]], excluding: String? = nil) {
         guard let key = excluding ?? held?.id, !shelves.isEmpty else { return }
-        let shelf = min(shelves.count - 1, max(0, Int((location.y - frameInset) / (shelfHeight + 24 + plankHeight))))
+        let shelf = min(shelves.count - 1, max(0, Int((location.y - frameInset) / (boxHeight + plankHeight))))
         let flat = shelves.flatMap { $0 }
         var x = frameInset + sidePadding
         var position: Int?
@@ -690,7 +689,7 @@ struct FolioMobileBookshelf: View {
                 let w = widths[item.id] ?? 40
                 if item.id == key {
                     let h = shelfHeight * FolioSpineMetrics.heightFactor(for: item)
-                    return CGPoint(x: x + lean.before + w / 2, y: shelfTop(shelf) + 24 + shelfHeight - h / 2)
+                    return CGPoint(x: x + lean.before + w / 2, y: shelfTop(shelf) + boxHeight - h / 2)
                 }
                 x += lean.before + w + lean.after + spacing
             }
@@ -1240,6 +1239,26 @@ final class FolioNookSwipe {
     func reset() { decided = nil }
 }
 
+/// Where the hand is and how the book in it tilts.
+@Observable
+final class FolioNookHand {
+    var point: CGPoint = .zero
+    var sway: Double = 0
+}
+
+/// Places the held book under the hand. Only this reads the hand, so a
+/// finger moving redraws the floating book alone.
+struct FolioNookHandPose: ViewModifier {
+    let hand: FolioNookHand
+    let grab: CGSize
+
+    func body(content: Content) -> some View {
+        content
+            .rotationEffect(.degrees(hand.sway))
+            .position(x: hand.point.x - grab.width, y: hand.point.y - grab.height)
+    }
+}
+
 /// The book in the hand.
 struct FolioNookHeld: Equatable {
     enum Phase { case carried, settling }
@@ -1304,5 +1323,30 @@ struct FolioSpinePose: GeometryEffect {
             .rotated(by: radians)
             .translatedBy(x: -ax, y: -ay)
         return ProjectionTransform(t)
+    }
+}
+
+/// A book lying flat in the pile: its cloth color with a band and a lighter
+/// page edge, so the pile reads as books at a glance.
+struct FolioPiledBook: View {
+    let item: FolioNookItem
+    let length: CGFloat
+    let thickness: CGFloat
+
+    var body: some View {
+        let palette = FolioSpinePalettes.shared.palette(for: item)
+        // Each book sits a little off true, the way piles do.
+        let nudge = CGFloat(Int(FolioSpineMetrics.hash(item.id + "pile") % 7) - 3)
+        ZStack(alignment: .leading) {
+            palette.baseColor
+            palette.accentColor.frame(width: 3).padding(.leading, length * 0.18)
+            LinearGradient(colors: [.white.opacity(0.16), .clear, .black.opacity(0.18)],
+                           startPoint: .top, endPoint: .bottom)
+        }
+        .frame(width: length, height: thickness)
+        .clipShape(RoundedRectangle(cornerRadius: 1.5, style: .continuous))
+        .shadow(color: .black.opacity(0.18), radius: 0.6, y: 0.6)
+        .offset(x: nudge)
+        .accessibilityHidden(true)
     }
 }
