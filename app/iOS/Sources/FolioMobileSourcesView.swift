@@ -1,19 +1,55 @@
 import SwiftUI
+import Observation
+
+@Observable
+@MainActor
+private final class FolioSourceSearchState {
+    static let shared = FolioSourceSearchState()
+    var selectedSource = ""
+    var search = ""
+    var submittedQuery = ""
+    var results: [SourceResult] = []
+    var searching = false
+    var page = 0
+    var checkingForNew = false
+    var lastEvent: String?
+}
 
 /// Accesses the bundled JavaScript source extensions through the shared
 /// ExtensionStore. A selected result is downloaded into the normal library.
 struct FolioMobileSourcesView: View {
     @Environment(ExtensionStore.self) private var extensions
-    @Environment(FolioMobileNavigation.self) private var navigation
-    @State private var selectedSource = ""
-    @State private var search = ""
-    @State private var results: [SourceResult] = []
-    @State private var searching = false
+    @Bindable private var sourceState = FolioSourceSearchState.shared
     @State private var message: String?
-    @State private var page = 0
     @State private var selectedResult: SourceResult?
-    @State private var checkingForNew = false
-    @State private var lastEvent: String?
+
+    private var selectedSource: String {
+        get { sourceState.selectedSource }
+        nonmutating set { sourceState.selectedSource = newValue }
+    }
+    private var search: String {
+        sourceState.search
+    }
+    private var results: [SourceResult] {
+        get { sourceState.results }
+        nonmutating set { sourceState.results = newValue }
+    }
+    private var searching: Bool {
+        get { sourceState.searching }
+        nonmutating set { sourceState.searching = newValue }
+    }
+    private var page: Int {
+        get { sourceState.page }
+        nonmutating set { sourceState.page = newValue }
+    }
+    private var checkingForNew: Bool {
+        get { sourceState.checkingForNew }
+        nonmutating set { sourceState.checkingForNew = newValue }
+    }
+    private var lastEvent: String? {
+        get { sourceState.lastEvent }
+        nonmutating set { sourceState.lastEvent = newValue }
+    }
 
     var body: some View {
         ScrollView {
@@ -96,7 +132,7 @@ struct FolioMobileSourcesView: View {
     private var searchBar: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                FolioSearchField(text: $search, prompt: "Title or author") {
+                FolioSearchField(text: $sourceState.search, prompt: "Title or author") {
                     Task { await searchBooks() }
                 }
                 Button {
@@ -113,7 +149,7 @@ struct FolioMobileSourcesView: View {
             }
             HStack(spacing: 8) {
                 Menu {
-                    Picker("Source", selection: $selectedSource) {
+                    Picker("Source", selection: $sourceState.selectedSource) {
                         ForEach(extensions.enabled) { source in
                             Text(source.manifest.nameWithLanguages).tag(source.id)
                         }
@@ -239,6 +275,7 @@ struct FolioMobileSourcesView: View {
         defer { searching = false }
         page = 0
         lastEvent = nil
+        sourceState.submittedQuery = search
         do {
             results = try await extensions.search(selectedSource, query: search, page: page) { event in
                 Task { @MainActor in
@@ -258,7 +295,7 @@ struct FolioMobileSourcesView: View {
         searching = true
         defer { searching = false }
         do {
-            let next = try await extensions.search(selectedSource, query: search, page: page + 1)
+            let next = try await extensions.search(selectedSource, query: sourceState.submittedQuery, page: page + 1)
             if next.isEmpty {
                 message = "This source has no more results."
             } else {
@@ -289,9 +326,8 @@ struct FolioMobileSourcesView: View {
     @MainActor
     private func download(_ result: SourceResult) {
         let copy = ExtensionStore.Copy(sourceID: selectedSource, sourceName: sourceName, result: result, exact: false)
-        DownloadQueue.shared.enqueueSourceCopy(copy, cover: result.cover, fallbackAuthor: result.author,
+        FolioMobileDownloadNotice.enqueueSourceCopy(copy, cover: result.cover, fallbackAuthor: result.author,
                                                hardcoverBookID: nil, hardcoverPages: nil, replacing: nil)
-        navigation.openDownloads()
     }
 }
 
@@ -303,7 +339,6 @@ struct FolioMobileSourceBookDetail: View {
 
     @Environment(ExtensionStore.self) private var extensions
     @Environment(LibraryStore.self) private var library
-    @Environment(FolioMobileNavigation.self) private var navigation
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -359,6 +394,7 @@ struct FolioMobileSourceBookDetail: View {
                 .padding(22)
             }
             .navigationTitle("Book Details")
+            .folioSourceDownloadNotice()
             .folioScreen()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -374,9 +410,44 @@ struct FolioMobileSourceBookDetail: View {
         selected.downloads = result.downloads.filter { $0.format == format }
         let sourceName = extensions.enabled.first { $0.id == sourceID }?.manifest.name ?? sourceID
         let copy = ExtensionStore.Copy(sourceID: sourceID, sourceName: sourceName, result: selected, exact: false)
-        DownloadQueue.shared.enqueueSourceCopy(copy, cover: result.cover, fallbackAuthor: result.author,
+        FolioMobileDownloadNotice.enqueueSourceCopy(copy, cover: result.cover, fallbackAuthor: result.author,
                                                hardcoverBookID: nil, hardcoverPages: nil, replacing: nil)
-        dismiss()
-        navigation.openDownloads()
     }
+}
+
+private struct FolioSourceDownloadNotice: ViewModifier {
+    @State private var notice: String?
+    @State private var noticeID = UUID()
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .top) {
+                if let notice {
+                    Label(notice, systemImage: "arrow.down.circle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .folioCreamGlass(in: Capsule())
+                        .padding(8)
+                        .accessibilityIdentifier("folio.downloadToast")
+                        .allowsHitTesting(false)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: FolioMobileDownloadNotice.name)) { event in
+                let title = event.userInfo?["title"] as? String ?? "Book"
+                let already = event.userInfo?["alreadyInProgress"] as? Bool ?? false
+                notice = already ? "Already in Downloads · \(title)" : "Added to Downloads · \(title)"
+                noticeID = UUID()
+            }
+            .task(id: noticeID) {
+                guard notice != nil else { return }
+                do { try await Task.sleep(for: .seconds(3)) }
+                catch { return }
+                notice = nil
+            }
+    }
+}
+
+extension View {
+    func folioSourceDownloadNotice() -> some View { modifier(FolioSourceDownloadNotice()) }
 }

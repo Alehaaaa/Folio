@@ -339,6 +339,19 @@ enum FolioMobileDownloadNotice {
             "title": title, "alreadyInProgress": before.contains(id)
         ])
     }
+
+    @MainActor
+    static func enqueueSourceCopy(_ copy: ExtensionStore.Copy, cover: URL?, fallbackAuthor: String,
+                                  hardcoverBookID: Int?, hardcoverPages: Int?, replacing failedJobID: UUID?) {
+        let queue = DownloadQueue.shared
+        let active = Set(queue.jobs.filter { $0.stage.isActive }.map(\.id))
+        let id = queue.enqueueSourceCopy(copy, cover: cover, fallbackAuthor: fallbackAuthor,
+                                         hardcoverBookID: hardcoverBookID, hardcoverPages: hardcoverPages,
+                                         replacing: failedJobID)
+        NotificationCenter.default.post(name: name, object: nil, userInfo: [
+            "title": copy.result.title, "alreadyInProgress": active.contains(id)
+        ])
+    }
 }
 
 struct FolioMobileHomeView: View {
