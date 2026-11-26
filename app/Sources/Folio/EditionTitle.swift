@@ -121,12 +121,23 @@ enum EditionTitle {
     /// in that language keeps its form unless a sibling edition is better
     /// formed; any other title ("The Way of Kings") becomes the language's own
     /// ("El camino de los reyes"). Without editions in it, `current` stays.
-    static func languageTitle(_ current: String, among titles: [String]) -> String {
-        let titles = titles.filter { !BookAutoMatch.words($0).isEmpty }
-        guard !titles.isEmpty else { return current }
+    /// Marks an edition title whose edition names no language: it may only
+    /// stand in for a title already shown in that same form, never translate one.
+    static let untaggedMark = "\u{1}"
+
+    static func languageTitle(_ current: String, among entries: [String]) -> String {
+        let untagged = entries.filter { $0.hasPrefix(untaggedMark) }.map { String($0.dropFirst(untaggedMark.count)) }
+        // A bilingual catalogue entry ("Juramentada / Oathbringer") lists the
+        // edition's own published title first: it counts as that title too.
+        let titles = entries.filter { !$0.hasPrefix(untaggedMark) && !BookAutoMatch.words($0).isEmpty }
+            .flatMap { title -> [String] in
+                guard let separator = [" / ", " = "].first(where: title.contains) else { return [title] }
+                let first = title.components(separatedBy: separator)[0].trimmingCharacters(in: .whitespaces)
+                return BookAutoMatch.words(first).isEmpty ? [title] : [title, first]
+            }
         let core = titleCore(current)
-        if !core.isEmpty, titles.contains(where: { isCatalogueMatch(current, $0) }) {
-            return best(current, among: titles)
+        if titles.isEmpty || (!core.isEmpty && titles.contains(where: { isCatalogueMatch(current, $0) })) {
+            return best(current, among: titles + untagged)
         }
         let pick = titles.first { penalty($0) == 0 } ?? titles[0]
         return best(pick, among: titles)

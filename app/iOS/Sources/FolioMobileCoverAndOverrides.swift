@@ -190,8 +190,10 @@ final class FolioBookOverrides {
     /// batches, the first time the book shows anywhere. Reading in English,
     /// only a messy title is replaced.
     func bestTitle(_ title: String, for id: Int, language: String = BookLanguage.reading) -> String {
-        guard id > 0 else { return title }
-        guard language != "en" || EditionTitle.penalty(title) > 0 else { return title }
+        guard id != 0 else { return title }
+        // Open Library books (negative ids) already carry their reading-language
+        // edition title; only a messy one ("CAMINO DE LOS REYES (…)") is looked up.
+        guard (language != "en" && id > 0) || EditionTitle.penalty(title) > 0 else { return title }
         return EditionTitle.languageTitle(title, among: titles(for: id, language: language))
     }
 
@@ -229,11 +231,18 @@ final class FolioBookOverrides {
     private func fetchEditionTitles() async {
         while true {
             guard let (language, ids) = pendingTitleIDs.first else { titleFetch = nil; return }
-            let batch = Set(ids.sorted().prefix(10))
+            // Open Library works one at a time, Hardcover books ten per request.
+            let batch = ids.contains(where: { $0 < 0 })
+                ? Set([ids.filter { $0 < 0 }.sorted()[0]]) : Set(ids.sorted().prefix(10))
             let remaining = ids.subtracting(batch)
             pendingTitleIDs[language] = remaining.isEmpty ? nil : remaining
             inFlightTitleIDs[language] = batch
-            let found = try? await HardcoverClient.shared.editionTitles(bookIDs: batch.sorted(), language: language)
+            let found: [Int: [String]]?
+            if let work = batch.first, work < 0 {
+                found = (try? await FolioOpenLibrary.editionTitles(workID: work, language: language)).map { [work: $0] }
+            } else {
+                found = try? await HardcoverClient.shared.editionTitles(bookIDs: batch.sorted(), language: language)
+            }
             inFlightTitleIDs[language] = nil
             guard let found else {
                 let retryAfter = Date().addingTimeInterval(30)

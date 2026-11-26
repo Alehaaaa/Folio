@@ -574,7 +574,9 @@ enum FolioSeriesCache {
 
     private static let directory: URL = {
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("folio-series", isDirectory: true)
+            // v2: lists saved before 1.0.101 could show a split translation
+            // (e.g. a Polish record) in place of the main book.
+            .appendingPathComponent("folio-series-v2", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()

@@ -46,6 +46,32 @@ import Foundation
             print(got == want ? "PASS" : "FAIL", "language \(current) -> \(got)")
             if got != want { failed = true }
         }
+        // Untagged editions stand in only for the same title, never translate one.
+        for (current, entries, want) in [
+            ("CAMINO DE LOS REYES (EL ARCHIVO DE LAS TORMENTAS 1)",
+             [EditionTitle.untaggedMark + "El camino de los reyes"], "El camino de los reyes"),
+            ("The Way of Kings", [EditionTitle.untaggedMark + "El camino de los reyes"], "The Way of Kings"),
+            ("", [String](), ""),
+        ] {
+            let got = EditionTitle.languageTitle(current, among: entries)
+            print(got == want ? "PASS" : "FAIL", "untagged \(current) -> \(got)")
+            if got != want { failed = true }
+        }
+        // Real data, 2026-11-26: Open Library's Spanish editions.
+        let m = EditionTitle.untaggedMark
+        for (current, entries, want) in [
+            ("CAMINO DE LOS REYES (EL ARCHIVO DE LAS TORMENTAS 1)",
+             ["CAMINO DE LOS REYES (EL ARCHIVO DE LAS TORMENTAS 1)", m + "The Way of Kings (1 of 5)",
+              m + "La via dei re. Le cronache della Folgoluce", m + "El camino de los reyes", m + "The Way of Kings"],
+             "El camino de los reyes"),
+            ("Juramentada / Oathbringer",
+             ["Juramentada / Oathbringer", m + "Oathbringer 2. Cilt", m + "Oathbringer"], "Juramentada"),
+            ("Oathbringer", ["Juramentada / Oathbringer", m + "Oathbringer"], "Juramentada"),
+        ] {
+            let got = EditionTitle.languageTitle(current, among: entries)
+            print(got == want ? "PASS" : "FAIL", "real \(current) -> \(got)")
+            if got != want { failed = true }
+        }
         let matches: [(String, String, Bool)] = [
             ("Camino de los reyes", "El camino de los reyes (El Archivo de las Tormentas 1)", true),
             ("El camino de los reyes", "El camino de los reyes (El Archivo de las Tormentas 1)", true),

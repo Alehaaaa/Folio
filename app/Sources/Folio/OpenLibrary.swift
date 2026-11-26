@@ -116,7 +116,7 @@ enum FolioOpenLibrary {
 
     private static let fields = [
         "key", "title", "author_name", "author_key", "cover_i", "first_publish_year", "number_of_pages_median",
-        "ratings_average", "ratings_count", "subject", "editions", "editions.title", "editions.cover_i"
+        "ratings_average", "ratings_count", "subject", "editions", "editions.title", "editions.cover_i", "editions.language"
     ].joined(separator: ",")
 
     /// Open Library's work number for a negative Folio id, and back.
@@ -137,7 +137,14 @@ enum FolioOpenLibrary {
     /// A search result as a book, titled as its edition in the reader's language.
     static func book(_ d: JSON) -> HCBook? {
         guard let key = d["key"].string, let id = id(workKey: key), let title = d["title"].string else { return nil }
-        let edition = d["editions"]["docs"].array.first
+        // Open Library returns its best edition for the reading language, or
+        // any edition when it has none in it (a Polish "Rytm Wojny I" for a
+        // Spanish reader): only an edition in that language, or one naming no
+        // language, stands for the book.
+        let edition = d["editions"]["docs"].array.first.flatMap { e -> JSON? in
+            let codes = e["language"].array.compactMap { BookLanguage.code($0.string) }
+            return codes.isEmpty || codes.contains(language()) ? e : nil
+        }
         let editionTitle = edition?["title"].string.flatMap { $0.isEmpty ? nil : $0 }
         let names = d["author_name"].array.compactMap(\.string)
         let shownTitle = editionTitle ?? title
@@ -255,6 +262,24 @@ enum FolioOpenLibrary {
     }
 
     // MARK: Related books
+
+    /// A work's edition titles in one language, most-listed first, plus the
+    /// titles of editions that name no language (marked with
+    /// `EditionTitle.untaggedMark`), to pick the work's best real title.
+    static func editionTitles(workID: Int, language code: String) async throws -> [String] {
+        guard let key = workKey(workID), let url = URL(string: "https://openlibrary.org/works/\(key)/editions.json?limit=100")
+        else { return [] }
+        let entries = try await FolioOpenData.shared.json(url, fresh: 7 * day)["entries"].array
+        var out: [String] = []
+        for e in entries {
+            guard let title = e["title"].string, !title.isEmpty else { continue }
+            let codes = e["languages"].array.compactMap { $0["key"].string?.split(separator: "/").last.map(String.init) }
+                .compactMap { BookLanguage.code($0) }
+            let entry = codes.contains(code) ? title : codes.isEmpty ? EditionTitle.untaggedMark + title : nil
+            if let entry, !out.contains(entry) { out.append(entry) }
+        }
+        return out
+    }
 
     /// The Open Library work for a Hardcover book, by title and author.
     static func work(title: String, author: String) async -> HCBook? {
@@ -410,19 +435,29 @@ enum FolioWikidataSeries {
         return (try? await series(ofWork: key)) ?? []
     }
 
+    /// "Rythm of War part 1", "Tomo 2": one part of a book split for another market.
+    private static func isSplit(_ title: String) -> Bool {
+        let words = BookAutoMatch.words(title)
+        return words.contains { ["part", "parte", "partie", "teil", "czesc", "tomo", "tome", "band"].contains($0) }
+            || (words.count > 1 && ["i", "ii", "iii", "1", "2", "3"].contains(words.last ?? ""))
+    }
+
     /// Every book in a series, in reading order, with Open Library's covers and ratings.
     static func books(_ seriesID: Int) async throws -> [HCSeriesBook] {
         guard seriesID < 0 else { return [] }
         let rows = try await sparql("""
-        SELECT ?book ?bookLabel ?ord ?olid ?date WHERE {
+        SELECT ?book ?bookLabel ?ord ?olid ?date ?local ?english WHERE {
           ?book p:P179 ?st . ?st ps:P179 wd:Q\(-seriesID) .
           OPTIONAL { ?st pq:P1545 ?ord }
           OPTIONAL { ?book wdt:P648 ?olid }
           OPTIONAL { ?book wdt:P577 ?date }
+          OPTIONAL { ?book rdfs:label ?local FILTER(lang(?local) = "\(BookLanguage.reading)") }
+          OPTIONAL { ?book rdfs:label ?english FILTER(lang(?english) = "en") }
           SERVICE wikibase:label { bd:serviceParam wikibase:language "\(label())". }
         } LIMIT 200
         """, fresh: 7 * FolioOpenLibrary.day)
-        struct Row { var position: Double?; var key: String?; var title: String; var year: Int? }
+        struct Row { var position: Double?; var key: String?; var title: String; var year: Int?
+                     var local: String?; var english: String? }
         var list: [Row] = []
         for r in rows {
             let key = r["olid"]["value"].string.flatMap { $0.hasSuffix("W") ? $0 : nil }
@@ -434,14 +469,26 @@ enum FolioWikidataSeries {
                 continue
             }
             let year = r["date"]["value"].string.flatMap { Int($0.prefix(4)) }
-            list.append(Row(position: position, key: key, title: title, year: year))
+            list.append(Row(position: position, key: key, title: title, year: year,
+                            local: r["local"]["value"].string, english: r["english"]["value"].string))
         }
         let found = try await FolioOpenLibrary.lookup(Array(Set(list.compactMap(\.key))))
         var out: [HCSeriesBook] = []
         var seen = Set<Int>()
         for row in list {
-            guard let key = row.key, let id = FolioOpenLibrary.id(workKey: key), let book = found[id],
-                  seen.insert(id).inserted else { continue }
+            guard let key = row.key, let id = FolioOpenLibrary.id(workKey: key), var book = found[id] else { continue }
+            // Wikidata sometimes links a split translation ("Rythm of War part 1",
+            // shown as the Polish "Rytm Wojny I") instead of the work: find the
+            // work under the book's English name and author.
+            if let english = row.english, isSplit(book.title), !isSplit(english),
+               let work = await FolioOpenLibrary.work(title: english, author: book.authors),
+               work.id != book.id, !isSplit(work.title) {
+                book = work
+            }
+            guard seen.insert(book.id).inserted else { continue }
+            // The book's name in the reading language, as Wikidata records it
+            // ("El camino de los reyes"), over a catalogue edition's spelling.
+            if let local = row.local, !local.isEmpty, BookLanguage.reading != "en" { book.title = local }
             out.append(HCSeriesBook(position: row.position, book: book))
         }
         return out.sorted { ($0.position ?? .infinity, $0.book.year ?? .max) < ($1.position ?? .infinity, $1.book.year ?? .max) }

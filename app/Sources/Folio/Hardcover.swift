@@ -867,6 +867,20 @@ final class HardcoverClient {
         query SeriesBooks($id: Int!) { book_series(where: {series_id: {_eq: $id}}, order_by: [{position: asc}, {book: {users_count: desc}}], limit: 200) { position book { users_count \(Self.bookFields) } } }
         """, ["id": id]) {
             rows = d["book_series"].array
+        } else if let d = try? await query("""
+        query SeriesBooksCounted($id: Int!) { book_series(where: {series_id: {_eq: $id}}, order_by: {position: asc}, limit: 200) { position book { users_count \(Self.bookFields) } } }
+        """, ["id": id]) {
+            // Ordering by a nested field refused: rank each place's records here,
+            // so a place shows its main book, not an unread split translation.
+            rows = d["book_series"].array.enumerated().sorted { a, b in
+                let pa = a.element["position"].double ?? .infinity, pb = b.element["position"].double ?? .infinity
+                if pa != pb { return pa < pb }
+                let ua = a.element["book"]["users_count"].int ?? 0, ub = b.element["book"]["users_count"].int ?? 0
+                return ua != ub ? ua > ub : a.offset < b.offset
+            }.map(\.element)
+            #if os(iOS)
+            FolioLog.log("series \(id): nested order refused, ranked \(rows.count) records here", "titles")
+            #endif
         } else {
             popularity = false
             let d = try await query("""
