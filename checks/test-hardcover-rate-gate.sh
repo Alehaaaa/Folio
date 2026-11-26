@@ -64,6 +64,25 @@ func check(_ ok: Bool, _ what: String) { if !ok { fatalError(what) }; print("PAS
     let t3 = Date(); try await g3.wait(cost: 1)
     check(Date().timeIntervalSince(t3) >= 1.9, "short 429 is waited out")
 
+    let paced = HCRateGate()
+    try await paced.wait()
+    let secondStart = Date()
+    try await paced.wait()
+    check(Date().timeIntervalSince(secondStart) >= 0.30, "startup requests are paced even with tokens available")
+
+    let dated = HCRateGate()
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss z"
+    await dated.noteRateLimit(retryAfter: formatter.string(from: Date().addingTimeInterval(120)))
+    do {
+      try await dated.wait()
+      fatalError("Long HTTP-date Retry-After must deny network admission")
+    } catch let error as HCError {
+      check(error.rateLimited, "HTTP-date Retry-After is honored")
+    }
+
     // Daily limit used up: every caller fails at once, without touching the network.
     let g4 = HCRateGate()
     await g4.noteHeaders(rateLimit: "\\"daily\\";r=0;t=3600", policy: nil)
