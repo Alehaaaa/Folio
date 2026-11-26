@@ -212,7 +212,7 @@ struct DownloadingView: View {
                     } else {
                         Image(systemName: stageSymbol(job.stage))
                     }
-                    Text(job.stage.isActive && !job.statusText.isEmpty ? job.statusText : stageName(job.stage))
+                    Text(job.stage.isActive && !job.statusText.isEmpty ? job.statusLine : stageName(job.stage))
                         .lineLimit(1)
                 }
                 .font(.caption.weight(.medium))
@@ -298,7 +298,7 @@ struct DownloadingView: View {
 
                     HStack(alignment: .center, spacing: 9) {
                         if job.stage.isActive { ProgressView().controlSize(.small) }
-                        Text(job.statusText.isEmpty ? stageName(job.stage) : job.statusText)
+                        Text(job.statusText.isEmpty ? stageName(job.stage) : job.statusLine)
                             .font(.callout).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                         Text("\(displayLanguage(job.expectedLanguage)) edition")

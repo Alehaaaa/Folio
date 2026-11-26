@@ -42,6 +42,37 @@ struct DownloadJob: Identifiable, Codable {
     var importedBookID: UUID?
     var createdAt: Date
     var updatedAt: Date
+    /// Live file-transfer progress while an EPUB streams in; not saved.
+    var transferReceived: Int64? = nil
+    var transferExpected: Int64? = nil
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, author, cover, hardcoverBookID, hardcoverPages, expectedLanguage, editionTitle,
+             stage, statusText, detailLog, error, importedBookID, createdAt, updatedAt
+    }
+
+    /// "42%" while a file of known size downloads, "1.2 MB" when the server
+    /// gave no size, nil when nothing is streaming.
+    var transferLabel: String? {
+        guard stage == .downloading, let received = transferReceived else { return nil }
+        if let expected = transferExpected, expected > 0 {
+            return "\(min(100, Int(received * 100 / expected)))%"
+        }
+        return ByteCountFormatter.string(fromByteCount: received, countStyle: .file)
+    }
+
+    /// The status line with the transfer amount appended while a file streams.
+    var statusLine: String {
+        guard let label = transferLabel else { return statusText }
+        return statusText.isEmpty ? label : "\(statusText) \(label)"
+    }
+
+    /// 0...1 when the file size is known.
+    var transferFraction: Double? {
+        guard stage == .downloading, let received = transferReceived,
+              let expected = transferExpected, expected > 0 else { return nil }
+        return min(1, Double(received) / Double(expected))
+    }
 }
 
 /// Jobs continue through their own Task even when the user leaves the screen.
@@ -377,6 +408,8 @@ final class DownloadQueue {
         mutate(id) { job in
             job.stage = stage
             job.statusText = message
+            job.transferReceived = nil
+            job.transferExpected = nil
         }
         append(id, message)
     }
@@ -387,10 +420,19 @@ final class DownloadQueue {
         case .status(let message):
             let line = String(message.prefix(180))
             let before = jobs.first(where: { $0.id == id })?.statusText
-            mutate(id) { $0.statusText = line }
+            mutate(id) { job in
+                job.statusText = line
+                if before != line { job.transferReceived = nil; job.transferExpected = nil }
+            }
             if before != line { append(id, "\(source): \(line)") }
         case .log(let details):
             append(id, "\(source): \(details)")
+        case .transfer(let received, let expected):
+            // Updated in memory only: progress changes several times a second
+            // and is meaningless after a relaunch.
+            guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
+            jobs[index].transferReceived = received
+            jobs[index].transferExpected = expected > 0 ? expected : nil
         }
     }
 

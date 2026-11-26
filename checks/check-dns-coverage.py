@@ -25,8 +25,8 @@ if "FolioEncryptedDNSWebProxy.shared.proxyConfigurations()" not in browser:
     fails.append("ExtensionBrowser.swift: source pages no longer go through the encrypted DNS proxy")
 
 downloads = (root / "Sources/Folio/Extensions.swift").read_text()
-if "e.runtime.session.download(" not in downloads:
-    fails.append("Extensions.swift: file downloads no longer use the extension's in-app URLSession")
+if "FileTransfer.download(" not in downloads or "URLSession(configuration: configuration, delegate: self" not in downloads:
+    fails.append("Extensions.swift: file downloads no longer use Folio's in-app FileTransfer URLSession")
 
 if fails:
     print("\n".join("FAIL " + f for f in fails)); sys.exit(1)
