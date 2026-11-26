@@ -52,8 +52,9 @@ enum EditionTitle {
         while let range = value.range(of: #"\s*[\(\[]([^\(\)\[\]]*)[\)\]]\s*$"#, options: .regularExpression) {
             let label = BookAutoMatch.words(String(value[range]))
             let numbered = label.contains { Int($0) != nil } || value[range].contains("#")
+            let seriesLabel = label.first.map { ["saga", "serie", "series"].contains($0) } ?? false
             let rest = String(value[..<range.lowerBound])
-            guard numbered || label.contains(where: { ["edition", "edicion", "spanish", "espanol", "bolsillo", "pocket"].contains($0) }),
+            guard numbered || seriesLabel || label.contains(where: { ["edition", "edicion", "spanish", "espanol", "bolsillo", "pocket"].contains($0) }),
                   !BookAutoMatch.words(rest).isEmpty else { break }
             value = rest
         }
@@ -77,6 +78,21 @@ enum EditionTitle {
         return score
     }
 
+    /// Compare published alternatives already scoped to one work and language.
+    /// A decorated catalogue label may omit the Spanish article after "de".
+    static func isCatalogueMatch(_ current: String, _ candidate: String) -> Bool {
+        let wanted = titleCore(current)
+        let other = titleCore(candidate)
+        guard !wanted.isEmpty else { return false }
+        if wanted == other { return true }
+        guard penalty(current) > 0, penalty(candidate) == 0, other.count == wanted.count + 1 else { return false }
+        let articles: Set<String> = ["el", "la", "los", "las"]
+        return other.indices.dropFirst().contains { index in
+            other[index - 1] == "de" && articles.contains(other[index]) &&
+                Array(other[..<index]) + Array(other[(index + 1)...]) == wanted
+        }
+    }
+
     /// The best-formed real title for `chosen` among other titles of the same
     /// book in the same language. Only a title for the same book counts (same
     /// words once case, a leading article and a series label are ignored); it
@@ -88,7 +104,7 @@ enum EditionTitle {
         var best = chosen
         var bestPenalty = penalty(chosen)
         var bestArticle = hasLeadingArticle(chosen)
-        for other in others where !other.isEmpty && titleCore(other) == wanted {
+        for other in others where isCatalogueMatch(chosen, other) {
             let otherPenalty = penalty(other)
             let otherArticle = hasLeadingArticle(other)
             if otherPenalty < bestPenalty || (otherPenalty == bestPenalty && otherArticle && !bestArticle) {
@@ -109,7 +125,7 @@ enum EditionTitle {
         let titles = titles.filter { !BookAutoMatch.words($0).isEmpty }
         guard !titles.isEmpty else { return current }
         let core = titleCore(current)
-        if !core.isEmpty, titles.contains(where: { titleCore($0) == core }) {
+        if !core.isEmpty, titles.contains(where: { isCatalogueMatch(current, $0) }) {
             return best(current, among: titles)
         }
         let pick = titles.first { penalty($0) == 0 } ?? titles[0]

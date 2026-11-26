@@ -372,6 +372,7 @@ enum Keychain {
 struct HCError: LocalizedError {
     var message: String
     var rateLimited = false
+    var retryableThrottle = false
     /// A server hiccup (5xx or a non-JSON page), not a problem with the account.
     var transient = false
     var errorDescription: String? { message }
@@ -394,6 +395,7 @@ actor HCRateGate {
     private var tokens: Double = 8
     private var refilled = Date()
     private var blockedUntil = Date.distantPast
+    private var nextStart = Date.distantPast
 
     /// Waits up to this long for a short block (a drained bucket) instead of failing.
     static let patience: TimeInterval = 20
@@ -443,8 +445,16 @@ actor HCRateGate {
 
     /// A 429 applies to the entire Hardcover account, not just one view.
     func noteRateLimit(retryAfter: String?) {
-        let seconds = retryAfter.flatMap(Double.init) ?? 20
-        let delay = min(60 * 60 * 24, max(2, seconds))
+        let now = Date()
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+        dateFormatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss z"
+        let value = retryAfter?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let seconds = value.flatMap(Double.init)
+            ?? value.flatMap { dateFormatter.date(from: $0)?.timeIntervalSince(now) }
+            ?? 20
+        let delay = min(60 * 60 * 24, max(2, seconds.isFinite ? seconds : 20))
         blockedUntil = max(blockedUntil, Date().addingTimeInterval(delay))
         tokens = 0
         refilled = Date()
@@ -501,11 +511,13 @@ actor HCRateGate {
                 continue
             }
             refill(now)
-            if tokens >= need {
+            if tokens >= need, now >= nextStart {
                 tokens -= need
+                nextStart = now.addingTimeInterval(0.35)
                 return
             }
-            try await Task.sleep(for: .seconds(max(0.05, (need - tokens) / refillPerSecond)))
+            try await Task.sleep(for: .seconds(max(0.05, nextStart.timeIntervalSince(now),
+                                                     (need - tokens) / refillPerSecond)))
         }
     }
 }
@@ -548,6 +560,21 @@ final class HardcoverClient {
     /// without reloading recommendations and every other shelf.
     var progressRevision = 0
 
+    private struct ReadKey: Hashable {
+        let token: String
+        let body: Data
+        let generation: Int
+    }
+    private var readGeneration = 0
+    private var activeReads: [ReadKey: Task<JSON, Error>] = [:]
+    private struct EditionKey: Hashable {
+        let work: Int
+        let language: String
+    }
+    private var editionRows: [EditionKey: (rows: [JSON], expires: Date)] = [:]
+    private var editionRequests: [EditionKey: Task<[Int: [JSON]], Error>] = [:]
+    private var editionLanguageNames: [String: [String]]?
+    private var editionLanguageLookup: Task<[String: [String]], Error>?
     private var token: String?
     private let endpoint = URL(string: "https://api.hardcover.app/v1/graphql")!
     /// Rapid shelf taps and bulk calls are coalesced by book and sent together.
@@ -639,38 +666,69 @@ final class HardcoverClient {
 
     @discardableResult
     func query(_ q: String, _ variables: [String: Any] = [:]) async throws -> JSON {
+        try Task.checkCancellation()
+        guard let token else { throw HCError(message: "Connect your Hardcover account in Settings first.") }
+        let body = try JSONSerialization.data(withJSONObject: ["query": q, "variables": variables], options: .sortedKeys)
+        let operation = q.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard operation.hasPrefix("query ") || operation.hasPrefix("{") else {
+            readGeneration &+= 1
+            defer { readGeneration &+= 1 }
+            return try await request(q, body: body, token: token)
+        }
+
+        let key = ReadKey(token: token, body: body, generation: readGeneration)
+        if let pending = activeReads[key] {
+            let result = try await pending.value
+            try Task.checkCancellation()
+            return result
+        }
+        let pending = Task { try await request(q, body: body, token: token) }
+        activeReads[key] = pending
+        defer { activeReads[key] = nil }
+        let result = try await pending.value
+        try Task.checkCancellation()
+        return result
+    }
+
+    private func request(_ q: String, body: Data, token: String) async throws -> JSON {
         do {
-            return try await send(q, variables)
-        } catch let error as HCError where error.rateLimited {
-            // A short throttle: the gate now waits it out, so try once more.
-            return try await send(q, variables)
+            return try await send(q, body: body, token: token)
+        } catch let error as HCError where error.retryableThrottle {
+            return try await send(q, body: body, token: token)
         }
     }
 
-    private func send(_ q: String, _ variables: [String: Any]) async throws -> JSON {
-        guard let token else { throw HCError(message: "Connect your Hardcover account in Settings first.") }
+    private func send(_ q: String, body: Data, token: String) async throws -> JSON {
         var req = URLRequest(url: endpoint)
         req.httpMethod = "POST"
         req.timeoutInterval = 30
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        req.setValue("Folio/1.0 (macOS)", forHTTPHeaderField: "User-Agent")
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["query": q, "variables": variables])
+        req.setValue("Folio/1.0", forHTTPHeaderField: "User-Agent")
+        req.httpBody = body
         let queued = Date()
         try await HCRateGate.shared.wait(cost: HCRateGate.cost(of: q))
+        guard self.token == token else { throw CancellationError() }
         let sent = Date()
         let (data, resp) = try await URLSession.shared.data(for: req)
         let http = resp as? HTTPURLResponse
+        let head = String(decoding: data.prefix(300), as: UTF8.self)
+        let throttled = http?.statusCode == 429 ||
+            (http?.statusCode == 200 && head.localizedCaseInsensitiveContains("too many requests")
+                && head.contains("\"errors\""))
+        if throttled {
+            await HCRateGate.shared.noteRateLimit(retryAfter: http?.value(forHTTPHeaderField: "Retry-After"))
+        }
         await HCRateGate.shared.noteHeaders(rateLimit: http?.value(forHTTPHeaderField: "RateLimit"),
                                             policy: http?.value(forHTTPHeaderField: "RateLimit-Policy"))
         #if os(iOS)
         Self.logTiming(q, status: http?.statusCode, waited: sent.timeIntervalSince(queued),
                        took: Date().timeIntervalSince(sent), bytes: data.count)
         #endif
-        let head = String(decoding: data.prefix(300), as: UTF8.self)
-        if http?.statusCode == 429 || head.localizedCaseInsensitiveContains("too many requests") {
-            await HCRateGate.shared.noteRateLimit(retryAfter: http?.value(forHTTPHeaderField: "Retry-After"))
-            throw HCError(message: "Hardcover is busy right now. Try again shortly.", rateLimited: true)
+        if throttled {
+            let read = q.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("query")
+            throw HCError(message: "Hardcover is busy right now. Try again shortly.", rateLimited: true,
+                          retryableThrottle: read || http?.statusCode == 429)
         }
         if let http, http.statusCode >= 500 {
             throw HCError(message: "Hardcover is having trouble right now. Try again in a minute.", transient: true)
@@ -1187,13 +1245,12 @@ final class HardcoverClient {
     /// title matches the file's.
     func edition(bookID: Int, language code: String, title: String? = nil) async throws -> HCEdition? {
         guard let wanted = BookLanguage.code(code) else { return nil }
-        // Filtered here: Hardcover refuses text-pattern filters with HTTP 403.
-        let d = try await query("""
-        query LanguageEditions($id: Int!) { editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 100) { \(Self.editionFields) } }
-        """, ["id": bookID])
-        let editions = d["editions"].array.map(Self.edition(from:))
-            .filter { BookLanguage.code($0.language) == wanted }
-        let picked = title.flatMap { title in editions.first { BookAutoMatch.sameTitle(title, $0.title ?? "") } } ?? editions.first
+        let books = try await languageEditionRows(bookIDs: [bookID], language: wanted)
+        let editions = (books[bookID] ?? []).map(Self.edition(from:))
+        let picked = title.flatMap { title in
+            editions.first { BookAutoMatch.sameTitle(title, $0.title ?? "") }
+                ?? editions.first { EditionTitle.isCatalogueMatch(title, $0.title ?? "") }
+        } ?? editions.first
         return picked.map { Self.bestTitled($0, among: editions) }
     }
 
@@ -1215,18 +1272,85 @@ final class HardcoverClient {
     /// Books with no edition in that language map to an empty list.
     func editionTitles(bookIDs: [Int], language code: String) async throws -> [Int: [String]] {
         guard let wanted = BookLanguage.code(code), !bookIDs.isEmpty else { return [:] }
-        // Filtered here: Hardcover refuses text-pattern filters with HTTP 403.
-        let d = try await query("""
-        query EditionTitles($ids: [Int!]!) { editions(where: {book_id: {_in: $ids}}, order_by: {users_count: desc}, limit: \(min(500, bookIDs.count * 50))) { book_id title language { language } } }
-        """, ["ids": bookIDs])
-        var out = Dictionary(uniqueKeysWithValues: bookIDs.map { ($0, [String]()) })
-        for e in d["editions"].array {
-            guard let id = e["book_id"].int, let title = e["title"].string, !title.isEmpty,
-                  BookLanguage.code(e["language"]["language"].string) == wanted,
-                  out[id]?.contains(title) == false else { continue }
-            out[id, default: []].append(title)
+        let rows = try await languageEditionRows(bookIDs: bookIDs, language: wanted)
+        return rows.mapValues { editions in
+            var seen = Set<String>()
+            return editions.compactMap { edition in
+                guard let title = edition["title"].string, !title.isEmpty, seen.insert(title).inserted else { return nil }
+                return title
+            }
+        }
+    }
+
+    private func languageEditionRows(bookIDs: [Int], language: String) async throws -> [Int: [JSON]] {
+        let now = Date()
+        let keys = Set(bookIDs).sorted().map { EditionKey(work: $0, language: language) }
+        var result: [Int: [JSON]] = [:]
+        for key in keys {
+            if let cached = editionRows[key], cached.expires > now { result[key.work] = cached.rows }
+        }
+        let missing = keys.filter { result[$0.work] == nil && editionRequests[$0] == nil }
+        if !missing.isEmpty {
+            let batch = Task {
+                defer { for key in missing { editionRequests[key] = nil } }
+                let rows = try await fetchLanguageEditionRows(bookIDs: missing.map(\.work), language: language)
+                let fetched = Date()
+                editionRows = editionRows.filter { $0.value.expires > fetched }
+                for key in missing {
+                    let editions = rows[key.work] ?? []
+                    editionRows[key] = (editions, fetched.addingTimeInterval(editions.isEmpty ? 300 : 1_800))
+                }
+                return rows
+            }
+            for key in missing { editionRequests[key] = batch }
+        }
+        let pending = keys.compactMap { key in editionRequests[key].map { (key, $0) } }
+        for (key, task) in pending {
+            result[key.work] = try await task.value[key.work] ?? []
+        }
+        try Task.checkCancellation()
+        return result
+    }
+
+    private func fetchLanguageEditionRows(bookIDs: [Int], language: String) async throws -> [Int: [JSON]] {
+        let names = try await catalogueLanguageNames()[language] ?? []
+        guard !names.isEmpty else { return [:] }
+        // Filter before applying the limit, separately for each work.
+        let data = try await query("""
+        query EditionTitles($ids: [Int!]!, $names: [String!]!) {
+            books(where: {id: {_in: $ids}}) {
+                id
+                editions(where: {language: {language: {_in: $names}}}, order_by: [{users_count: desc}, {id: asc}], limit: 100) {
+                    \(Self.editionFields)
+                }
+            }
+        }
+        """, ["ids": bookIDs, "names": names])
+        var out: [Int: [JSON]] = [:]
+        for book in data["books"].array {
+            if let id = book["id"].int { out[id] = book["editions"].array }
         }
         return out
+    }
+
+    private func catalogueLanguageNames() async throws -> [String: [String]] {
+        if let editionLanguageNames { return editionLanguageNames }
+        if let editionLanguageLookup { return try await editionLanguageLookup.value }
+        let lookup = Task {
+            let data = try await query("query EditionCatalogueLanguages { languages { language } }")
+            var names: [String: [String]] = [:]
+            for row in data["languages"].array {
+                if let name = row["language"].string, let code = BookLanguage.code(name) {
+                    names[code, default: []].append(name)
+                }
+            }
+            return names
+        }
+        editionLanguageLookup = lookup
+        defer { editionLanguageLookup = nil }
+        let names = try await lookup.value
+        if !names.isEmpty { editionLanguageNames = names }
+        return names
     }
 
     /// The languages a book has editions in, most-read first, each with the

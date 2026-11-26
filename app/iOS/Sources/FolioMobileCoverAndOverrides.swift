@@ -157,7 +157,7 @@ final class FolioBookOverrides {
     private(set) var items: [Int: FolioBookOverride] = [:]
     /// The edition each book page last showed, so every list shows that same one.
     private(set) var shown: [Int: FolioShownEdition] = [:]
-    private static let editionTitlesKey = "folio.book.editionTitles"
+    private static let editionTitlesKey = "folio.book.editionTitles.v2"
     /// Real edition titles of books in the reading language (see `bestTitle`).
     private var editionTitles: [String: [Int: FolioEditionTitles]] = [:]
     @ObservationIgnored private var pendingTitleIDs: [String: Set<Int>] = [:]
@@ -178,8 +178,7 @@ final class FolioBookOverrides {
         if let data = UserDefaults.standard.data(forKey: Self.editionTitlesKey) {
             if let saved = try? JSONDecoder().decode([String: [Int: FolioEditionTitles]].self, from: data) {
                 editionTitles = saved
-            } else if let saved = try? JSONDecoder().decode([Int: FolioEditionTitles].self, from: data) {
-                for (id, entry) in saved { editionTitles[entry.language, default: [:]][id] = entry }
+
             }
         }
     }
@@ -190,9 +189,8 @@ final class FolioBookOverrides {
     /// book's real edition titles, never rewritten. They are fetched once, in
     /// batches, the first time the book shows anywhere. Reading in English,
     /// only a messy title is replaced.
-    func bestTitle(_ title: String, for id: Int) -> String {
+    func bestTitle(_ title: String, for id: Int, language: String = BookLanguage.reading) -> String {
         guard id > 0 else { return title }
-        let language = BookLanguage.reading
         guard language != "en" || EditionTitle.penalty(title) > 0 else { return title }
         return EditionTitle.languageTitle(title, among: titles(for: id, language: language))
     }
@@ -247,7 +245,7 @@ final class FolioBookOverrides {
             for id in batch {
                 retryTitlesAfter[language]?[id] = nil
                 editionTitles[language, default: [:]][id] = FolioEditionTitles(
-                    language: language, titles: Array((found[id] ?? []).prefix(20)), fetched: now)
+                    language: language, titles: found[id] ?? [], fetched: now)
             }
             FolioLog.log("edition titles for \(found.count) book(s)", "titles")
             if let data = try? JSONEncoder().encode(editionTitles) {

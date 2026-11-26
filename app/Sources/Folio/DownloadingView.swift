@@ -194,7 +194,10 @@ struct DownloadingView: View {
     private func jobTitle(_ job: DownloadJob) -> String {
         let title = job.importedBookID.flatMap { store.book($0) }
             .map { FolioBookOverrides.shared.downloadedTitle($0) }
-        return job.displayTitle(importedTitle: title)
+        let display = job.displayTitle(importedTitle: title)
+        guard title == nil, let id = job.hardcoverBookID,
+              let language = BookLanguage.code(job.expectedLanguage) else { return display }
+        return FolioBookOverrides.shared.bestTitle(display, for: id, language: language)
     }
 
     private func jobCover(_ job: DownloadJob, cornerRadius: CGFloat) -> CoverArt {
