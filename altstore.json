@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.102",
+          "buildVersion": "103",
+          "date": "2026-11-26",
+          "localizedDescription": "1.0.102: a calmer Download Details sheet",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.102-103.ipa",
+          "size": 6136319,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.101",
           "buildVersion": "102",
           "date": "2026-11-26",
