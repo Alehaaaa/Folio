@@ -7,7 +7,7 @@ var source = {
   id: "annas-archive-free",
   name: "Anna's Archive",
   description: "Free EPUB search and published Slow Partner file delivery after a normal background countdown. No paid API or keys.",
-  version: "1.3.11",
+  version: "1.3.12",
   languages: ["*"],
   allowedHosts: [
     "https://raw.githubusercontent.com",
@@ -287,10 +287,34 @@ var source = {
   // A series subtitle is not the same thing as an abridged, annotated, or
   // adapted edition. Keep its original name so Folio can apply independent
   // identity and embedded-EPUB checks before any automatic read/import.
+  // Catalogues keep or drop a leading article: "Camino de los reyes" is
+  // "El camino de los reyes". Compare both without it when they differ.
+  leadingArticles: ["the", "a", "an", "el", "la", "los", "las", "lo", "le", "les", "l",
+    "il", "gli", "der", "die", "das", "o", "os", "as"],
+
+  withoutArticle: function (words, other) {
+    if (words.length > 1 && words[0] !== other[0] && this.leadingArticles.indexOf(words[0]) >= 0)
+      return words.slice(1);
+    return words;
+  },
+
   identityRank: function (card, identity) {
-    if (!this.authorMatchesIdentity(card.author, identity) ||
-        !this.titleBeginsWith(card.title, identity.words)) return -1;
+    if (!this.authorMatchesIdentity(card.author, identity)) return -1;
     var titleWords = this.titleWords(card.title);
+    var wantedWords = identity.words;
+    var bareArticle = false;
+    if (titleWords[0] !== wantedWords[0]) {
+      bareArticle = true;
+      var cardBare = this.withoutArticle(titleWords, wantedWords);
+      wantedWords = this.withoutArticle(wantedWords, titleWords);
+      titleWords = cardBare;
+    }
+    if (titleWords.length < wantedWords.length) return -1;
+    for (var w = 0; w < wantedWords.length; w++) {
+      if (titleWords[w] !== wantedWords[w]) return -1;
+    }
+    identity = {title: identity.title, words: wantedWords, surname: identity.surname,
+      authorWords: identity.authorWords, bareArticle: bareArticle};
     if (titleWords.length === identity.words.length) return 0;
     var remainderWords = titleWords.slice(identity.words.length);
     var remainder = remainderWords.join(" ");
@@ -317,6 +341,15 @@ var source = {
         /^(?:book|vol|volume) (?:[0-9]+|iv|v|vi) of the [a-z0-9 ]+ (?:series|saga)$/i.test(remainder) ||
         /^[a-z0-9 ]+ (?:series |saga )?(?:book|vol|volume) (?:[0-9]+|iv|v|vi)$/i.test(remainder))
       return 1;
+    // A numbered series label set apart in brackets or after a colon, as
+    // Spanish catalogues write it: "(El Archivo de las Tormentas 1)".
+    if (remainderWords.length <= 8 &&
+        /^(?:[0-9]+|i{1,3}|iv|v|vi{0,3}|ix|x)$/.test(remainderWords[remainderWords.length - 1]) &&
+        /(?:[\(\[][^\(\)\[\]]*[\)\]]|[:#][^:#]*)\s*$/.test(String(card.title || "")))
+      return 1;
+    // Only an exact title or a clear label may differ by its article: "The
+    // Iron Gold Collection" is not "Iron Gold".
+    if (identity.bareArticle) return -1;
     return 2; // Ambiguous nearby alias: never make a detail request automatically.
   },
 

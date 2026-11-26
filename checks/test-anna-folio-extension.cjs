@@ -36,7 +36,7 @@ function harness(fetch, browser, withStatus = true) {
   vm.runInContext(script, context, {timeout: 5000});
   assert.equal(context.source.name, "Anna's Archive");
   assert.equal(context.source.id, 'annas-archive-free');
-  assert.equal(context.source.version, '1.3.11');
+  assert.equal(context.source.version, '1.3.12');
   assert.equal(context.source.allowedHosts.length, 5);
   return {source: context.source, requested, statuses, logs};
 }
@@ -302,6 +302,13 @@ assert.equal(iron.source.identityRank({title: 'Iron Gold: Abridged', author: 'Pi
   'abridged edition is rejected');
 assert.equal(iron.source.identityRank({title: 'The Iron Gold Collection', author: 'Pierce Brown'}, ironHint), -1,
   'collection title preceding the requested title is rejected');
+const caminoHint = iron.source.expectedIdentity('Camino de los reyes', 'Brandon Sanderson');
+assert.equal(iron.source.identityRank({title: 'El camino de los reyes', author: 'Brandon Sanderson'}, caminoHint), 0,
+  'a catalogue title may keep the leading article the edition metadata dropped');
+assert.equal(iron.source.identityRank({title: 'El camino de los reyes (El Archivo de las Tormentas 1)', author: 'Sanderson, Brandon'}, caminoHint), 1,
+  'a bracketed, numbered Spanish series label is a clear series label');
+assert.equal(iron.source.identityRank({title: 'El camino de los reyes: guía de lectura', author: 'Brandon Sanderson'}, caminoHint), -1,
+  'an article difference never admits an unclear subtitle');
 const trustedIron = ironHarness(ironRows);
 const trustedBooks = trustedIron.source.search('Iron Gold brown', 0, 'en', 'Iron Gold', 'Pierce Brown');
 assert.deepEqual(Array.from(trustedBooks.slice(0, 3), r => r.id), cleanIronIDs,
@@ -763,4 +770,4 @@ const legacy = harness(url => url.includes('raw.githubusercontent.com') ? github
 assert.equal(legacy.source.search('Pride and Prejudice', 0).length, 1, 'older Folio versions work without status');
 assert.ok(legacy.logs.length > 0, 'older Folio versions still receive diagnostics');
 
-console.log('PASS: Folio extension v1.3.11, bounded transient transport retry, runtime-local mirror cooldown, source availability diagnostics, Want subtitle matches, language safeguards, and free countdown without verified-query resets.');
+console.log('PASS: Folio extension v1.3.12, bounded transient transport retry, runtime-local mirror cooldown, source availability diagnostics, Want subtitle matches, language safeguards, and free countdown without verified-query resets.');

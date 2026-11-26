@@ -36,6 +36,16 @@ enum BookAutoMatch {
     /// or an adaptation. Keep sameTitle strict for Hardcover auto-linking.
     static func sameEditionTitle(_ expected: String, _ actual: String) -> Bool {
         if sameTitle(expected, actual) { return true }
+        // "Camino de los reyes" is "El camino de los reyes (El archivo de las
+        // tormentas 1)": the same words without the article and the
+        // numbered series label in brackets.
+        let core = EditionTitle.titleCore(actual)
+        let adapted: Set<String> = ["abridged", "adapted", "adaptation", "annotated", "summary", "resumen",
+                                    "illustrated", "ilustrado", "ilustrada", "graphic", "comic", "anotado",
+                                    "omnibus", "collection", "coleccion", "completa", "complete", "pack"]
+        if !core.isEmpty, core == EditionTitle.titleCore(expected),
+           !actual.contains(" / "), !actual.contains(" = "),
+           !words(actual).contains(where: adapted.contains) { return true }
         let wanted = words(expected)
         let found = words(actual)
         guard !wanted.isEmpty, found.count > wanted.count,
