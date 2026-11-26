@@ -302,6 +302,14 @@ struct HCBookPage: Codable {
     var series: [HCBookSeries] = []
     /// Genres, most-tagged first (nil when the page didn't ask for them).
     var genres: [String]?
+    /// Languages the book has editions in, most-read first (nil when not asked for).
+    var languages: [HCEditionLanguage]?
+}
+
+/// A language a book has editions in, with the title its most-read edition there carries.
+struct HCEditionLanguage: Hashable, Codable {
+    var code: String
+    var title: String?
 }
 
 struct HCSeriesRef: Identifiable, Hashable, Codable {
@@ -315,8 +323,11 @@ struct HCSeriesRef: Identifiable, Hashable, Codable {
 /// Everything the author page shows, from one request.
 struct HCAuthorPage: Codable {
     var author: HCAuthor
+    /// Most-read first.
     var books: [HCBook]
     var series: [HCSeriesRef]
+    /// Most recent first, when the page asked for them.
+    var newest: [HCBook]?
 }
 
 struct HCUserBook: Identifiable, Hashable, Codable {
@@ -408,6 +419,13 @@ struct HCError: LocalizedError {
     static func isRateLimit(_ error: Error) -> Bool { (error as? HCError)?.rateLimited == true }
 }
 
+/// Whether a Hardcover request is for the page on screen. Pages opened by the
+/// reader set it, so their requests go ahead of Home rows, shelf syncs and other
+/// background work waiting on the rate limit.
+enum HCPriority {
+    @TaskLocal static var foreground = false
+}
+
 /// Keeps requests under Hardcover's limits so pages wait a moment instead of failing.
 ///
 /// Hardcover meters every top-level field of a query, not every HTTP request: a
@@ -423,7 +441,12 @@ actor HCRateGate {
     private var tokens: Double = 8
     private var refilled = Date()
     private var blockedUntil = Date.distantPast
-    private var nextStart = Date.distantPast
+    private var lastStart = Date.distantPast
+    /// Requests for the page on screen that are waiting for tokens.
+    private var foregroundWaiting = 0
+    /// Tokens background work leaves in the bucket, so opening a page never
+    /// waits for Home or a shelf sync to drain it.
+    private static let reserve: Double = 4
 
     /// Waits up to this long for a short block (a drained bucket) instead of failing.
     static let patience: TimeInterval = 20
@@ -525,8 +548,13 @@ actor HCRateGate {
         }
     }
 
-    func wait(cost: Int = 1) async throws {
+    func wait(cost: Int = 1, foreground: Bool = false) async throws {
         let need = min(Double(max(1, cost)), capacity)
+        if foreground { foregroundWaiting += 1 }
+        defer { if foreground { foregroundWaiting -= 1 } }
+        // Page requests are spaced lightly; background work keeps a wider gap.
+        let gap: TimeInterval = foreground ? 0.1 : 0.35
+        let keep = foreground ? 0 : min(Self.reserve, max(0, capacity - need))
         while true {
             try Task.checkCancellation()
             let now = Date()
@@ -539,13 +567,15 @@ actor HCRateGate {
                 continue
             }
             refill(now)
-            if tokens >= need, now >= nextStart {
+            let yields = !foreground && foregroundWaiting > 0
+            let nextStart = lastStart.addingTimeInterval(gap)
+            if !yields, tokens - keep >= need, now >= nextStart {
                 tokens -= need
-                nextStart = now.addingTimeInterval(0.35)
+                lastStart = now
                 return
             }
-            try await Task.sleep(for: .seconds(max(0.05, nextStart.timeIntervalSince(now),
-                                                     (need - tokens) / refillPerSecond)))
+            let refillWait = max(0, need + keep - tokens) / refillPerSecond
+            try await Task.sleep(for: .seconds(max(0.05, nextStart.timeIntervalSince(now), yields ? 0.25 : refillWait)))
         }
     }
 }
@@ -604,6 +634,7 @@ final class HardcoverClient {
     private var editionLanguageNames: [String: [String]]?
     private var editionLanguageLookup: Task<[String: [String]], Error>?
     private var token: String?
+    private var distributionMemo: [Int: (bars: [Int], saved: Date)] = [:]
     private let endpoint = URL(string: "https://api.hardcover.app/v1/graphql")!
     /// Rapid shelf taps and bulk calls are coalesced by book and sent together.
     /// Hardcover charges GraphQL top-level fields, so batches remain small.
@@ -735,7 +766,7 @@ final class HardcoverClient {
         req.setValue("Folio/1.0", forHTTPHeaderField: "User-Agent")
         req.httpBody = body
         let queued = Date()
-        try await HCRateGate.shared.wait(cost: HCRateGate.cost(of: q))
+        try await HCRateGate.shared.wait(cost: HCRateGate.cost(of: q), foreground: HCPriority.foreground)
         guard self.token == token else { throw CancellationError() }
         let sent = Date()
         let (data, resp) = try await URLSession.shared.data(for: req)
@@ -1294,31 +1325,52 @@ final class HardcoverClient {
     }
 
     /// Counts per star (5 to 1). Uses Hardcover's stored distribution when it is
-    /// available, otherwise tallies a sample of up to 1,000 public ratings.
+    /// available, otherwise tallies a sample of public ratings. Kept for half an
+    /// hour, so the book page and its ratings page share one answer.
     func ratingDistribution(bookID: Int) async -> [Int] {
+        if let memo = distributionMemo[bookID], Date().timeIntervalSince(memo.saved) < 30 * 60 { return memo.bars }
         var buckets = [0, 0, 0, 0, 0]
         func add(_ rating: Double, _ count: Int) {
             guard rating > 0 else { return }
             let star = min(5, max(1, Int(rating.rounded(.up))))
             buckets[5 - star] += count
         }
-        if let d = try? await query("query Dist($id: Int!) { books(where: {id: {_eq: $id}}, limit: 1) { ratings_distribution } }", ["id": bookID]) {
-            let dist = d["books"].array.first?["ratings_distribution"] ?? .null
-            switch dist {
-            case .array(let rows):
-                for r in rows { if let rating = r["rating"].double, let n = r["count"].int { add(rating, n) } }
-            case .object(let map):
-                for (k, v) in map { if let rating = Double(k), let n = v.int { add(rating, n) } }
-            default: break
-            }
-            if buckets.reduce(0, +) > 0 { return buckets }
+        // A schema without the stored field refuses it every time: skip it for a week
+        // instead of paying a failed request before every sample.
+        let refusedKey = "folio.hardcover.ratingsDistributionRefused"
+        let refused = (UserDefaults.standard.object(forKey: refusedKey) as? Date)
+            .map { Date().timeIntervalSince($0) < 7 * 24 * 60 * 60 } ?? false
+        if !refused {
+            do {
+                let d = try await query("query Dist($id: Int!) { books(where: {id: {_eq: $id}}, limit: 1) { ratings_distribution } }", ["id": bookID])
+                let dist = d["books"].array.first?["ratings_distribution"] ?? .null
+                switch dist {
+                case .array(let rows):
+                    for r in rows { if let rating = r["rating"].double, let n = r["count"].int { add(rating, n) } }
+                case .object(let map):
+                    for (k, v) in map { if let rating = Double(k), let n = v.int { add(rating, n) } }
+                default: break
+                }
+            } catch let error as HCError where Self.isSchemaRefusal(error) {
+                UserDefaults.standard.set(Date(), forKey: refusedKey)
+            } catch {}
         }
-        if let d = try? await query("""
-        query Ratings($id: Int!) { user_books(where: {book_id: {_eq: $id}, rating: {_is_null: false}}, limit: 1000) { rating } }
+        if buckets.reduce(0, +) == 0, let d = try? await query("""
+        query Ratings($id: Int!) { user_books(where: {book_id: {_eq: $id}, rating: {_is_null: false}}, limit: 400) { rating } }
         """, ["id": bookID]) {
+            // 400 ratings give the same bar shapes as 1,000, at well under half the download.
             for r in d["user_books"].array { if let rating = r["rating"].double { add(rating, 1) } }
         }
-        return buckets.reduce(0, +) > 0 ? buckets : []
+        let bars = buckets.reduce(0, +) > 0 ? buckets : []
+        if !bars.isEmpty { distributionMemo[bookID] = (bars, Date()) }
+        return bars
+    }
+
+    /// An error saying the query asked for a field or argument this schema doesn't have.
+    static func isSchemaRefusal(_ error: HCError) -> Bool {
+        let text = error.message.lowercased()
+        return text.contains("not found in type") || text.contains("field") && text.contains("not found")
+            || text.contains("unexpected") && text.contains("field")
     }
 
     /// The most-read edition, for publishing details.
@@ -1459,11 +1511,16 @@ final class HardcoverClient {
         let d = try await query("""
         query EditionLanguages($id: Int!) { editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 120) { title language { language } } }
         """, ["id": bookID])
+        return Self.languages(of: d["editions"].array).map { ($0.code, $0.title) }
+    }
+
+    /// One entry per language, in the order the editions come (most-read first).
+    static func languages(of editions: [JSON]) -> [HCEditionLanguage] {
         var seen = Set<String>()
-        var result: [(code: String, title: String?)] = []
-        for e in d["editions"].array {
+        var result: [HCEditionLanguage] = []
+        for e in editions {
             guard let code = BookLanguage.code(e["language"]["language"].string), seen.insert(code).inserted else { continue }
-            result.append((code, e["title"].string))
+            result.append(HCEditionLanguage(code: code, title: e["title"].string))
         }
         return result
     }
@@ -1535,7 +1592,7 @@ final class HardcoverClient {
             query BookPage($id: Int!, $uid: Int!\(titleVariable)) {
               books(where: {id: {_eq: $id}}, limit: 1) { \(Self.bookFields) reviews_count users_count users_read_count release_date cached_tags }
               \(editions) { \(Self.editionFields) }
-              siblingEditions: editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 60) { id title language { language } }
+              siblingEditions: editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 120) { id title language { language } }
               book_series(where: {book_id: {_eq: $id}}) { position series { id name } }
               user_books(where: {user_id: {_eq: $uid}, book_id: {_eq: $id}}, limit: 1) { \(Self.userBookFields) }
             }
@@ -1553,7 +1610,9 @@ final class HardcoverClient {
                     Self.bestTitled(Self.edition(from: chosen), among: d["siblingEditions"].array.map(Self.edition(from:)))
                 },
                 series: Self.dedupeSeries(d["book_series"].array),
-                genres: Self.genreNames(b["cached_tags"])
+                genres: Self.genreNames(b["cached_tags"]),
+                // The download language menu, from the same request instead of one of its own.
+                languages: Self.languages(of: d["siblingEditions"].array)
             )
         } catch let error as HCError where error.message.contains("not found in type") || error.message.contains("field") {
             // A field this request relies on is missing from the schema: fetch piece by piece.
@@ -1619,8 +1678,12 @@ final class HardcoverClient {
             "user_books(where: {book_id: {_eq: $id}, has_review: {_eq: true}}, order_by: {likes_count: desc}, limit: $n) { id rating review_raw review_has_spoilers reviewed_at likes_count user { username image { url } } }",
             "user_books(where: {book_id: {_eq: $id}, has_review: {_eq: true}}, order_by: {reviewed_at: desc}, limit: $n) { id rating review_raw review_has_spoilers reviewed_at likes_count }",
         ]
+        // A schema that refused the richer request once skips it for a week.
+        let refusedKey = "folio.hardcover.richReviewsRefused"
+        let refused = (UserDefaults.standard.object(forKey: refusedKey) as? Date)
+            .map { Date().timeIntervalSince($0) < 7 * 24 * 60 * 60 } ?? false
         var failure: Error?
-        for body in attempts {
+        for (index, body) in attempts.enumerated() where !(refused && index == 0) {
             do {
                 let d = try await query("query Reviews($id: Int!, $n: Int!) { \(body) }", ["id": bookID, "n": limit])
                 return d["user_books"].array.compactMap { r in
@@ -1633,7 +1696,12 @@ final class HardcoverClient {
                                     username: r["user"]["username"].string,
                                     userImage: r["user"]["image"]["url"].string.flatMap(URL.init(string:)))
                 }
-            } catch { failure = error }
+            } catch {
+                if index == 0, let error = error as? HCError, Self.isSchemaRefusal(error) {
+                    UserDefaults.standard.set(Date(), forKey: refusedKey)
+                }
+                failure = error
+            }
         }
         throw failure ?? HCError(message: "Reviews are unavailable.")
     }

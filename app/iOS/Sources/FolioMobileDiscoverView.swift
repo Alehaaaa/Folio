@@ -168,7 +168,8 @@ struct FolioMobileDiscoverView: View {
         defer { if activeRequest == requestID { loading = false } }
         FolioLog.log("Search \"\(text)\"", "search")
         do {
-            let books = try await hardcover.search(text)
+            // Typed searches go ahead of background Hardcover work.
+            let books = try await HCPriority.$foreground.withValue(true) { try await hardcover.search(text) }
             FolioLog.log("Search \"\(text)\": \(books.count) results, memory \(FolioLog.footprintMB()) MB", "search")
             guard !Task.isCancelled, activeRequest == requestID else { return }
             searchHits = FolioMobileDiscoverySections.unique(books)

@@ -168,7 +168,24 @@ enum FolioAuthorCache {
         }
         set {
             loaded = newValue
-            if let data = try? JSONEncoder().encode(newValue) { try? data.write(to: url, options: .atomic) }
+            scheduleWrite()
+        }
+    }
+
+    private static var pendingWrite: Task<Void, Never>?
+    private static let writer = DispatchQueue(label: "folio.author-pages", qos: .utility)
+
+    /// The file holds every saved author page, so it is written once after a burst of
+    /// changes (Home resolves up to 25 names at once), off the main thread.
+    private static func scheduleWrite() {
+        pendingWrite?.cancel()
+        pendingWrite = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled, let value = loaded else { return }
+            let target = url
+            writer.async {
+                if let data = try? JSONEncoder().encode(value) { try? data.write(to: target, options: .atomic) }
+            }
         }
     }
 
@@ -342,11 +359,20 @@ struct FolioMobileAuthorView: View {
     @Environment(FolioMobileNavigation.self) private var navigation
     @State private var follows = FolioFollowedAuthors.shared
     @State private var author: HCAuthor?
+    /// Most-read first.
     @State private var books: [HCBook] = []
+    @State private var newest: [HCBook] = []
     @State private var series: [HCSeriesRef] = []
     @State private var loading = false
     @State private var failure: String?
     @State private var bioExpanded = false
+    @State private var order: Order = .popular
+
+    /// How "All books" is sorted.
+    enum Order: String, CaseIterable, Identifiable {
+        case popular = "Most read", newest = "Newest", oldest = "Oldest", rating = "Highest rated", title = "Title"
+        var id: String { rawValue }
+    }
 
     private var name: String { author?.name ?? route.name }
 
@@ -358,6 +384,31 @@ struct FolioMobileAuthorView: View {
 
     private var portraitURL: URL? {
         author?.imageURL ?? FolioAuthorCache.author(route.name)?.imageURL
+    }
+
+    /// Newest first: the dedicated list when there is one, else the known books by year.
+    private var newestBooks: [HCBook] {
+        let source = newest.isEmpty ? books.filter { $0.year != nil }.sorted { ($0.year ?? 0) > ($1.year ?? 0) } : newest
+        return Array(FolioMobileDiscoverySections.unique(source).prefix(15))
+    }
+
+    /// Books with enough ratings for the average to mean something, best first.
+    private var highestRated: [HCBook] {
+        let rated = books.filter { ($0.rating ?? 0) > 0 && ($0.ratingsCount ?? 0) >= 5 }
+        guard rated.count >= 4 else { return [] }
+        return Array(rated.sorted { ($0.rating ?? 0, $0.ratingsCount ?? 0) > ($1.rating ?? 0, $1.ratingsCount ?? 0) }.prefix(15))
+    }
+
+    /// Every known book, newest ones the popular list missed included.
+    private var allBooks: [HCBook] {
+        let merged = FolioMobileDiscoverySections.unique(books + newest)
+        switch order {
+        case .popular: return merged
+        case .newest: return merged.sorted { ($0.year ?? 0) > ($1.year ?? 0) }
+        case .oldest: return merged.sorted { ($0.year ?? .max) < ($1.year ?? .max) }
+        case .rating: return merged.sorted { ($0.rating ?? 0) > ($1.rating ?? 0) }
+        case .title: return merged.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+        }
     }
 
     var body: some View {
@@ -390,14 +441,33 @@ struct FolioMobileAuthorView: View {
                         }
                     }
                 }
-                if !series.isEmpty { seriesSection }
                 if !books.isEmpty {
-                    FolioMobileRemoteBookGridSection(title: "Books", books: books)
+                    FolioMobileRow(title: "Popular") {
+                        ForEach(Array(books.prefix(15))) { book in
+                            FolioMobileRemoteBookTile(book: book, width: 118)
+                        }
+                    }
                 } else if loading {
-                    ProgressView().frame(maxWidth: .infinity).padding(.vertical, 30)
+                    skeletonRow
                 } else if let failure {
                     Text(failure).font(.subheadline).foregroundStyle(.secondary)
                 }
+                if newestBooks.count >= 3 {
+                    FolioMobileRow(title: "Newest") {
+                        ForEach(newestBooks) { book in
+                            FolioMobileRemoteBookTile(book: book, width: 118)
+                        }
+                    }
+                }
+                if !series.isEmpty { seriesSection }
+                if !highestRated.isEmpty {
+                    FolioMobileRow(title: "Highest rated") {
+                        ForEach(highestRated) { book in
+                            FolioMobileRemoteBookTile(book: book, width: 118)
+                        }
+                    }
+                }
+                if books.count > 15 || newest.count > 15 { allBooksSection }
             }
             .padding(20)
             .frame(maxWidth: 900, alignment: .leading)
@@ -422,6 +492,53 @@ struct FolioMobileAuthorView: View {
             _author = State(initialValue: cached.author)
             _books = State(initialValue: cached.books)
             _series = State(initialValue: cached.series)
+            _newest = State(initialValue: cached.newest ?? [])
+        }
+    }
+
+    /// Book-shaped placeholders while the first list loads.
+    private var skeletonRow: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Popular")
+                .font(.folioDisplay(.title2))
+                .foregroundStyle(FolioTheme.ink)
+            HStack(alignment: .top, spacing: 14) {
+                ForEach(0..<4, id: \.self) { _ in FolioMobileBookSkeleton(width: 118) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .clipped()
+        }
+        .accessibilityLabel("Loading books")
+    }
+
+    private var allBooksSection: some View {
+        let columns = [GridItem(.adaptive(minimum: 104, maximum: 150), spacing: 14, alignment: .top)]
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("All books")
+                    .font(.folioDisplay(.title2))
+                    .foregroundStyle(FolioTheme.ink)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 8)
+                Menu {
+                    Picker("Sort", selection: $order) {
+                        ForEach(Order.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(order.rawValue)
+                        Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.semibold))
+                    }
+                    .font(.subheadline)
+                    .foregroundStyle(FolioTheme.olive)
+                }
+                .accessibilityLabel("Sort all books, \(order.rawValue)")
+            }
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 20) {
+                ForEach(allBooks) { book in
+                    FolioMobileRemoteBookTile(book: book)
+                }
+            }
         }
     }
 
@@ -500,7 +617,8 @@ struct FolioMobileAuthorView: View {
 
     /// Up to three of the author's covers in the series, fanned like a stack.
     private func coverStack(_ item: HCSeriesRef) -> some View {
-        let covers = item.bookIDs.compactMap { id in books.first { $0.id == id } }.prefix(3)
+        let known = FolioMobileDiscoverySections.unique(books + newest)
+        let covers = item.bookIDs.compactMap { id in known.first { $0.id == id } }.prefix(3)
         return ZStack(alignment: .leading) {
             if covers.isEmpty {
                 FolioClothCover(title: item.name, compact: true)
@@ -517,35 +635,88 @@ struct FolioMobileAuthorView: View {
         .frame(width: 58, height: 58, alignment: .leading)
     }
 
+    /// One part of the page, as it arrives.
+    private enum Piece {
+        case popular([HCBook]?)
+        case newest([HCBook]?)
+        case profile(HCAuthor?, wikidata: String?)
+        case series([HCSeriesRef]?)
+    }
+
+    /// Open Library and Wikidata: no account needed, and no Hardcover requests.
+    /// The books need only the name, so they load alongside the author's record
+    /// instead of after it, and each section shows as soon as its list arrives.
     @MainActor
     private func load() async {
         if let cached = FolioAuthorCache.page(route.name) {
             author = cached.page.author
             books = cached.page.books
             series = cached.page.series
+            newest = cached.page.newest ?? []
             // Author pages change slowly; refresh twice a day at most.
-            if Date().timeIntervalSince(cached.saved) < 60 * 60 * 12 { return }
+            if Date().timeIntervalSince(cached.saved) < 60 * 60 * 12, cached.page.newest != nil { return }
         }
-        // Open Library and Wikidata: no account needed, and no Hardcover requests.
         loading = true
         failure = nil
         defer { loading = false }
-        do {
-            guard let page = try await FolioOpenLibrary.authorPage(name: route.name) else {
-                if books.isEmpty { failure = "Open Library has no author page for \(route.name)." }
-                return
+        let name = route.name
+        var found: HCAuthor?
+        var popular: [HCBook]?
+        var latest: [HCBook]?
+        var foundSeries: [HCSeriesRef]?
+        await withTaskGroup(of: Piece.self) { group in
+            group.addTask { .popular(try? await FolioOpenLibrary.booksBy(author: name, limit: FolioOpenLibrary.authorPageLimit)) }
+            group.addTask { .newest(try? await FolioOpenLibrary.newestBooks(author: name)) }
+            group.addTask {
+                let profile = try? await FolioOpenLibrary.authorProfile(name: name)
+                return .profile(profile?.author, wikidata: profile?.wikidata)
             }
-            author = page.author
-            books = page.books
-            series = page.series
-            FolioAuthorCache.save(page: page, for: route.name)
-            follows.refresh(name: page.author.name, hardcoverID: nil, imageURL: page.author.imageURL)
-        } catch is CancellationError {
+            while let piece = await group.next() {
+                guard !Task.isCancelled else {
+                    group.cancelAll()
+                    return
+                }
+                switch piece {
+                case .popular(let list):
+                    popular = list
+                    if let list, !list.isEmpty {
+                        withAnimation(.easeOut(duration: 0.2)) { books = list }
+                    }
+                case .newest(let list):
+                    latest = list
+                    if let list, !list.isEmpty { newest = list }
+                case .profile(let profile, let qid):
+                    found = profile
+                    if let profile { author = profile }
+                    if let qid {
+                        group.addTask { .series(try? await FolioWikidataSeries.series(ofAuthor: qid)) }
+                    }
+                case .series(let list):
+                    foundSeries = list
+                    if let list { series = list }
+                }
+            }
+        }
+        guard !Task.isCancelled else { return }
+        // Open Library may file the books under the record's spelling of the name.
+        if popular?.isEmpty ?? true, let canonical = found?.name, canonical != name,
+           let list = try? await FolioOpenLibrary.booksBy(author: canonical, limit: FolioOpenLibrary.authorPageLimit) {
+            popular = list
+            if !list.isEmpty { books = list }
+        }
+        guard let popular, !popular.isEmpty else {
+            if books.isEmpty {
+                failure = popular == nil ? "Couldn't reach Open Library. Try again in a moment."
+                    : "Open Library has no books by \(route.name)."
+            }
             return
-        } catch {
-            FolioLog.log("Author page for \(route.name) failed: \(error.localizedDescription)", "discover")
-            // Keep showing the saved page when a refresh fails.
-            if books.isEmpty { failure = error.localizedDescription }
+        }
+        let profile = found ?? author ?? HCAuthor(id: 0, name: name)
+        let page = HCAuthorPage(author: profile, books: popular, series: foundSeries ?? series,
+                                newest: latest ?? newest)
+        FolioAuthorCache.save(page: page, for: route.name)
+        if found != nil {
+            follows.refresh(name: profile.name, hardcoverID: nil, imageURL: profile.imageURL)
         }
     }
 }
@@ -709,7 +880,7 @@ struct FolioMobileSeriesView: View {
             }
             .accessibilityIdentifier("folio.saveSeries")
         }
-        .task(id: route.id) { await load() }
+        .task(id: route.id) { await HCPriority.$foreground.withValue(true) { await load() } }
     }
 
     /// Wikidata series (negative ids) come with Open Library's books and need no account;
@@ -970,15 +1141,41 @@ struct FolioMobileRatingsView: View {
         .folioScreen()
         .folioPageHeader(route.title)
         .task(id: route.bookID) {
-            loading = true
-            stats = try? await hardcover.stats(bookID: route.bookID)
-            do {
-                reviews = try await hardcover.reviews(bookID: route.bookID, limit: 40)
-            } catch {
-                reviewsFailed = true
-            }
-            loading = false
+            await HCPriority.$foreground.withValue(true) { await load() }
         }
+    }
+
+    /// Opens with what the book page already showed (average, bars, top reviews), then
+    /// asks for the numbers, the bars and the full reviews at the same time.
+    @MainActor
+    private func load() async {
+        let snapshot = FolioBookPageCache.load(route.bookID)
+        if stats == nil { stats = snapshot?.page.stats }
+        if reviews.isEmpty, let saved = snapshot?.reviews { reviews = saved }
+        loading = true
+        defer { loading = false }
+        // The book page refreshed these numbers moments ago: no need to ask again.
+        let numbersFresh = snapshot.map { Date().timeIntervalSince($0.saved) < 10 * 60 && $0.page.stats != nil } ?? false
+        async let numbers = freshNumbers(skip: numbersFresh)
+        async let bars = hardcover.ratingDistribution(bookID: route.bookID)
+        async let list = try? hardcover.reviews(bookID: route.bookID, limit: 40)
+        if var fresh = await numbers {
+            if let old = stats?.distribution, !old.isEmpty { fresh.distribution = old }
+            stats = fresh
+        }
+        let distribution = await bars
+        if !distribution.isEmpty { stats?.distribution = distribution }
+        if let fetched = await list {
+            reviews = fetched
+        } else if reviews.isEmpty {
+            reviewsFailed = true
+        }
+    }
+
+    @MainActor
+    private func freshNumbers(skip: Bool) async -> HCBookStats? {
+        guard !skip else { return nil }
+        return try? await hardcover.stats(bookID: route.bookID, distribution: false)
     }
 
     private func stat(_ value: Int, _ label: String) -> some View {

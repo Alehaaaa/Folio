@@ -84,6 +84,8 @@ struct FolioMobileBookDetail: View {
         _stats = State(initialValue: page.stats)
         _edition = State(initialValue: page.edition)
         _bookSeries = State(initialValue: page.series)
+        _pageGenres = State(initialValue: page.genres ?? [])
+        _editionLanguages = State(initialValue: (page.languages ?? []).map { ($0.code, $0.title) })
         _seriesEntries = State(initialValue: snapshot.seriesBooks)
         _topReviews = State(initialValue: snapshot.reviews)
         _moreByAuthor = State(initialValue: snapshot.moreByAuthor ?? [])
@@ -303,9 +305,19 @@ struct FolioMobileBookDetail: View {
                 }
             }
         }
-        .task(id: "\(linkedID ?? 0)-\(hardcover.isConnected)") { await loadHardcoverData() }
-        .task(id: "open-\(initialRemote?.id ?? 0)-\(linkedID ?? 0)-\(title)") { await loadOpenData() }
-        .task(id: "\(local?.id.uuidString ?? title)-\(hardcover.isConnected)") { await resolveHardcover() }
+        // The page on screen goes ahead of background Hardcover work waiting on the rate limit.
+        .task(id: "\(linkedID ?? 0)-\(hardcover.isConnected)") {
+            await HCPriority.$foreground.withValue(true) { await loadHardcoverData() }
+        }
+        // Keyed on the work, not the shown title: the title changes when the edition in
+        // your language arrives, and that used to restart every Open Library request.
+        .task(id: "open-\(openBase.id)-\(openBase.title)") { await loadOpenData() }
+        .task(id: "similar-\(openBase.id)-\(openBase.title)-\(pageGenres.prefix(3).joined(separator: ","))") {
+            await loadSimilar()
+        }
+        .task(id: "\(local?.id.uuidString ?? title)-\(hardcover.isConnected)") {
+            await HCPriority.$foreground.withValue(true) { await resolveHardcover() }
+        }
     }
 
     // MARK: Hero
@@ -606,10 +618,6 @@ struct FolioMobileBookDetail: View {
                     .foregroundStyle(FolioTheme.ink)
                     .folioCreamGlass(in: Circle())
                     .accessibilityLabel("Choose the download language")
-                }
-                .task(id: linkedID) {
-                    guard let linkedID else { return }
-                    editionLanguages = (try? await hardcover.editionLanguages(bookID: linkedID)) ?? []
                 }
 
                 if let job = matchingDownload {
@@ -1195,15 +1203,29 @@ struct FolioMobileBookDetail: View {
 
     /// Series, more by the author and similar books. They come from Open Library and
     /// Wikidata, which need no account and have no daily cap. Hardcover is asked only
-    /// for a series Wikidata doesn't know.
+    /// for a series Wikidata doesn't know. The description, the series and the author's
+    /// books load side by side, and each row shows as soon as its own answer arrives.
     @MainActor
     private func loadOpenData() async {
         let base = openBase
         guard !base.title.isEmpty else { return }
-        if FolioOpenLibrary.isOpenLibrary(base), remoteDetails?.id == base.id, remoteDetails?.description == nil,
-           let text = await FolioOpenLibrary.description(of: base), remoteDetails?.id == base.id {
-            remoteDetails?.description = text
-        }
+        async let description: Void = loadOpenDescription(base)
+        async let seriesRow: Void = loadOpenSeries(base)
+        async let authorRow: Void = loadMoreByAuthor(base)
+        _ = await (description, seriesRow, authorRow)
+        guard !Task.isCancelled else { return }
+        saveSnapshot()
+    }
+
+    @MainActor
+    private func loadOpenDescription(_ base: HCBook) async {
+        guard FolioOpenLibrary.isOpenLibrary(base), remoteDetails?.id == base.id, remoteDetails?.description == nil,
+              let text = await FolioOpenLibrary.description(of: base), remoteDetails?.id == base.id else { return }
+        remoteDetails?.description = text
+    }
+
+    @MainActor
+    private func loadOpenSeries(_ base: HCBook) async {
         let memberships = await FolioWikidataSeries.series(of: base)
         guard !Task.isCancelled else { return }
         if let first = memberships.first, let entries = try? await FolioWikidataSeries.books(first.id), entries.count > 1 {
@@ -1214,30 +1236,34 @@ struct FolioMobileBookDetail: View {
             FolioSeriesCache.save(entries, for: first.id)
         }
         openSeriesChecked = true
-        await hardcoverSeriesFallback()
-        guard !Task.isCancelled else { return }
+        await HCPriority.$foreground.withValue(true) { await hardcoverSeriesFallback() }
+    }
 
-        let skipTitles = [base.title, title] + seriesEntries.map(\.book.title)
-        func skipped(_ book: HCBook) -> Bool {
-            book.id == linkedID || skipTitles.contains { BookAutoMatch.sameTitle($0, book.title) }
-        }
-        if let name = authorRoutes.first?.name ?? FolioAuthorNames.split(base.authors).first,
-           let books = try? await FolioOpenLibrary.booksBy(author: name) {
-            moreByAuthor = Array(books.filter { !skipped($0) }.prefix(20))
-        }
+    /// The same request the author page makes, so opening the author from here is instant.
+    @MainActor
+    private func loadMoreByAuthor(_ base: HCBook) async {
+        guard let name = authorRoutes.first?.name ?? FolioAuthorNames.split(base.authors).first,
+              let books = try? await FolioOpenLibrary.booksBy(author: name, limit: FolioOpenLibrary.authorPageLimit),
+              !Task.isCancelled else { return }
+        moreByAuthor = Array(books.prefix(30))
+    }
+
+    /// "More like this", from Hardcover's genres once the page has them, else Open Library's subjects.
+    @MainActor
+    private func loadSimilar() async {
+        let base = openBase
+        guard !base.title.isEmpty else { return }
         var genres = pageGenres
         if genres.isEmpty, FolioOpenLibrary.isOpenLibrary(base) {
             genres = await FolioOpenLibrary.subjects(of: base)
         }
         genres = genres.filter { !["fiction", "nonfiction", "non-fiction", "adult", "general"].contains($0.lowercased()) }
-        if !genres.isEmpty, let books = try? await FolioOpenLibrary.similar(to: base, genres: genres) {
-            let byAuthor = Set(moreByAuthor.map(\.id))
-            let byline = Set(FolioAuthorNames.split(author).map(FolioAuthorNames.key))
-            similar = Array(books.filter { book in
-                !skipped(book) && !byAuthor.contains(book.id)
-                    && FolioAuthorNames.split(book.authors).allSatisfy { !byline.contains(FolioAuthorNames.key($0)) }
-            }.prefix(20))
-        }
+        guard !genres.isEmpty, let books = try? await FolioOpenLibrary.similar(to: base, genres: genres),
+              !Task.isCancelled else { return }
+        let byline = Set(FolioAuthorNames.split(author).map(FolioAuthorNames.key))
+        similar = Array(books.filter { book in
+            FolioAuthorNames.split(book.authors).allSatisfy { !byline.contains(FolioAuthorNames.key($0)) }
+        }.prefix(30))
         saveSnapshot()
     }
 
@@ -1261,8 +1287,14 @@ struct FolioMobileBookDetail: View {
     @ViewBuilder
     private var recommendationRows: some View {
         let read = FolioReadBooks.shared
-        let byAuthor = read.unread(moreByAuthor).prefix(15)
-        let alike = read.unread(similar).prefix(15)
+        // This book and its series are already on the page.
+        let skipTitles = [openBase.title, title] + seriesEntries.map(\.book.title)
+        let skipped: (HCBook) -> Bool = { book in
+            book.id == linkedID || skipTitles.contains { BookAutoMatch.sameTitle($0, book.title) }
+        }
+        let byAuthor = read.unread(moreByAuthor).filter { !skipped($0) }.prefix(15)
+        let byAuthorIDs = Set(byAuthor.map(\.id))
+        let alike = read.unread(similar).filter { !skipped($0) && !byAuthorIDs.contains($0.id) }.prefix(15)
         if !byAuthor.isEmpty, let name = authorRoutes.first?.name {
             FolioMobileRow(title: "More by \(name)") {
                 ForEach(Array(byAuthor)) { book in
@@ -1297,6 +1329,9 @@ struct FolioMobileBookDetail: View {
                 && $0.similar != nil
         } ?? false
         let language: String? = local != nil ? local?.language : BookLanguage.reading
+        // The bars and top reviews don't depend on the page, so they are asked for at
+        // the same time instead of after it.
+        async let extras = pageExtras(linkedID, skip: recentlyLoaded)
         guard let page = try? await hardcover.bookPage(id: linkedID, editionID: editionID, language: language,
                                                        editionTitle: editionID == nil ? requestedEditionTitle : nil),
               !Task.isCancelled else { return }
@@ -1314,7 +1349,17 @@ struct FolioMobileBookDetail: View {
         }
         edition = page.edition
         bookSeries = openSeries ?? page.series
+        // A series seen before shows its books now; Wikidata may still replace it.
+        if seriesEntries.isEmpty, let first = bookSeries.first, first.id > 0,
+           let cached = FolioSeriesCache.load(first.id) {
+            seriesEntries = cached.books
+        }
         pageGenres = page.genres ?? []
+        if let languages = page.languages {
+            editionLanguages = languages.map { ($0.code, $0.title) }
+        } else if let fetched = try? await hardcover.editionLanguages(bookID: linkedID) {
+            editionLanguages = fetched
+        }
         await backfillEdition(linkedID)
         recordShownEdition()
         var fresh = page.stats
@@ -1327,14 +1372,21 @@ struct FolioMobileBookDetail: View {
         }
         saveSnapshot()
 
-        async let distribution = hardcover.ratingDistribution(bookID: linkedID)
-        async let reviews = try? hardcover.reviews(bookID: linkedID, limit: 2)
-        let bars = await distribution
+        let (bars, reviews) = await extras
         if !bars.isEmpty { stats?.distribution = bars }
-        if let list = await reviews { topReviews = list }
+        if let list = reviews { topReviews = list }
         await hardcoverSeriesFallback()
         guard !Task.isCancelled else { return }
         saveSnapshot()
+    }
+
+    /// The rating bars and the two top reviews, fetched side by side.
+    @MainActor
+    private func pageExtras(_ bookID: Int, skip: Bool) async -> (bars: [Int], reviews: [HCReview]?) {
+        guard !skip else { return ([], nil) }
+        async let bars = hardcover.ratingDistribution(bookID: bookID)
+        async let reviews = try? hardcover.reviews(bookID: bookID, limit: 2)
+        return (await bars, await reviews)
     }
 
     private func apply(_ snapshot: FolioBookPageCache.Snapshot) {
@@ -1345,6 +1397,8 @@ struct FolioMobileBookDetail: View {
         recordShownEdition()
         bookSeries = openSeries ?? snapshot.page.series
         if openSeries == nil { seriesEntries = snapshot.seriesBooks }
+        if let genres = snapshot.page.genres { pageGenres = genres }
+        if let languages = snapshot.page.languages { editionLanguages = languages.map { ($0.code, $0.title) } }
         topReviews = snapshot.reviews
         moreByAuthor = snapshot.moreByAuthor ?? []
         similar = snapshot.similar ?? []
@@ -1358,6 +1412,7 @@ struct FolioMobileBookDetail: View {
             seriesEntries = []
         }
         pageGenres = []
+        editionLanguages = []
         stats = nil
         edition = nil
         topReviews = []
@@ -1366,7 +1421,9 @@ struct FolioMobileBookDetail: View {
     private func saveSnapshot() {
         guard let linkedID, remoteDetails?.id == linkedID else { return }
         let page = HCBookPage(book: remoteDetails, userBook: myHardcoverBook, stats: stats,
-                              edition: edition, series: bookSeries)
+                              edition: edition, series: bookSeries, genres: pageGenres.isEmpty ? nil : pageGenres,
+                              languages: editionLanguages.isEmpty ? nil
+                                : editionLanguages.map { HCEditionLanguage(code: $0.code, title: $0.title) })
         FolioBookPageCache.save(.init(page: page, seriesBooks: seriesEntries, reviews: topReviews,
                                       moreByAuthor: moreByAuthor, similar: similar), for: linkedID)
     }

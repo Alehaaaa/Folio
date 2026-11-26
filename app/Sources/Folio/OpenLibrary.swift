@@ -16,9 +16,10 @@ import Foundation
 actor FolioOpenData {
     static let shared = FolioOpenData()
 
-    /// Open Library asks identified clients to stay under 3 requests a second;
-    /// Wikidata's query service allows far more, but one a second is plenty.
-    private static let spacing: [String: TimeInterval] = ["openlibrary.org": 0.4, "query.wikidata.org": 1.0]
+    /// Open Library asks identified clients to stay under 3 requests a second.
+    /// Wikidata's query service allows five queries at once; a quarter second
+    /// apart keeps a page's two or three queries from queueing behind each other.
+    private static let spacing: [String: TimeInterval] = ["openlibrary.org": 0.34, "query.wikidata.org": 0.25]
     private var next: [String: Date] = [:]
     private var blockedUntil: [String: Date] = [:]
     private var memory: [String: (saved: Date, json: JSON)] = [:]
@@ -290,8 +291,12 @@ enum FolioOpenLibrary {
     }
 
     /// The author's best-known books.
-    static func booksBy(author: String, limit: Int = 30) async throws -> [HCBook] {
-        let docs = try await search("author:(\(quoted(author)))", sort: "readinglog", limit: limit, fresh: 3 * day)
+    /// The book page and the author page both ask for `authorPageLimit`, so opening
+    /// the author from a book reuses the answer the book page already has.
+    static let authorPageLimit = 60
+
+    static func booksBy(author: String, sort: String = "readinglog", limit: Int = 30) async throws -> [HCBook] {
+        let docs = try await search("author:(\(quoted(author)))", sort: sort, limit: limit, fresh: 3 * day)
         return books(docs)
     }
 
@@ -311,9 +316,9 @@ enum FolioOpenLibrary {
 // MARK: - Authors
 
 extension FolioOpenLibrary {
-    /// The author page: Open Library's author (bio, photo, dates), their best-known
-    /// books, and their series from Wikidata. Author ids are negative (-N for OLnA).
-    static func authorPage(name: String) async throws -> HCAuthorPage? {
+    /// The author as Open Library knows them (bio, photo, dates) and their Wikidata
+    /// id, for the series. Author ids are negative (-N for OLnA).
+    static func authorProfile(name: String) async throws -> (author: HCAuthor, wikidata: String?)? {
         var parts = URLComponents(string: "https://openlibrary.org/search/authors.json")!
         parts.queryItems = [URLQueryItem(name: "q", value: name), URLQueryItem(name: "limit", value: "5"),
                             URLQueryItem(name: "fields", value: "key,name,work_count")]
@@ -334,12 +339,13 @@ extension FolioOpenLibrary {
                               imageURL: photo.flatMap { URL(string: "https://covers.openlibrary.org/a/id/\($0)-L.jpg") },
                               bornYear: year(record["birth_date"].string), deathYear: year(record["death_date"].string),
                               booksCount: doc["work_count"].int, followers: nil)
-        let books = try await booksBy(author: author.name, limit: 60)
-        var series: [HCSeriesRef] = []
-        if let qid = record["remote_ids"]["wikidata"].string {
-            series = (try? await FolioWikidataSeries.series(ofAuthor: qid)) ?? []
-        }
-        return HCAuthorPage(author: author, books: books, series: series)
+        return (author, record["remote_ids"]["wikidata"].string)
+    }
+
+    /// The author's newest books, most recent first, without announced titles far ahead.
+    static func newestBooks(author: String) async throws -> [HCBook] {
+        let thisYear = Calendar.current.component(.year, from: Date())
+        return try await booksBy(author: author, sort: "new", limit: 30).filter { ($0.year ?? 0) <= thisYear + 1 }
     }
 }
 

@@ -218,6 +218,7 @@ enum FolioBookPageCache {
     }
 
     private static var memory: [Int: Snapshot] = [:]
+    private static let writer = DispatchQueue(label: "folio.book-pages", qos: .utility)
     /// Books with nothing saved, so views asking on every redraw don't read the disk each time.
     private static var missing: Set<Int> = []
 
@@ -245,6 +246,9 @@ enum FolioBookPageCache {
         memory[bookID] = snapshot
         missing.remove(bookID)
         let url = directory.appendingPathComponent("\(bookID).json")
-        if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: url, options: .atomic) }
+        // Written in the background, in order: a page saves several times while it loads.
+        writer.async {
+            if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: url, options: .atomic) }
+        }
     }
 }
