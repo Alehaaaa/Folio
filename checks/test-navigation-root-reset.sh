@@ -18,7 +18,7 @@ shared = block('enum FolioMobileTabLayout: Equatable {') + '\n' + block('enum Fo
 Path(sys.argv[1]).write_text('''import SwiftUI
 import Observation
 
-enum FolioMobileTab { case home, library, search, downloads, sources, settings, more }
+enum FolioMobileTab { case home, library, search, downloads, settings, more }
 enum FolioMobileLibraryScope { case books, shelves }
 enum HCStatus { case reading, read }
 struct FolioMobileReading: Identifiable { let id: UUID }
@@ -48,7 +48,7 @@ struct FolioMobileReading: Identifiable { let id: UUID }
         nav.morePath.append("Settings")
         let inMore = nav.navigationRootID
         nav.selectedTab = .more // tapping More again
-        precondition(nav.morePath.isEmpty, "Tapping More again must close Settings/Downloads/Sources")
+        precondition(nav.morePath.isEmpty, "Tapping More again must close Settings/Downloads")
         precondition(nav.navigationRootID != inMore, "Tapping More again must return to its root")
 
         nav.selectedTab = .settings
@@ -59,15 +59,15 @@ struct FolioMobileReading: Identifiable { let id: UUID }
 
         // Pages fold into More only when the bar can't hold them. iPhones (and compact
         // iPad windows) get at most five tabs, or UIKit hides Discover in its own More.
-        for layout in [FolioMobileTabLayout.compact, .medium, .full] {
-            let tabs = 2 + 3 - layout.moreRoutes.count + (layout.moreRoutes.isEmpty ? 0 : 1) + 1
-            precondition(layout == .full || tabs <= FolioMobileTabLayout.maxTabs, "\(layout) has \(tabs) tabs")
+        // Source extensions live in Settings, so every layout fits the five-tab limit.
+        for layout in [FolioMobileTabLayout.compact, .full] {
+            let tabs = 2 + 2 - layout.moreRoutes.count + (layout.moreRoutes.isEmpty ? 0 : 1) + 1
+            precondition(tabs <= FolioMobileTabLayout.maxTabs, "\(layout) has \(tabs) tabs")
         }
-        precondition(FolioMobileTabLayout(width: 393, regular: false, phone: true) == .medium, "iPhone portrait")
-        precondition(FolioMobileTabLayout(width: 932, regular: true, phone: true) == .medium, "iPhone landscape stays at five tabs")
+        precondition(FolioMobileTabLayout(width: 393, regular: false, phone: true) == .full, "iPhone portrait shows every tab")
+        precondition(FolioMobileTabLayout(width: 932, regular: true, phone: true) == .full, "iPhone landscape")
         precondition(FolioMobileTabLayout(width: 320, regular: false, phone: false) == .compact, "Slide Over")
-        precondition(FolioMobileTabLayout(width: 0, regular: false, phone: true) == .medium, "Unknown width")
-        precondition(FolioMobileTabLayout(width: 600, regular: true, phone: false) == .medium)
+        precondition(FolioMobileTabLayout(width: 0, regular: false, phone: true) == .full, "Unknown width")
         precondition(FolioMobileTabLayout(width: 744, regular: true, phone: false).moreRoutes.isEmpty, "iPad mini portrait shows every tab")
         print("PASS sidebar switches, tab reselect and programmatic navigation discard stale submenus")
     }

@@ -16,6 +16,10 @@ struct FolioMobileSettingsView: View {
                 NavigationLink { FolioMobileLibrarySettings(showImporter: showImporter) } label: {
                     Label("Library", systemImage: "books.vertical")
                 }
+                NavigationLink { FolioMobileExtensionSettings() } label: {
+                    Label("Extensions", systemImage: "puzzlepiece.extension")
+                }
+                .accessibilityIdentifier("folio.settings.extensions")
                 NavigationLink { FolioMobileGoalsSettings() } label: {
                     Label("Goals & Reminders", systemImage: "target")
                 }

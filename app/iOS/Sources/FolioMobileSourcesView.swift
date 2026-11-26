@@ -58,12 +58,7 @@ struct FolioMobileSourcesView: View {
                     ContentUnavailableView {
                         Label("No Enabled Sources", systemImage: "square.stack.3d.up.slash")
                     } description: {
-                        Text("Source extensions let you discover and import compatible books.")
-                    } actions: {
-                        NavigationLink {
-                            FolioMobileExtensionSettings()
-                        } label: { Label("Manage Sources", systemImage: "puzzlepiece.extension") }
-                        .folioGlassPill(prominent: true)
+                        Text("Turn on an extension in Settings to browse its books.")
                     }
                     .frame(maxWidth: .infinity, minHeight: 300)
                 } else {
@@ -86,17 +81,14 @@ struct FolioMobileSourcesView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollDismissesKeyboard(.immediately)
-        .navigationTitle("Sources")
+        .navigationTitle("Browse Sources")
         .folioScreen()
-        .folioPageHeader("Sources") {
+        .folioPageHeader("Browse Sources") {
                 Menu {
                     Button {
                         Task { await checkForNew() }
                     } label: { Label("Check for New Books", systemImage: "arrow.triangle.2.circlepath") }
                     .disabled(checkingForNew || selectedSource.isEmpty)
-                    NavigationLink {
-                        FolioMobileExtensionSettings()
-                    } label: { Label("Manage Sources", systemImage: "puzzlepiece.extension") }
                 } label: {
                     FolioHeaderIconLabel(symbol: "ellipsis")
                 }

@@ -2,7 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// The Mac window shows the same tabs and screens as Folio on iPad: Home with
-/// the nook, Library, Discover, Sources and Settings, as a sidebar. Downloads
+/// the nook, Library, Discover, Downloads and Settings, as a sidebar. Downloads
 /// is the macOS Downloads page, and books open in the macOS reader window.
 struct FolioMacRootView: View {
     @Environment(LibraryStore.self) private var store
@@ -15,6 +15,7 @@ struct FolioMacRootView: View {
     @State private var importAfterOnboarding = false
     @State private var downloadToast: DownloadToast?
     @State private var shownBook: FolioMobileReading?
+    @State private var showingExtensions = false
 
     /// A short, actionable handoff: the person decides when to leave the current page.
     private struct DownloadToast: Identifiable {
@@ -35,7 +36,6 @@ struct FolioMacRootView: View {
         (.library, "Library", "books.vertical"),
         (.search, "Discover", "magnifyingglass"),
         (.downloads, "Downloads", "arrow.down.circle"),
-        (.sources, "Sources", "square.stack.3d.up"),
         (.settings, "Settings", "gearshape"),
     ]
 
@@ -102,7 +102,6 @@ struct FolioMacRootView: View {
                 case "library": navigation.selectedTab = .library
                 case "search": navigation.selectedTab = .search
                 case "downloads": navigation.selectedTab = .downloads
-                case "sources": navigation.selectedTab = .sources
                 case "settings": navigation.selectedTab = .settings
                 default: break
                 }
@@ -123,7 +122,6 @@ struct FolioMacRootView: View {
         case .library: FolioMobileLibraryView(showImporter: { importing = true })
         case .search: FolioMobileDiscoverView()
         case .downloads: DownloadingView().folioScreen()
-        case .sources: FolioMobileSourcesView()
         case .settings, .more: FolioMobileSettingsView(showImporter: { importing = true })
         }
     }
@@ -154,6 +152,15 @@ struct FolioMacRootView: View {
                     }
             }
             .frame(minWidth: 720, minHeight: 640)
+        }
+        .sheet(isPresented: $showingExtensions) {
+            NavigationStack {
+                FolioMobileExtensionSettings()
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { Button("Done") { showingExtensions = false } }
+                    }
+            }
+            .frame(minWidth: 620, minHeight: 560)
         }
         .sheet(isPresented: $showingOnboarding, onDismiss: {
             onboardingCompleted = true
@@ -191,7 +198,8 @@ struct FolioMacRootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .folioImport)) { _ in importing = true }
         .onReceive(NotificationCenter.default.publisher(for: .folioShowSources)) { _ in
             PopupCenter.shared.close()
-            navigation.selectedTab = .sources
+            navigation.selectedTab = .settings
+            showingExtensions = true
         }
         .onReceive(NotificationCenter.default.publisher(for: .folioShowSettings)) { _ in
             navigation.selectedTab = .settings

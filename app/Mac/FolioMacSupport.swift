@@ -11,7 +11,7 @@ extension Notification.Name {
     static let folioDownloadEnqueued = Notification.Name("folio.download.enqueued")
     /// Opens a library book's page over the current tab. `object` is its UUID.
     static let folioShowBook = Notification.Name("folio.mac.showBook")
-    /// Switches the main window to the Sources tab.
+    /// Opens Settings › Extensions in the main window.
     static let folioShowSources = Notification.Name("folio.mac.showSources")
     /// Switches the main window to the Settings tab (Folio > Settings…, ⌘,).
     static let folioShowSettings = Notification.Name("folio.mac.showSettings")

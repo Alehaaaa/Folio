@@ -11,8 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PROJECT = ROOT / "FolioiOS.xcodeproj"
-APP_VERSION = "1.0.110"
-BUILD_VERSION = "111"
+APP_VERSION = "1.0.111"
+BUILD_VERSION = "112"
 SHARED = [
     "Models",
     "LibraryStore",

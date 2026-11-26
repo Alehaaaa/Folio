@@ -27,6 +27,7 @@ struct FolioMobileFindSourceView: View {
     @State private var copies: [ExtensionStore.Copy] = []
     @State private var problems: [String] = []
     @State private var messages: [String] = []
+    @State private var managingExtensions = false
 
     /// The automatic queue requires a specific language. A person choosing an
     /// edition can deliberately broaden that search, but never silently.
@@ -141,12 +142,11 @@ struct FolioMobileFindSourceView: View {
                             Label("No Copies Found", systemImage: "magnifyingglass")
                         } description: {
                             Text(extensions.enabled.isEmpty
-                                 ? "Enable a source in Sources and search again."
+                                 ? "Turn on a source in Settings › Extensions and search again."
                                  : "Try a different title or author, or enable additional sources.")
                         } actions: {
-                            FolioGlassButton(title: "Manage Sources", systemImage: "square.stack.3d.up") {
-                                dismiss()
-                                navigation.openSources()
+                            FolioGlassButton(title: "Extensions", systemImage: "puzzlepiece.extension") {
+                                managingExtensions = true
                             }
                         }
                     } else if !copies.isEmpty {
@@ -218,6 +218,18 @@ struct FolioMobileFindSourceView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
                         .folioGlassPill()
+                }
+            }
+            // Extensions open over this sheet, so the search is still here after.
+            .sheet(isPresented: $managingExtensions, onDismiss: { Task { await search() } }) {
+                NavigationStack {
+                    FolioMobileExtensionSettings()
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("Done") { managingExtensions = false }
+                                    .folioGlassPill()
+                            }
+                        }
                 }
             }
             .task {

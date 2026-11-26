@@ -53,15 +53,6 @@ struct FolioMobileRootView: View {
                         .id(navigation.navigationRootID)
                 }
             }
-            if tabLayout.hasTab(.sources) {
-                Tab("Sources", systemImage: "square.stack.3d.up", value: .sources) {
-                    NavigationStack {
-                        FolioMobileSourcesView()
-                            .folioDetailDestinations()
-                    }
-                    .id(navigation.navigationRootID)
-                }
-            }
             if tabLayout.hasTab(.settings) {
                 Tab("Settings", systemImage: "gearshape", value: .settings) {
                     NavigationStack {
@@ -242,7 +233,6 @@ struct FolioMobileRootView: View {
                     NavigationLink(value: route) {
                         switch route {
                         case .downloads: Label("Downloads", systemImage: "arrow.down.circle")
-                        case .sources: Label("Sources", systemImage: "square.stack.3d.up")
                         case .settings: Label("Settings", systemImage: "gearshape")
                         }
                     }
@@ -258,7 +248,6 @@ struct FolioMobileRootView: View {
                 Group {
                     switch route {
                     case .downloads: FolioMobileDownloadsView()
-                    case .sources: FolioMobileSourcesView()
                     case .settings: FolioMobileSettingsView(showImporter: { importing = true })
                     }
                 }
@@ -273,11 +262,9 @@ struct FolioMobileRootView: View {
 extension FolioMobileNavigation {
     func openSettings() { open(.settings) }
 
-    func openSources() { open(.sources) }
-
     func openDownloads() { open(.downloads) }
 
-    /// Opens Downloads, Sources or Settings from anywhere: its own tab when it has
+    /// Opens Downloads or Settings from anywhere: its own tab when it has
     /// one, otherwise its page under More.
     func open(_ route: FolioMobileMoreRoute) {
         if tabLayout.hasTab(route) {
@@ -295,7 +282,7 @@ extension FolioMobileNavigation {
         guard layout != old else { return }
         tabLayout = layout
         switch selectedTab {
-        case .downloads, .sources, .settings:
+        case .downloads, .settings:
             if let route = FolioMobileMoreRoute.allCases.first(where: { $0.tab == selectedTab }),
                !layout.hasTab(route) {
                 showInMore(route)
@@ -311,7 +298,7 @@ extension FolioMobileNavigation {
     }
 
     /// Opens a page of the More tab from anywhere. Pages that Settings pushes with a
-    /// destination link (Source Extensions, Sync…) are not in `morePath`, so assigning
+    /// destination link (Extensions, Sync…) are not in `morePath`, so assigning
     /// the same path left them on screen. Popping to the root first and pushing on the
     /// next turn always lands on the requested page.
     private func showInMore(_ route: FolioMobileMoreRoute) {

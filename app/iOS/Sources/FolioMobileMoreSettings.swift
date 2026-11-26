@@ -213,6 +213,8 @@ struct FolioMobileTypographySections: View {
     }
 }
 
+/// Settings › Extensions: the download sources, turned on and off, ordered and
+/// browsed one at a time.
 struct FolioMobileExtensionSettings: View {
     @Environment(ExtensionStore.self) private var extensions
     @State private var importing = false
@@ -221,6 +223,12 @@ struct FolioMobileExtensionSettings: View {
     var body: some View {
         Form {
             Section {
+                NavigationLink {
+                    FolioMobileSourcesView()
+                } label: {
+                    Label("Browse Sources", systemImage: "square.stack.3d.up")
+                }
+                .disabled(extensions.enabled.isEmpty)
                 NavigationLink {
                     FolioSourceOrderEditor()
                 } label: {
@@ -284,9 +292,10 @@ struct FolioMobileExtensionSettings: View {
             }
             .folioRow()
         }
-        .navigationTitle("Source Extensions")
-        .folioPageHeader("Source Extensions")
+        .navigationTitle("Extensions")
+        .folioPageHeader("Extensions")
         .folioScreen()
+        .task { await extensions.ensureLoaded() }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.javaScript, UTType(filenameExtension: "js") ?? .javaScript]) { result in
             if case .success(let url) = result { Task { await extensions.install(from: url) } }
         }

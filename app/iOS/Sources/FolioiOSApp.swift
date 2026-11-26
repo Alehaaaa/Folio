@@ -93,47 +93,36 @@ enum FolioMobileTab: Hashable {
     case library
     case search
     case downloads
-    case sources
     case settings
     case more
 }
 
 /// Which pages get their own tab and which share More. It follows the width the
-/// window actually has, not the device: a wide window shows every page as a tab,
-/// and pages fold into More only when the bar would not fit them.
+/// window actually has, not the device. Source extensions live inside Settings,
+/// so a normal window fits every page as a tab.
 enum FolioMobileTabLayout: Equatable {
-    /// Home, Library, More (Downloads, Sources, Settings), Discover.
+    /// Home, Library, More (Downloads, Settings), Discover.
     case compact
-    /// Home, Library, Downloads, More (Sources, Settings), Discover.
-    case medium
-    /// Home, Library, Downloads, Sources, Settings, Discover. No More tab.
+    /// Home, Library, Downloads, Settings, Discover. No More tab.
     case full
-
-    /// Narrowest iPad window that shows six tabs. Six labeled tabs need about 600
-    /// points; the margin keeps them from crowding.
-    static let fullWidth: CGFloat = 680
 
     /// UIKit's own limit: a tab bar shows at most five tabs (Discover included) on
     /// every iPhone, in either orientation, and in a compact iPad window. A sixth tab
-    /// makes UIKit fold the last ones, Discover too, into its own More list. So only
-    /// an iPad window with a regular width class gets the six-tab layout.
+    /// makes UIKit fold the last ones, Discover too, into its own More list.
     static let maxTabs = 5
 
     /// Narrower than this (iPhone mini Display Zoom, iPad Slide Over), four tabs and
-    /// Discover crowd the bar, so Downloads joins More.
-    static let mediumWidth: CGFloat = 360
+    /// Discover crowd the bar, so Downloads and Settings share More.
+    static let fullWidth: CGFloat = 360
 
     init(width: CGFloat, regular: Bool, phone: Bool) {
-        if !phone && regular && width >= Self.fullWidth { self = .full }
-        else if width > 0 && width < Self.mediumWidth { self = .compact }
-        else { self = .medium }
+        self = width > 0 && width < Self.fullWidth ? .compact : .full
     }
 
     /// The pages listed under More, in order. Empty means no More tab.
     var moreRoutes: [FolioMobileMoreRoute] {
         switch self {
-        case .compact: [.downloads, .sources, .settings]
-        case .medium: [.sources, .settings]
+        case .compact: [.downloads, .settings]
         case .full: []
         }
     }
@@ -147,13 +136,12 @@ enum FolioMobileLibraryScope: String, CaseIterable, Identifiable {
 }
 
 enum FolioMobileMoreRoute: Hashable, CaseIterable {
-    case downloads, sources, settings
+    case downloads, settings
 
     /// The tab this page has when it is not folded into More.
     var tab: FolioMobileTab {
         switch self {
         case .downloads: .downloads
-        case .sources: .sources
         case .settings: .settings
         }
     }
@@ -171,7 +159,7 @@ final class FolioMobileNavigation {
     /// This also covers programmatic routes and reselecting the current tab.
     /// Tapping the tab you are already on lands here too (the tab bar writes
     /// the same value again), and, as in Apple's own apps, closes whatever
-    /// page is open in it: Settings, Downloads, Sources, a book page...
+    /// page is open in it: Settings, Downloads, a book page...
     var selectedTab: FolioMobileTab = .home {
         didSet {
             navigationRootID = UUID()
