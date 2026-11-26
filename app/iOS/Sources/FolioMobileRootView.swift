@@ -608,18 +608,22 @@ struct FolioMobileLibraryView: View {
     @State private var search = ""
     @State private var filter: LibraryFilter = .all
     @State private var collection: UUID?
-    @State private var sorting: FolioMobileSort = .recent
+    @AppStorage("folio.librarySort") private var sorting: FolioMobileSort = .recent
+    @AppStorage("folio.libraryHideRead") private var hideRead = false
+    @AppStorage("folio.libraryReversed") private var reversed = false
     @State private var newCollection = ""
     @State private var addingCollection = false
 
     private var visibleBooks: [LocalBook] {
-        let candidates = collection.map { store.books(in: $0, search: search) }
+        var candidates = collection.map { store.books(in: $0, search: search) }
             ?? store.books(filter, search: search)
-        switch sorting {
-        case .recent: return candidates.sorted { ($0.lastOpenedAt ?? $0.addedAt) > ($1.lastOpenedAt ?? $1.addedAt) }
-        case .title: return candidates.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-        case .author: return candidates.sorted { $0.author.localizedStandardCompare($1.author) == .orderedAscending }
+        // The Finished shelf is all read books, so Hide Read leaves it alone.
+        if hideRead, collection != nil || filter != .finished {
+            let read = FolioReadBooks.shared
+            candidates.removeAll { read.isRead($0) }
         }
+        let sorted = sorting.sorted(candidates)
+        return reversed ? sorted.reversed() : sorted
     }
 
     private var showingShelves: Bool { navigation.libraryScope == .shelves }
@@ -641,6 +645,8 @@ struct FolioMobileLibraryView: View {
                                     Text(option.label).tag(option)
                                 }
                             }
+                            Toggle("Reverse Order", systemImage: "arrow.up.arrow.down", isOn: $reversed)
+                            Toggle("Hide Read", systemImage: "eye.slash", isOn: $hideRead)
                             Divider()
                             Button("All Books") { collection = nil }
                             ForEach(store.data.collections) { c in
@@ -683,6 +689,9 @@ struct FolioMobileLibraryView: View {
         }
         .scrollDismissesKeyboard(.immediately)
         .folioScreen()
+        .task(id: sorting) {
+            if sorting == .series || sorting == .author { await store.fillInSeriesFromHardcover() }
+        }
         .navigationTitle(title)
         .toolbar(.hidden, for: .navigationBar)
         .alert("New Collection", isPresented: $addingCollection) {
@@ -733,7 +742,7 @@ struct FolioMobileLibraryView: View {
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 136, maximum: 190), spacing: 16, alignment: .top)], alignment: .leading, spacing: 24) {
                 ForEach(books) { book in
                     NavigationLink(value: book.id) {
-                        FolioMobileBookTile(book: book)
+                        FolioMobileBookTile(book: book, showsSeries: sorting == .series)
                     }
                     .buttonStyle(.plain)
                     .folioBookContextMenu(book)
@@ -745,14 +754,131 @@ struct FolioMobileLibraryView: View {
 }
 
 enum FolioMobileSort: String, CaseIterable, Identifiable {
-    case recent, title, author
+    case recent, added, title, author, series, progress, published
     var id: String { rawValue }
-    var label: String { rawValue.capitalized }
+
+    var label: String {
+        switch self {
+        case .recent: "Recently Opened"
+        case .added: "Recently Added"
+        case .title: "Title"
+        case .author: "Author"
+        case .series: "Series"
+        case .progress: "Progress"
+        case .published: "Publication Date"
+        }
+    }
+
+    @MainActor
+    func sorted(_ books: [LocalBook]) -> [LocalBook] {
+        switch self {
+        case .recent:
+            return books.sorted { ($0.lastOpenedAt ?? $0.addedAt) > ($1.lastOpenedAt ?? $1.addedAt) }
+        case .added:
+            return books.sorted { $0.addedAt > $1.addedAt }
+        case .title:
+            return books.sorted { Self.ascending($0.title, $1.title) }
+        case .author:
+            // Within an author, a saga stays together and in reading order.
+            let keys = Self.seriesKeys(books)
+            return books.sorted { a, b in
+                let order = a.author.localizedStandardCompare(b.author)
+                if order != .orderedSame { return order == .orderedAscending }
+                return keys[a.id]!.precedes(keys[b.id]!)
+            }
+        case .series:
+            let keys = Self.seriesKeys(books)
+            return books.sorted { keys[$0.id]!.precedes(keys[$1.id]!) }
+        case .progress:
+            // Books under way first, furthest along on top, then unstarted, then finished.
+            func rank(_ b: LocalBook) -> Int {
+                if FolioReadBooks.shared.isRead(b) { return 2 }
+                return b.progress > 0.001 ? 0 : 1
+            }
+            return books.sorted { a, b in
+                let ra = rank(a), rb = rank(b)
+                if ra != rb { return ra < rb }
+                if ra == 0, a.progress != b.progress { return a.progress > b.progress }
+                return (a.lastOpenedAt ?? a.addedAt) > (b.lastOpenedAt ?? b.addedAt)
+            }
+        case .published:
+            // Newest first; books without a year go last, by title.
+            return books.sorted { a, b in
+                switch (a.publishedYear, b.publishedYear) {
+                case let (x?, y?) where x != y: return x > y
+                case (_?, nil): return true
+                case (nil, _?): return false
+                default: return Self.ascending(a.title, b.title)
+                }
+            }
+        }
+    }
+
+    private static func ascending(_ a: String, _ b: String) -> Bool {
+        a.localizedStandardCompare(b) == .orderedAscending
+    }
+
+    /// A saga's books sit together under the saga's name, in volume order; a book
+    /// outside any saga files under its own title among them.
+    struct SeriesKey {
+        var shelf: String
+        var group: String?
+        var index: Double?
+        var title: String
+
+        func precedes(_ other: SeriesKey) -> Bool {
+            let order = shelf.localizedStandardCompare(other.shelf)
+            if order != .orderedSame { return order == .orderedAscending }
+            if (group == nil) != (other.group == nil) { return group != nil }
+            if let g = group, let h = other.group, g != h { return g < h }
+            switch (index, other.index) {
+            case let (x?, y?) where x != y: return x < y
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return title.localizedStandardCompare(other.title) == .orderedAscending
+            }
+        }
+    }
+
+    @MainActor
+    private static func seriesKeys(_ books: [LocalBook]) -> [UUID: SeriesKey] {
+        func name(_ b: LocalBook) -> String? {
+            let s = b.series?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return s.isEmpty ? nil : s
+        }
+        // "Red Rising" and "Red Rising Saga" are one saga: file both under the fuller name.
+        var shelfNames: [String: String] = [:]
+        for b in books {
+            guard let s = name(b) else { continue }
+            let g = HardcoverClient.seriesKey(s)
+            if let current = shelfNames[g], current.count >= s.count { continue }
+            shelfNames[g] = s
+        }
+        var keys: [UUID: SeriesKey] = [:]
+        for b in books {
+            if let s = name(b) {
+                let g = HardcoverClient.seriesKey(s)
+                keys[b.id] = SeriesKey(shelf: shelfNames[g] ?? s, group: g, index: b.seriesIndex, title: b.title)
+            } else {
+                keys[b.id] = SeriesKey(shelf: b.title, group: nil, index: nil, title: b.title)
+            }
+        }
+        return keys
+    }
 }
 
 struct FolioMobileBookTile: View {
     @Environment(LibraryStore.self) private var store
     let book: LocalBook
+    /// When the library is sorted by series, the caption names the saga and volume.
+    var showsSeries = false
+
+    private var caption: String {
+        if showsSeries, let series = book.series?.trimmingCharacters(in: .whitespacesAndNewlines), !series.isEmpty {
+            return book.seriesIndex.map { "\(series) #\($0.formatted())" } ?? series
+        }
+        return book.author.isEmpty ? "Unknown Author" : book.author
+    }
 
     /// Every tile has the same parts at the same heights: the cover, two lines of title,
     /// the author, and a footer row for the progress bar, so a row of tiles lines up.
@@ -767,7 +893,7 @@ struct FolioMobileBookTile: View {
                 .foregroundStyle(FolioTheme.ink)
                 .lineLimit(2, reservesSpace: true)
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(book.author.isEmpty ? "Unknown Author" : book.author)
+                Text(caption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

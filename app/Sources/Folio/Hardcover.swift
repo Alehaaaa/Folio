@@ -1066,6 +1066,23 @@ final class HardcoverClient {
         return out
     }
 
+    /// Each book's main series and its number in it, for many books in one request.
+    func seriesPlacement(forBooks ids: [Int]) async throws -> [Int: (name: String, position: Double?)] {
+        guard !ids.isEmpty else { return [:] }
+        let d = try await query("""
+        query LibrarySeries($ids: [Int!]) { book_series(where: {book_id: {_in: $ids}}) { book_id position series { name } } }
+        """, ["ids": ids])
+        var out: [Int: (name: String, position: Double?)] = [:]
+        for r in d["book_series"].array {
+            guard let id = r["book_id"].int, let name = r["series"]["name"].string, !name.isEmpty else { continue }
+            let position = r["position"].double
+            // A numbered place wins over a loose membership (omnibuses, companion lists).
+            if let current = out[id], current.position != nil || position == nil { continue }
+            out[id] = (name, position)
+        }
+        return out
+    }
+
     /// The series a set of books belongs to, most represented first.
     func series(forBooks ids: [Int]) async throws -> [HCSeriesRef] {
         guard !ids.isEmpty else { return [] }

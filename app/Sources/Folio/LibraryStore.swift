@@ -766,6 +766,28 @@ final class LibraryStore {
         }
     }
 
+    /// Linked books with no series in their file: ask Hardcover once, so sorting by
+    /// series also places books whose EPUB never named one.
+    func fillInSeriesFromHardcover() async {
+        let todo = data.books.filter {
+            ($0.series ?? "").isEmpty && $0.seriesHardcoverChecked != true && ($0.hardcoverBookID ?? 0) > 0
+        }
+        guard !todo.isEmpty else { return }
+        for chunk in stride(from: 0, to: todo.count, by: 100).map({ Array(todo[$0..<min($0 + 100, todo.count)]) }) {
+            let ids = Array(Set(chunk.compactMap(\.hardcoverBookID)))
+            guard let found = try? await HardcoverClient.shared.seriesPlacement(forBooks: ids) else { return }
+            for book in chunk {
+                guard let k = data.books.firstIndex(where: { $0.id == book.id }) else { continue }
+                if (data.books[k].series ?? "").isEmpty, let id = data.books[k].hardcoverBookID, let hit = found[id] {
+                    data.books[k].series = hit.name
+                    data.books[k].seriesIndex = data.books[k].seriesIndex ?? hit.position
+                }
+                data.books[k].seriesHardcoverChecked = true
+            }
+        }
+        save()
+    }
+
     // MARK: Changes
 
     func remove(_ id: UUID) {
