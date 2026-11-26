@@ -776,7 +776,7 @@ final class ExtensionStore {
                 Self.version(bundledVersion!, isNewerThan: installedVersion!) {
                 try? script.write(to: destination, atomically: true, encoding: .utf8)
             }
-            if savedByID[id] == nil { savedByID[id] = Saved(file: file, builtIn: true) }
+            if savedByID[id] == nil { savedByID[id] = Saved(file: file, enabled: id != "libgen", builtIn: true) }
             savedByID[id]?.file = file
             savedByID[id]?.builtIn = true
         }
@@ -899,7 +899,7 @@ final class ExtensionStore {
 
                 let file = entry.id + ".js"
                 try data.write(to: dir.appendingPathComponent(file), options: .atomic)
-                var saved = savedByID[entry.id] ?? Saved(file: file, builtIn: true)
+                var saved = savedByID[entry.id] ?? Saved(file: file, enabled: entry.id != "libgen", builtIn: true)
                 saved.file = file
                 saved.builtIn = true
                 savedByID[entry.id] = saved
