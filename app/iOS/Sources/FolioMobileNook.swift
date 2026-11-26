@@ -603,7 +603,10 @@ final class FolioSpinePalettes {
             let file = Self.stripFile(key)
             Task {
                 if needsStrip, !needsPalette {
-                    let saved = await Task.detached(priority: .userInitiated) { UIImage(contentsOfFile: file.path) }.value
+                    let saved = await Task.detached(priority: .userInitiated) {
+                        // Decoded here, not lazily on the main thread when the spine first draws.
+                        UIImage(contentsOfFile: file.path)?.preparingForDisplay()
+                    }.value
                     if let saved {
                         strips[key] = saved
                         return

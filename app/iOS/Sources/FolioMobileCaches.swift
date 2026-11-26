@@ -14,7 +14,14 @@ final class FolioImageCache: @unchecked Sendable {
     static let shared = FolioImageCache()
 
     private let memory = NSCache<NSURL, UIImage>()
-    private let localMemory = NSCache<NSString, UIImage>()
+    private let localMemory = NSCache<NSString, LocalCover>()
+
+    /// A decoded library cover and the file date it was read at.
+    private final class LocalCover {
+        let image: UIImage
+        let modified: Date?
+        init(image: UIImage, modified: Date?) { self.image = image; self.modified = modified }
+    }
     private let directory: URL
     private let session: URLSession
 
@@ -38,23 +45,42 @@ final class FolioImageCache: @unchecked Sendable {
         return directory.appendingPathComponent(String(hash, radix: 36) + ".jpg")
     }
 
-    /// Memory, then disk. Cheap enough to call while building a view.
+    /// Memory only: the one lookup cheap enough to make while building a view.
+    func memoryHit(_ url: URL) -> UIImage? {
+        memory.object(forKey: url as NSURL)
+    }
+
+    /// Memory, then disk. The disk copy is decoded here, so call it off the main
+    /// thread: a lazily decoded JPEG would otherwise decode on the main thread
+    /// in the middle of a scroll.
     func cached(_ url: URL) -> UIImage? {
         if let image = memory.object(forKey: url as NSURL) { return image }
-        guard let image = UIImage(contentsOfFile: file(for: url).path) else { return nil }
+        guard let data = try? Data(contentsOf: file(for: url)),
+              let image = Self.thumbnail(data, maxPixels: 600) else { return nil }
         memory.setObject(image, forKey: url as NSURL, cost: Self.cost(of: image))
         return image
     }
 
-    /// A cover file from the library, decoded once at screen size. Keyed by its
-    /// modification date too, so a replaced cover shows at once.
+    /// A library cover already decoded, from memory only. Library covers are
+    /// written under a new name whenever they change, so the path is the key.
+    func localCoverInMemory(_ file: URL) -> UIImage? {
+        localMemory.object(forKey: file.path as NSString)?.image
+    }
+
+    /// A cover file from the library, decoded once at screen size. Reads the
+    /// disk, so call it off the main thread (see `loadLocalCover`).
     func localCover(_ file: URL) -> UIImage? {
+        let key = file.path as NSString
         let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-        let key = "\(file.path)#\(modified?.timeIntervalSince1970 ?? 0)" as NSString
-        if let image = localMemory.object(forKey: key) { return image }
+        if let entry = localMemory.object(forKey: key), entry.modified == modified { return entry.image }
         guard let data = try? Data(contentsOf: file), let image = Self.thumbnail(data, maxPixels: 600) else { return nil }
-        localMemory.setObject(image, forKey: key, cost: Self.cost(of: image))
+        localMemory.setObject(LocalCover(image: image, modified: modified), forKey: key, cost: Self.cost(of: image))
         return image
+    }
+
+    /// `localCover`, read and decoded in the background.
+    func loadLocalCover(_ file: URL) async -> UIImage? {
+        await Task.detached(priority: .userInitiated) { self.localCover(file) }.value
     }
 
     private let inflightLock = NSLock()
@@ -62,7 +88,10 @@ final class FolioImageCache: @unchecked Sendable {
 
     /// Memory, disk, then the network. Tiles asking for the same cover at once share one download.
     func load(_ url: URL) async -> UIImage? {
-        if let image = cached(url) { return image }
+        if let image = memoryHit(url) { return image }
+        if let image = await Task.detached(priority: .userInitiated, operation: { self.cached(url) }).value {
+            return image
+        }
         let task: Task<UIImage?, Never> = inflightLock.withLock {
             if let running = inflight[url] { return running }
             let started = Task.detached(priority: .userInitiated) { await self.download(url) }
@@ -146,7 +175,8 @@ struct FolioCachedImage<Placeholder: View>: View {
     init(url: URL?, @ViewBuilder placeholder: @escaping () -> Placeholder) {
         self.url = url
         self.placeholder = placeholder
-        _image = State(initialValue: url.flatMap { FolioImageCache.shared.cached($0) })
+        // Memory only: this runs every time the parent redraws, so it must never touch the disk.
+        _image = State(initialValue: url.flatMap { FolioImageCache.shared.memoryHit($0) })
     }
 
     var body: some View {
@@ -162,8 +192,8 @@ struct FolioCachedImage<Placeholder: View>: View {
                 image = nil
                 return
             }
-            if let hit = FolioImageCache.shared.cached(url) {
-                image = hit
+            if let hit = FolioImageCache.shared.memoryHit(url) {
+                if image !== hit { image = hit }
                 return
             }
             if let loaded = await FolioImageCache.shared.load(url) {
@@ -188,25 +218,32 @@ enum FolioBookPageCache {
     }
 
     private static var memory: [Int: Snapshot] = [:]
+    /// Books with nothing saved, so views asking on every redraw don't read the disk each time.
+    private static var missing: Set<Int> = []
 
-    private static var directory: URL {
+    private static let directory: URL = {
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("folio-books", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
-    }
+    }()
 
     static func load(_ bookID: Int) -> Snapshot? {
         if let hit = memory[bookID] { return hit }
+        if missing.contains(bookID) { return nil }
         let url = directory.appendingPathComponent("\(bookID).json")
         guard let data = try? Data(contentsOf: url),
-              let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) else { return nil }
+              let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) else {
+            missing.insert(bookID)
+            return nil
+        }
         memory[bookID] = snapshot
         return snapshot
     }
 
     static func save(_ snapshot: Snapshot, for bookID: Int) {
         memory[bookID] = snapshot
+        missing.remove(bookID)
         let url = directory.appendingPathComponent("\(bookID).json")
         if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: url, options: .atomic) }
     }

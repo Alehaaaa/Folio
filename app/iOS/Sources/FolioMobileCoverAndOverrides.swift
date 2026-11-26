@@ -104,7 +104,7 @@ struct FolioCoverViewer: View {
         }
         guard let remoteURL else { return }
         // The cached copy is downsized for lists; show it, then the full-resolution original.
-        image = FolioImageCache.shared.cached(remoteURL)
+        image = FolioImageCache.shared.memoryHit(remoteURL)
         if let (data, _) = try? await URLSession.shared.data(from: remoteURL), let full = UIImage(data: data) {
             image = full
         }
@@ -204,7 +204,7 @@ final class FolioCoverPeek {
         let id = loadID
         self.fileURL = fileURL
         self.remoteURL = remoteURL
-        image = fileURL.flatMap { UIImage(contentsOfFile: $0.path) } ?? remoteURL.flatMap { FolioImageCache.shared.cached($0) }
+        image = fileURL.flatMap { UIImage(contentsOfFile: $0.path) } ?? remoteURL.flatMap { FolioImageCache.shared.memoryHit($0) }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         withAnimation(.spring(duration: 0.28, bounce: 0.18)) { active = true }
         // Swap in the full-resolution image when the list copy is downsized.

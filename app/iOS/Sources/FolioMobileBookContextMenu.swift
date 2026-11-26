@@ -24,8 +24,10 @@ private struct FolioMobileBookContextMenu<Extra: View>: ViewModifier {
                 // @Environment objects (FolioMobileCover reads LibraryStore and crashed
                 // there). Build it only from values resolved here.
                 FolioMobileBookMenuPreview(
+                    // The tile has already decoded its cover; never read the file here,
+                    // since this runs each time a tile redraws.
                     image: library.book(bookID).flatMap { library.coverURL($0) }
-                        .flatMap { FolioImageCache.shared.localCover($0) },
+                        .flatMap { FolioImageCache.shared.localCoverInMemory($0) },
                     title: library.book(bookID)?.title ?? "",
                     author: library.book(bookID)?.author ?? ""
                 )

@@ -805,10 +805,18 @@ struct FolioMobileBookTile: View {
 struct FolioMobileCover: View {
     @Environment(LibraryStore.self) private var store
     let book: LocalBook
+    /// The cover read in the background, with the file it came from.
+    @State private var loaded: (file: URL, image: UIImage)?
 
     var body: some View {
+        let file = store.coverURL(book)
+        // Only memory here: reading and decoding the file while building the view
+        // stalled every scroll that brought new covers on screen.
+        let image = file.flatMap { file in
+            FolioImageCache.shared.localCoverInMemory(file) ?? (loaded?.file == file ? loaded?.image : nil)
+        }
         GeometryReader { geometry in
-            if let url = store.coverURL(book), let image = FolioImageCache.shared.localCover(url) {
+            if let image {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
@@ -822,5 +830,9 @@ struct FolioMobileCover: View {
             }
         }
         .background(FolioTheme.sage)
+        .task(id: file) {
+            guard let file else { return }
+            if let image = await FolioImageCache.shared.loadLocalCover(file) { loaded = (file, image) }
+        }
     }
 }

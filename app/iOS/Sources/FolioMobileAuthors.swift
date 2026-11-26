@@ -561,16 +561,18 @@ enum FolioSeriesCache {
     }
 
     private static var memory: [Int: Entry] = [:]
+    /// Series with nothing saved, so views asking on every redraw don't read the disk each time.
+    private static var missing: Set<Int> = []
 
     /// Series rarely change: a list this young is shown without asking again.
     static let freshFor: TimeInterval = 3 * 24 * 60 * 60
 
-    private static var directory: URL {
+    private static let directory: URL = {
         let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("folio-series", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
-    }
+    }()
 
     nonisolated static func isMain(_ position: Double?) -> Bool {
         guard let position else { return false }
@@ -579,8 +581,12 @@ enum FolioSeriesCache {
 
     static func load(_ id: Int) -> Entry? {
         if let hit = memory[id] { return hit }
+        if missing.contains(id) { return nil }
         guard let data = try? Data(contentsOf: directory.appendingPathComponent("\(id).json")),
-              let entry = try? JSONDecoder().decode(Entry.self, from: data) else { return nil }
+              let entry = try? JSONDecoder().decode(Entry.self, from: data) else {
+            missing.insert(id)
+            return nil
+        }
         memory[id] = entry
         return entry
     }
@@ -588,6 +594,7 @@ enum FolioSeriesCache {
     static func save(_ books: [HCSeriesBook], for id: Int) {
         let entry = Entry(books: books, saved: Date())
         memory[id] = entry
+        missing.remove(id)
         if let data = try? JSONEncoder().encode(entry) {
             try? data.write(to: directory.appendingPathComponent("\(id).json"), options: .atomic)
         }
