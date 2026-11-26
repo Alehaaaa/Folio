@@ -56,6 +56,8 @@ struct FolioMobileBookshelf: View {
     private var shelfHeight: CGFloat { min(rowHeight, 250) }
     /// Room above the tallest book for its ribbon and a finger.
     private let headroom: CGFloat = 12
+    /// The label row between your shelves and the ones past the limit.
+    private let dividerHeight: CGFloat = 22
     /// Each shelf is only as tall as the tallest book on the bookcase.
     private var boxHeight: CGFloat {
         let tallest = items.map { FolioSpineMetrics.heightFactor(for: $0) }.max() ?? 0.9
@@ -86,6 +88,15 @@ struct FolioMobileBookshelf: View {
         VStack(spacing: 0) {
             ForEach(Array(shelves.enumerated()), id: \.offset) { index, row in
                 let last = index == shelves.count - 1
+                if expanded && index == limit {
+                    // The shelves past the limit, set apart with a label of their own.
+                    Text("Beyond your shelves")
+                        .font(.caption)
+                        .foregroundStyle(.black.opacity(0.45))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: dividerHeight)
+                        .transition(.opacity)
+                }
                 let used = self.used(row, widths)
                 let leans = rowLeans[index]
                 let leanRoom = leans.values.reduce(CGFloat(0)) { $0 + $1.before + $1.after }
@@ -129,22 +140,17 @@ struct FolioMobileBookshelf: View {
                 // Books stepping aside for a gap slide behind the frame, not over it.
                 .clipped()
                 .background(shelfBack)
-                .overlay(alignment: .topLeading) {
-                    if expanded && index == limit {
-                        Text("Beyond your shelves")
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, sidePadding)
-                            .padding(.top, 5)
-                    }
-                }
                 plank(last: last && pile.isEmpty && !(expanded && shelves.count > limit))
             }
+            // The pile and Show less trade places quickly, so neither lingers
+            // over the shelves sliding into view.
             if !expanded && !pile.isEmpty {
                 pileDrawer(pile, widths: widths)
+                    .transition(.opacity.animation(.easeOut(duration: 0.12)))
                 plank(last: true)
             } else if expanded && shelves.count > limit {
                 showLess
+                    .transition(.opacity.animation(.easeOut(duration: 0.12)))
                 plank(last: true)
             }
         }
@@ -170,6 +176,9 @@ struct FolioMobileBookshelf: View {
                            startPoint: .top, endPoint: .bottom),
             in: RoundedRectangle(cornerRadius: 16, style: .continuous)
         )
+        // Everything stays inside the frame, so opening out or folding back
+        // reveals shelves as the bookcase itself grows, edges always joined.
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .strokeBorder(.black.opacity(0.08), lineWidth: 1)
@@ -214,9 +223,9 @@ struct FolioMobileBookshelf: View {
         let stacks = stride(from: 0, to: shown.count, by: 3).map { Array(shown[$0..<min($0 + 3, shown.count)]) }
         return Button {
             FolioLog.log("open the pile (\(pile.count))", "nook")
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.86)) { expanded = true }
+            withAnimation(.smooth(duration: 0.42)) { expanded = true }
         } label: {
-            HStack(alignment: .bottom, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
                 HStack(alignment: .bottom, spacing: 3) {
                     ForEach(Array(stacks.enumerated()), id: \.offset) { _, stack in
                         VStack(spacing: 0.5) {
@@ -230,16 +239,13 @@ struct FolioMobileBookshelf: View {
                 Text("\(pile.count) more")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .padding(.bottom, 1)
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.down")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.tertiary)
-                    .padding(.bottom, 3)
             }
             .padding(.horizontal, sidePadding)
-            .padding(.top, 6)
-            .padding(.bottom, 2)
+            .padding(.vertical, 6)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(shelfBack)
             .contentShape(Rectangle())
@@ -252,7 +258,7 @@ struct FolioMobileBookshelf: View {
     /// Folds the opened-out bookcase back to its shelves.
     private var showLess: some View {
         Button {
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.86)) { expanded = false }
+            withAnimation(.smooth(duration: 0.42)) { expanded = false }
         } label: {
             HStack(spacing: 6) {
                 Text("Show less")
@@ -652,14 +658,26 @@ struct FolioMobileBookshelf: View {
     }
 
     private var plankHeight: CGFloat { 13 }
-    private func shelfTop(_ shelf: Int) -> CGFloat { frameInset + CGFloat(shelf) * (boxHeight + plankHeight) }
+    private func shelfTop(_ shelf: Int) -> CGFloat {
+        let divider = expanded && shelf >= max(1, nook.maxShelves) ? dividerHeight : 0
+        return frameInset + CGFloat(shelf) * (boxHeight + plankHeight) + divider
+    }
+
+    /// The shelf under a point, allowing for the label row when opened out.
+    private func shelfIndex(at y: CGFloat, count: Int) -> Int {
+        let pitch = boxHeight + plankHeight
+        let limit = CGFloat(max(1, nook.maxShelves))
+        var y = y - frameInset
+        if expanded && y > limit * pitch { y = max(limit * pitch, y - dividerHeight) }
+        return min(count - 1, max(0, Int(y / pitch)))
+    }
 
     /// Picks the gap from where the held book is: the shelf under its
     /// center, and how many of that shelf's other books stand left of it.
     private func hover(_ location: CGPoint, shelves: [[FolioNookItem]], widths: [String: CGFloat],
                        leans: [[String: FolioSpineLean]], excluding: String? = nil) {
         guard let key = excluding ?? held?.id, !shelves.isEmpty else { return }
-        let shelf = min(shelves.count - 1, max(0, Int((location.y - frameInset) / (boxHeight + plankHeight))))
+        let shelf = shelfIndex(at: location.y, count: shelves.count)
         let flat = shelves.flatMap { $0 }
         var x = frameInset + sidePadding
         var position: Int?
