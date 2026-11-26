@@ -14,6 +14,12 @@
       "sha256": "d684afb83dddc93cc8d8c3f36b5afa99a6476c1a6e5a44b5ff750ba0cb720212"
     },
     {
+      "id": "libgen",
+      "version": "1.0.0",
+      "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/libgen.js",
+      "sha256": "533c9db5fd88b934d1511f4e024f1a10ea15aa3084ffd726f666ac8f56dd331c"
+    },
+    {
       "id": "metadata-amazon",
       "version": "1.0.2",
       "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/metadata-amazon.js",
