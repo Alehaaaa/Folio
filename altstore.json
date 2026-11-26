@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.101",
+          "buildVersion": "102",
+          "date": "2026-11-26",
+          "localizedDescription": "1.0.101: the nook opens out as one piece",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.101-102.ipa",
+          "size": 6144923,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.100",
           "buildVersion": "101",
           "date": "2026-11-26",
