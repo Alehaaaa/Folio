@@ -3,11 +3,26 @@ var source = {
   id: "libgen",
   name: "Library Genesis",
   description: "Search Library Genesis for EPUB and PDF editions.",
-  version: "1.0.0",
+  version: "1.1.0",
   languages: ["*"],
-  allowedHosts: ["https://libgen.li"],
+  // The same catalogue answers on several official mirrors. Networks often
+  // block one (libgen.li answering 403) while another still works.
+  mirrors: ["https://libgen.li", "https://libgen.gl", "https://libgen.vg", "https://libgen.la", "https://libgen.bz"],
+  allowedHosts: ["https://libgen.li", "https://libgen.gl", "https://libgen.vg", "https://libgen.la", "https://libgen.bz"],
   settings: [],
   host: "https://libgen.li",
+
+  log: function (message) {
+    if (typeof folio.log === "function") folio.log("Library Genesis: " + message);
+  },
+
+  mirrorFor: function (url) {
+    var value = String(url || "");
+    for (var i = 0; i < this.mirrors.length; i++) {
+      if (value.indexOf(this.mirrors[i] + "/") === 0) return this.mirrors[i];
+    }
+    return null;
+  },
 
   decode: function (value) {
     var entities = {amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " "};
@@ -34,15 +49,16 @@ var source = {
     return links;
   },
 
-  endpoint: function (href, endpoint, hash) {
-    var path = href.indexOf(this.host + "/") === 0 ? href.slice(this.host.length) : href;
+  endpoint: function (href, endpoint, hash, host) {
+    host = host || this.host;
+    var path = href.indexOf(host + "/") === 0 ? href.slice(host.length) : href;
     if (path.charAt(0) !== "/") path = "/" + path;
     if (path.indexOf("/" + endpoint + "?") !== 0 || /[\s#\\]/.test(path)) return null;
     var pairs = path.split("?")[1].split("&");
     var digest = pairs.filter(function (pair) { return /^md5=[a-f0-9]{32}$/i.test(pair); });
     if (digest.length !== 1 || (hash && digest[0].slice(4).toLowerCase() !== hash)) return null;
     if (endpoint === "get.php" && !pairs.some(function (pair) { return /^key=[A-Za-z0-9_%+=-]+$/.test(pair); })) return null;
-    return { url: this.host + path, hash: digest[0].slice(4).toLowerCase() };
+    return { url: host + path, hash: digest[0].slice(4).toLowerCase() };
   },
 
   fetch: function (url) {
@@ -53,14 +69,34 @@ var source = {
     return html;
   },
 
+  // Tries the mirror that last worked first, then the others. A blocked
+  // mirror (403, a challenge page, no answer) just moves on to the next.
+  fetchAny: function (path) {
+    var order = [this.host].concat(this.mirrors.filter(function (m) { return m !== this.host; }, this));
+    var problems = [];
+    for (var i = 0; i < order.length; i++) {
+      try {
+        var html = this.fetch(order[i] + path);
+        if (order[i] !== this.host) this.log("using " + order[i].replace("https://", "") + ".");
+        this.host = order[i];
+        return html;
+      } catch (e) {
+        var message = String((e && e.message) || e);
+        problems.push(order[i].replace("https://", "") + ": " + message);
+        this.log(order[i].replace("https://", "") + " failed: " + message);
+      }
+    }
+    throw new Error("Library Genesis is unavailable on this network (" + problems.join("; ") + ").");
+  },
+
   search: function (query, page, preferredLanguage, expectedTitle) {
     var term = String(expectedTitle || query || "").trim();
     if (!term) return [];
     var index = Math.max(0, parseInt(page, 10) || 0) + 1;
     var fields = expectedTitle ? "&columns%5B%5D=t" : "&columns%5B%5D=t&columns%5B%5D=a";
-    var url = this.host + "/index.php?req=" + encodeURIComponent(term) + fields
+    var path = "/index.php?req=" + encodeURIComponent(term) + fields
       + "&objects%5B%5D=f&objects%5B%5D=e&objects%5B%5D=w&topics%5B%5D=l&topics%5B%5D=f&res=25&page=" + index;
-    var table = this.fetch(url).match(/<table\b[^>]*\bid\s*=\s*["']?tablelibgen\b[^>]*>([\s\S]*?)<\/table>/i);
+    var table = this.fetchAny(path).match(/<table\b[^>]*\bid\s*=\s*["']?tablelibgen\b[^>]*>([\s\S]*?)<\/table>/i);
     if (!table) return [];
     var rows = table[1].match(/<tr\b[^>]*>[\s\S]*?<\/tr>/gi) || [];
     var results = [];
@@ -93,12 +129,13 @@ var source = {
   },
 
   prepareDownload: function (url) {
-    var landing = this.endpoint(url, "ads.php");
+    var mirror = this.mirrorFor(url);
+    var landing = mirror && this.endpoint(url, "ads.php", null, mirror);
     if (!landing || url !== landing.url) throw new Error("Invalid Library Genesis download page.");
     var links = this.links(this.fetch(landing.url));
     for (var i = 0; i < links.length; i++) {
       if (links[i].label.toUpperCase() !== "GET") continue;
-      var file = this.endpoint(links[i].href, "get.php", landing.hash);
+      var file = this.endpoint(links[i].href, "get.php", landing.hash, mirror);
       if (file) return file.url;
     }
     throw new Error("Library Genesis did not publish a matching file link.");

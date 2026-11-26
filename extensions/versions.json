@@ -8,6 +8,12 @@
       "sha256": "4d2a19c29b6a455b6304483d494a9df78f520d670b3b7a2c950854b4dfbf783c"
     },
     {
+      "id": "internet-archive",
+      "version": "1.0.0",
+      "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/internet-archive.js",
+      "sha256": "b9f0b341c23dea2353079a5091b05835d9b21c1267ccdc3ca94f73986097cf6c"
+    },
+    {
       "id": "lectulandia",
       "version": "1.0.1",
       "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/lectulandia.js",
@@ -15,9 +21,9 @@
     },
     {
       "id": "libgen",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/libgen.js",
-      "sha256": "533c9db5fd88b934d1511f4e024f1a10ea15aa3084ffd726f666ac8f56dd331c"
+      "sha256": "fa6937da3814be949b1a2dbeeafa74da3253941decf824ddd20637607b3bbb25"
     },
     {
       "id": "metadata-amazon",
@@ -48,6 +54,18 @@
       "version": "1.0.1",
       "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/metadata-open-library.js",
       "sha256": "b3e51b1a3642fea37e32925b6df2a25005479b3c4ea3423532f682d0358f1933"
+    },
+    {
+      "id": "oapen",
+      "version": "1.0.0",
+      "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/oapen.js",
+      "sha256": "f011976b2c19ae81f94f749e35f037c0174119bb1b93d4fdfdecf9897c39f79c"
+    },
+    {
+      "id": "wikisource",
+      "version": "1.0.0",
+      "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/wikisource.js",
+      "sha256": "d37579c5e443853e2564c486ec6f0a032918db065e0415b59f05b543d754055d"
     }
   ]
 }
