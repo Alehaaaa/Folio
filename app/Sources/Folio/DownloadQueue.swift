@@ -35,6 +35,7 @@ struct DownloadJob: Identifiable, Codable {
     /// bruma"), when it was picked on a book page. `title` stays the work's own
     /// title, so both can be searched. Cleared when the language changes.
     var editionTitle: String?
+    var sourceName: String? = nil
     var stage: Stage
     var statusText: String
     var detailLog: [String]
@@ -48,7 +49,7 @@ struct DownloadJob: Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, author, cover, hardcoverBookID, hardcoverPages, expectedLanguage, editionTitle,
-             stage, statusText, detailLog, error, importedBookID, createdAt, updatedAt
+             sourceName, stage, statusText, detailLog, error, importedBookID, createdAt, updatedAt
     }
 
     func displayTitle(importedTitle: String? = nil) -> String {
@@ -241,6 +242,7 @@ final class DownloadQueue {
     /// Each job owns its cancellation token and source session. A cancelled
     /// book must not interrupt another book or consume its source state.
     private var activeTasks: [UUID: Task<Void, Never>] = [:]
+    private var sourceCopies: [UUID: ExtensionStore.Copy] = [:]
     private var bootstrap: Task<Void, Never>?
     private var didLoadSources = false
     private static let concurrencyKey = "folio.download.maxConcurrent"
@@ -274,7 +276,11 @@ final class DownloadQueue {
            let decoded = try? JSONDecoder().decode([DownloadJob].self, from: bytes) {
             jobs = decoded.map { job in
                 var recovered = job
-                if recovered.stage != .queued && recovered.stage.isActive {
+                if recovered.sourceName != nil && recovered.stage.isActive {
+                    recovered.stage = .failed
+                    recovered.statusText = "Source download interrupted"
+                    recovered.error = "Choose the source copy again to get a fresh download link."
+                } else if recovered.stage != .queued && recovered.stage.isActive {
                     recovered.stage = .queued
                     recovered.statusText = "Resuming after restart…"
                     recovered.detailLog.append("Previous operation interrupted; queued for retry")
@@ -322,11 +328,11 @@ final class DownloadQueue {
         let language = BookLanguage.code(expectedLanguage) ?? BookLanguage.reading
         let signature = BookMatch.key(author: cleanedAuthor, title: cleanedTitle)
         if let existing = jobs.first(where: {
-            $0.stage.isActive && BookMatch.key(author: $0.author, title: $0.title) == signature &&
+            $0.sourceName == nil && $0.stage.isActive && BookMatch.key(author: $0.author, title: $0.title) == signature &&
             (BookLanguage.code($0.expectedLanguage) ?? BookLanguage.reading) == language
         }) { return existing.id }
         if let previouslyFailed = jobs.first(where: {
-            ($0.stage == .failed || $0.stage == .cancelled) &&
+            $0.sourceName == nil && ($0.stage == .failed || $0.stage == .cancelled) &&
             BookMatch.key(author: $0.author, title: $0.title) == signature &&
             (BookLanguage.code($0.expectedLanguage) ?? BookLanguage.reading) == language
         }) {
@@ -351,11 +357,43 @@ final class DownloadQueue {
         return id
     }
 
+    @discardableResult
+    func enqueueSourceCopy(_ copy: ExtensionStore.Copy, cover: URL?, fallbackAuthor: String,
+                           hardcoverBookID: Int?, hardcoverPages: Int?, replacing failedJobID: UUID?) -> UUID {
+        if let existing = jobs.first(where: {
+            $0.stage.isActive && sourceCopies[$0.id]?.id == copy.id &&
+                sourceCopies[$0.id]?.result.preferred?.format == copy.result.preferred?.format &&
+                $0.hardcoverBookID == hardcoverBookID
+        }) { return existing.id }
+        let id = UUID()
+        let now = Date()
+        sourceCopies[id] = copy
+        jobs.insert(DownloadJob(
+            id: id, title: copy.result.title, author: copy.result.author.isEmpty ? fallbackAuthor : copy.result.author,
+            cover: cover, hardcoverBookID: hardcoverBookID, hardcoverPages: hardcoverPages,
+            expectedLanguage: BookLanguage.code(copy.result.language), sourceName: copy.sourceName,
+            stage: .queued, statusText: "Waiting in the download queue…",
+            detailLog: ["Selected \(copy.sourceName) record \(copy.result.id)"],
+            error: nil, importedBookID: nil, createdAt: now, updatedAt: now
+        ), at: 0)
+        if let failedJobID, jobs.first(where: { $0.id == failedJobID })?.stage == .failed {
+            dismiss(failedJobID)
+        }
+        persist()
+        startWorker()
+        return id
+    }
+
+    func canRetry(_ job: DownloadJob) -> Bool {
+        job.sourceName == nil || sourceCopies[job.id] != nil
+    }
+
     /// Retry in an explicitly selected language without affecting other jobs.
     /// Existing callers retain their previous per-job language choice.
     func retry(_ id: UUID, expectedLanguage: String? = nil) {
         guard let index = jobs.firstIndex(where: { $0.id == id }),
-              !jobs[index].stage.isActive else { return }
+              !jobs[index].stage.isActive, canRetry(jobs[index]),
+              jobs[index].sourceName == nil || expectedLanguage == nil else { return }
         if let expectedLanguage {
             guard let code = BookLanguage.code(expectedLanguage) else { return }
             if BookLanguage.code(jobs[index].expectedLanguage) != code {
@@ -390,12 +428,16 @@ final class DownloadQueue {
         if jobs.first(where: { $0.id == id })?.stage.isActive == true {
             cancel(id)
         }
+        sourceCopies[id] = nil
         jobs.removeAll { $0.id == id }
         persist()
     }
 
     /// Clear history while retaining failed jobs that still require action.
     func clearHistory() {
+        for job in jobs where job.stage == .completed || job.stage == .cancelled {
+            sourceCopies[job.id] = nil
+        }
         jobs.removeAll { $0.stage == .completed || $0.stage == .cancelled }
         persist()
     }
@@ -476,7 +518,11 @@ final class DownloadQueue {
             let task = Task { @MainActor [weak self] in
                 guard let self else { return }
                 let sourceSession = ExtensionStore.shared.makeJobSession()
-                await self.process(next, sourceSession: sourceSession)
+                if let copy = self.sourceCopies[next] {
+                    await self.processSourceCopy(next, copy: copy, sourceSession: sourceSession)
+                } else {
+                    await self.process(next, sourceSession: sourceSession)
+                }
                 // Explicit async teardown is required for ephemeral WebKit
                 // hosts on iOS. Never release a slot until its session closed.
                 await sourceSession.close()
@@ -496,6 +542,38 @@ final class DownloadQueue {
             }
         }
         startWorker()
+    }
+
+    private func processSourceCopy(_ id: UUID, copy: ExtensionStore.Copy,
+                                   sourceSession: ExtensionStore.JobSession) async {
+        guard let job = jobs.first(where: { $0.id == id }), job.stage.isActive, !Task.isCancelled else { return }
+        let store = LibraryStore.shared
+        state(id, .downloading, "Downloading from \(copy.sourceName)…")
+        do {
+            let bookID = try await sourceSession.download(copy.result, from: copy.sourceID, into: store) { [weak self] value in
+                Task { @MainActor in
+                    guard let self, self.jobs.first(where: { $0.id == id })?.stage.isActive == true else { return }
+                    if case .status(let message) = value, message.localizedCaseInsensitiveContains("import") {
+                        self.state(id, .importing, message)
+                    } else {
+                        self.event(id, source: copy.sourceName, value: value)
+                    }
+                }
+            }
+            guard !Task.isCancelled, jobs.first(where: { $0.id == id })?.stage.isActive == true else {
+                store.remove(bookID)
+                return
+            }
+            store.update(bookID) { book in
+                if let work = job.hardcoverBookID {
+                    book.hardcoverBookID = work
+                    book.hardcoverPages = job.hardcoverPages ?? book.hardcoverPages
+                }
+            }
+            complete(id, bookID: bookID, existing: false)
+        } catch {
+            if !Task.isCancelled { fail(id, reason: error.localizedDescription) }
+        }
     }
 
     private func process(_ id: UUID, sourceSession: ExtensionStore.JobSession) async {
@@ -748,7 +826,7 @@ final class DownloadQueue {
             job.statusText = existing ? "Already in your library · ready to read" : "Download complete · ready to read"
             job.error = nil
         }
-        append(id, existing ? "Found existing local copy" : "EPUB verified and added to the library")
+        append(id, existing ? "Found existing local copy" : "Added the downloaded file to the library")
         if let job = jobs.first(where: { $0.id == id }) {
             NotificationCenter.default.post(name: .folioDownloadReady, object: nil,
                                             userInfo: ["jobID": id, "bookID": bookID, "title": job.displayTitle(importedTitle: LibraryStore.shared.book(bookID)?.title)])

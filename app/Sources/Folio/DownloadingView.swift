@@ -258,7 +258,7 @@ struct DownloadingView: View {
         if job.stage == .completed, let id = job.importedBookID, store.book(id) != nil {
             Button("Read", systemImage: "book.fill") { openWindow(id: "reader", value: id) }
                 .folioGlassPill(prominent: true)
-        } else if job.stage == .failed || job.stage == .cancelled {
+        } else if downloads.canRetry(job) && (job.stage == .failed || job.stage == .cancelled) {
             Button("Retry", systemImage: "arrow.clockwise") { downloads.retry(job.id) }
                 .folioGlassPill(prominent: job.stage == .failed)
         } else if !job.stage.isActive {
@@ -317,7 +317,7 @@ struct DownloadingView: View {
                         Text(job.statusText.isEmpty ? stageName(job.stage) : job.statusLine)
                             .font(.callout).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text("\(displayLanguage(job.expectedLanguage)) edition")
+                        Text(job.sourceName != nil && job.expectedLanguage == nil ? "Language unverified" : "\(displayLanguage(job.expectedLanguage)) edition")
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
@@ -411,7 +411,8 @@ struct DownloadingView: View {
                 Text("Retry").foregroundStyle(.white)
             }
                 .buttonStyle(BookPrimaryActionStyle())
-            retryLanguageMenu(for: job)
+                .disabled(!downloads.canRetry(job))
+            if job.sourceName == nil { retryLanguageMenu(for: job) }
             Button("Choose Source…") { showManualPicker(for: job) }
                 .buttonStyle(.glass)
             Button("Dismiss") { downloads.dismiss(job.id) }
@@ -420,7 +421,8 @@ struct DownloadingView: View {
         case .cancelled:
             Button("Retry") { downloads.retry(job.id) }
                 .buttonStyle(.glass)
-            retryLanguageMenu(for: job)
+                .disabled(!downloads.canRetry(job))
+            if job.sourceName == nil { retryLanguageMenu(for: job) }
             Button("Dismiss") { downloads.dismiss(job.id) }
                 .buttonStyle(.glass)
         }

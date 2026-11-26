@@ -4,12 +4,11 @@ import SwiftUI
 /// ExtensionStore. A selected result is downloaded into the normal library.
 struct FolioMobileSourcesView: View {
     @Environment(ExtensionStore.self) private var extensions
-    @Environment(LibraryStore.self) private var store
+    @Environment(FolioMobileNavigation.self) private var navigation
     @State private var selectedSource = ""
     @State private var search = ""
     @State private var results: [SourceResult] = []
     @State private var searching = false
-    @State private var downloading: Set<String> = []
     @State private var message: String?
     @State private var page = 0
     @State private var selectedResult: SourceResult?
@@ -212,21 +211,14 @@ struct FolioMobileSourcesView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            if downloading.contains(result.id) {
-                ProgressView().controlSize(.small)
-            } else {
-                Button {
-                    Task { await download(result) }
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(FolioTheme.olive)
-                }
-                .buttonStyle(.plain)
-                .disabled(result.preferred == nil)
-                .accessibilityLabel("Add \(result.title) to Library")
-                .help("Add to Library")
+            Button { download(result) } label: {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(FolioTheme.olive)
             }
+            .buttonStyle(.plain)
+            .disabled(result.preferred == nil)
+            .accessibilityLabel("Download \(result.title)")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -295,15 +287,11 @@ struct FolioMobileSourcesView: View {
     }
 
     @MainActor
-    private func download(_ result: SourceResult) async {
-        guard downloading.insert(result.id).inserted else { return }
-        defer { downloading.remove(result.id) }
-        do {
-            _ = try await extensions.download(result, from: selectedSource, into: store)
-            message = "Added “\(result.title)” to the library."
-        } catch {
-            message = error.localizedDescription
-        }
+    private func download(_ result: SourceResult) {
+        let copy = ExtensionStore.Copy(sourceID: selectedSource, sourceName: sourceName, result: result, exact: false)
+        DownloadQueue.shared.enqueueSourceCopy(copy, cover: result.cover, fallbackAuthor: result.author,
+                                               hardcoverBookID: nil, hardcoverPages: nil, replacing: nil)
+        navigation.openDownloads()
     }
 }
 
@@ -317,8 +305,6 @@ struct FolioMobileSourceBookDetail: View {
     @Environment(LibraryStore.self) private var library
     @Environment(FolioMobileNavigation.self) private var navigation
     @Environment(\.dismiss) private var dismiss
-    @State private var busy = false
-    @State private var message: String?
 
     var body: some View {
         NavigationStack {
@@ -346,33 +332,28 @@ struct FolioMobileSourceBookDetail: View {
                     }
                     if let preferred = result.preferred {
                         Button {
-                            Task { await download(format: preferred.format) }
+                            download(format: preferred.format)
                         } label: {
-                            if busy { ProgressView() }
-                            else { Label("Download \(preferred.format.uppercased())", systemImage: "arrow.down.circle") }
+                            Label("Download \(preferred.format.uppercased())", systemImage: "arrow.down.circle")
                         }
                         .font(.headline)
                         .frame(maxWidth: .infinity, minHeight: 48)
                         .folioGlassPill(prominent: true)
-                        .disabled(busy)
                     }
-                    if result.downloads.count > 1 {
+                    let otherFormats = Set(result.downloads.map(\.format)).subtracting([result.preferred?.format].compactMap { $0 }).sorted()
+                    if !otherFormats.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("Other Available Formats").font(.headline)
-                            ForEach(Array(Set(result.downloads.map(\.format))).sorted(), id: \.self) { format in
+                            ForEach(otherFormats, id: \.self) { format in
                                 Button {
-                                    Task { await download(format: format) }
+                                    download(format: format)
                                 } label: {
                                     Label(format.uppercased(), systemImage: "arrow.down.to.line")
                                         .frame(maxWidth: .infinity, minHeight: 40)
                                 }
                                 .folioGlassPill()
-                                .disabled(busy)
-                            }
+                                    }
                         }.frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    if let message {
-                        Text(message).font(.footnote).foregroundStyle(.secondary)
                     }
                 }
                 .padding(22)
@@ -388,18 +369,14 @@ struct FolioMobileSourceBookDetail: View {
         }
     }
 
-    private func download(format: String) async {
-        guard !busy else { return }
-        busy = true
-        defer { busy = false }
+    private func download(format: String) {
         var selected = result
         selected.downloads = result.downloads.filter { $0.format == format }
-        do {
-            let id = try await extensions.download(selected, from: sourceID, into: library)
-            dismiss()
-            navigation.read(id)
-        } catch {
-            message = error.localizedDescription
-        }
+        let sourceName = extensions.enabled.first { $0.id == sourceID }?.manifest.name ?? sourceID
+        let copy = ExtensionStore.Copy(sourceID: sourceID, sourceName: sourceName, result: selected, exact: false)
+        DownloadQueue.shared.enqueueSourceCopy(copy, cover: result.cover, fallbackAuthor: result.author,
+                                               hardcoverBookID: nil, hardcoverPages: nil, replacing: nil)
+        dismiss()
+        navigation.openDownloads()
     }
 }

@@ -264,7 +264,8 @@ struct FolioMobileDownloadsView: View {
                         }
                     } else {
                         Button("Retry", systemImage: "arrow.clockwise") { downloads.retry(job.id) }
-                        if job.stage == .failed {
+                            .disabled(!downloads.canRetry(job))
+                        if job.stage == .failed || job.sourceName != nil {
                             Button("Choose Source", systemImage: "list.bullet") { manualJob = job }
                         }
                         Button("Dismiss", systemImage: "xmark", role: .destructive) {
@@ -328,7 +329,7 @@ struct FolioMobileDownloadsView: View {
                 navigation.read(id)
             }
             .accessibilityIdentifier("folio.downloads.read.\(job.id.uuidString)")
-        } else if job.stage == .failed || job.stage == .cancelled || job.stage == .completed {
+        } else if downloads.canRetry(job) && !job.stage.isActive {
             FolioGlassButton(title: "Retry", systemImage: "arrow.clockwise", prominent: job.stage == .failed, fullWidth: true) {
                 downloads.retry(job.id)
             }
@@ -405,7 +406,8 @@ struct FolioMobileDownloadsView: View {
         if job.stage.isActive {
             return job.statusText.isEmpty ? stageName(job.stage) : job.statusLine
         }
-        return "\(stageName(job.stage)) · \(displayLanguage(job.expectedLanguage))"
+        let language = job.sourceName != nil && job.expectedLanguage == nil ? "Language unverified" : displayLanguage(job.expectedLanguage)
+        return "\(stageName(job.stage)) · \(language)"
     }
 
     /// One main action, with everything else in a single menu beside it.
@@ -437,10 +439,14 @@ struct FolioMobileDownloadsView: View {
                 navigation.read(id)
             }
             .accessibilityIdentifier("folio.downloads.read.\(job.id.uuidString)")
-        } else {
+        } else if downloads.canRetry(job) {
             FolioGlassButton(title: job.stage == .completed ? "Find Another Copy" : "Retry",
                              systemImage: "arrow.clockwise", prominent: true, fullWidth: true) {
                 downloads.retry(job.id)
+            }
+        } else {
+            FolioGlassButton(title: "Choose Source", systemImage: "list.bullet", fullWidth: true) {
+                detailRoute = .chooseSource(job.id)
             }
         }
     }
@@ -451,20 +457,22 @@ struct FolioMobileDownloadsView: View {
             Button("Book Details", systemImage: "info.circle") { detailRoute = .book(id) }
         }
         if !job.stage.isActive && !(job.stage == .completed && job.importedBookID.flatMap { library.book($0) } != nil) {
-            Menu {
-                ForEach(BookLanguage.downloadChoices(current: job.expectedLanguage), id: \.self) { code in
-                    Button {
-                        downloads.retry(job.id, expectedLanguage: code)
-                    } label: {
-                        if BookLanguage.code(job.expectedLanguage) == code {
-                            Label(BookLanguage.displayName(code), systemImage: "checkmark")
-                        } else {
-                            Text(BookLanguage.displayName(code))
+            if job.sourceName == nil {
+                Menu {
+                    ForEach(BookLanguage.downloadChoices(current: job.expectedLanguage), id: \.self) { code in
+                        Button {
+                            downloads.retry(job.id, expectedLanguage: code)
+                        } label: {
+                            if BookLanguage.code(job.expectedLanguage) == code {
+                                Label(BookLanguage.displayName(code), systemImage: "checkmark")
+                            } else {
+                                Text(BookLanguage.displayName(code))
+                            }
                         }
                     }
+                } label: {
+                    Label("Retry in Language", systemImage: "globe")
                 }
-            } label: {
-                Label("Retry in Language", systemImage: "globe")
             }
             Button("Choose Source", systemImage: "list.bullet") { detailRoute = .chooseSource(job.id) }
         }
