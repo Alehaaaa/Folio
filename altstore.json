@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.114",
+          "buildVersion": "115",
+          "date": "2026-11-26",
+          "localizedDescription": "Align download status row; make source failures fast and quiet",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.114-115.ipa",
+          "size": 6320043,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.113",
           "buildVersion": "114",
           "date": "2026-11-26",
