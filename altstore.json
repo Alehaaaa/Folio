@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.103",
+          "buildVersion": "104",
+          "date": "2026-11-26",
+          "localizedDescription": "Merge pull request #11 from Alehaaaa/release/ios-1.0.103",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.103-104.ipa",
+          "size": 6176328,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.102",
           "buildVersion": "103",
           "date": "2026-11-26",
