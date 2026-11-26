@@ -51,6 +51,13 @@ struct DownloadJob: Identifiable, Codable {
              stage, statusText, detailLog, error, importedBookID, createdAt, updatedAt
     }
 
+    func displayTitle(importedTitle: String? = nil) -> String {
+        if let importedTitle, !importedTitle.isEmpty {
+            return EditionTitle.best(importedTitle, among: editionTitle.map { [$0] } ?? [])
+        }
+        return editionTitle ?? title
+    }
+
     /// "42%" while a file of known size downloads, "1.2 MB" when the server
     /// gave no size, nil when nothing is streaming.
     var transferLabel: String? {
@@ -542,6 +549,8 @@ final class DownloadQueue {
         }
         if let editionTitle, !editionTitle.isEmpty,
            !AutomaticEPUBChoice.sameTitle(job.title, editionTitle) {
+            guard !Task.isCancelled, jobs.first(where: { $0.id == id })?.stage.isActive == true else { return }
+            mutate(id) { $0.editionTitle = editionTitle }
             titles.insert(editionTitle, at: 0)
             append(id, "Edition title in \(language): \(editionTitle) · searching with it first")
         }
@@ -742,7 +751,7 @@ final class DownloadQueue {
         append(id, existing ? "Found existing local copy" : "EPUB verified and added to the library")
         if let job = jobs.first(where: { $0.id == id }) {
             NotificationCenter.default.post(name: .folioDownloadReady, object: nil,
-                                            userInfo: ["jobID": id, "bookID": bookID, "title": job.title])
+                                            userInfo: ["jobID": id, "bookID": bookID, "title": job.displayTitle(importedTitle: LibraryStore.shared.book(bookID)?.title)])
         }
     }
 

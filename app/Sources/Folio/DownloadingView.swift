@@ -191,12 +191,25 @@ struct DownloadingView: View {
         .folioCard()
     }
 
+    private func jobTitle(_ job: DownloadJob) -> String {
+        let title = job.importedBookID.flatMap { store.book($0) }
+            .map { FolioBookOverrides.shared.downloadedTitle($0) }
+        return job.displayTitle(importedTitle: title)
+    }
+
+    private func jobCover(_ job: DownloadJob, cornerRadius: CGFloat) -> CoverArt {
+        let book = job.importedBookID.flatMap { store.book($0) }
+        return CoverArt(title: jobTitle(job), author: job.author,
+                        local: book.flatMap { store.coverURL($0) },
+                        remote: job.cover, cornerRadius: cornerRadius)
+    }
+
     private func row(_ job: DownloadJob) -> some View {
         HStack(spacing: 14) {
-            CoverArt(title: job.title, author: job.author, remote: job.cover, cornerRadius: 4)
+            jobCover(job, cornerRadius: 4)
                 .frame(width: 44, height: 66)
             VStack(alignment: .leading, spacing: 3) {
-                Text(job.editionTitle ?? job.title)
+                Text(jobTitle(job))
                     .font(.body.weight(.medium))
                     .foregroundStyle(FolioTheme.ink)
                     .lineLimit(1)
@@ -228,7 +241,7 @@ struct DownloadingView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("More options for \(job.title)")
+            .accessibilityLabel("More options for \(jobTitle(job))")
             .help("Download details and options")
         }
         .padding(.horizontal, 16)
@@ -281,13 +294,13 @@ struct DownloadingView: View {
     private func detailedJob(_ job: DownloadJob) -> some View {
         FolioDownloadCard {
             HStack(alignment: .top, spacing: 16) {
-                CoverArt(title: job.title, author: job.author, remote: job.cover, cornerRadius: 5)
+                jobCover(job, cornerRadius: 5)
                     .frame(width: 70)
 
                 VStack(alignment: .leading, spacing: 9) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(job.editionTitle ?? job.title).font(.headline).textSelection(.enabled)
+                            Text(jobTitle(job)).font(.headline).textSelection(.enabled)
                             Text(job.author).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                         }
                         Spacer(minLength: 12)
