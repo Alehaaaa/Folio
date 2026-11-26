@@ -548,6 +548,8 @@ final class HardcoverClient {
     /// without reloading recommendations and every other shelf.
     var progressRevision = 0
 
+    private var editionLanguageNames: [String: [String]]?
+    private var editionLanguageLookup: Task<[String: [String]], Error>?
     private var token: String?
     private let endpoint = URL(string: "https://api.hardcover.app/v1/graphql")!
     /// Rapid shelf taps and bulk calls are coalesced by book and sent together.
@@ -1187,13 +1189,12 @@ final class HardcoverClient {
     /// title matches the file's.
     func edition(bookID: Int, language code: String, title: String? = nil) async throws -> HCEdition? {
         guard let wanted = BookLanguage.code(code) else { return nil }
-        // Filtered here: Hardcover refuses text-pattern filters with HTTP 403.
-        let d = try await query("""
-        query LanguageEditions($id: Int!) { editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 100) { \(Self.editionFields) } }
-        """, ["id": bookID])
-        let editions = d["editions"].array.map(Self.edition(from:))
-            .filter { BookLanguage.code($0.language) == wanted }
-        let picked = title.flatMap { title in editions.first { BookAutoMatch.sameTitle(title, $0.title ?? "") } } ?? editions.first
+        let books = try await languageEditionRows(bookIDs: [bookID], language: wanted, fields: Self.editionFields)
+        let editions = (books[bookID] ?? []).map(Self.edition(from:))
+        let picked = title.flatMap { title in
+            editions.first { BookAutoMatch.sameTitle(title, $0.title ?? "") }
+                ?? editions.first { EditionTitle.isCatalogueMatch(title, $0.title ?? "") }
+        } ?? editions.first
         return picked.map { Self.bestTitled($0, among: editions) }
     }
 
@@ -1215,18 +1216,55 @@ final class HardcoverClient {
     /// Books with no edition in that language map to an empty list.
     func editionTitles(bookIDs: [Int], language code: String) async throws -> [Int: [String]] {
         guard let wanted = BookLanguage.code(code), !bookIDs.isEmpty else { return [:] }
-        // Filtered here: Hardcover refuses text-pattern filters with HTTP 403.
-        let d = try await query("""
-        query EditionTitles($ids: [Int!]!) { editions(where: {book_id: {_in: $ids}}, order_by: {users_count: desc}, limit: \(min(500, bookIDs.count * 50))) { book_id title language { language } } }
-        """, ["ids": bookIDs])
-        var out = Dictionary(uniqueKeysWithValues: bookIDs.map { ($0, [String]()) })
-        for e in d["editions"].array {
-            guard let id = e["book_id"].int, let title = e["title"].string, !title.isEmpty,
-                  BookLanguage.code(e["language"]["language"].string) == wanted,
-                  out[id]?.contains(title) == false else { continue }
-            out[id, default: []].append(title)
+        let rows = try await languageEditionRows(bookIDs: bookIDs, language: wanted, fields: "title")
+        return rows.mapValues { editions in
+            var seen = Set<String>()
+            return editions.compactMap { edition in
+                guard let title = edition["title"].string, !title.isEmpty, seen.insert(title).inserted else { return nil }
+                return title
+            }
+        }
+    }
+
+    private func languageEditionRows(bookIDs: [Int], language: String, fields: String) async throws -> [Int: [JSON]] {
+        let names = try await catalogueLanguageNames()[language] ?? []
+        guard !names.isEmpty else { return [:] }
+        // Filter before applying the limit, separately for each work.
+        let data = try await query("""
+        query EditionTitles($ids: [Int!]!, $names: [String!]!) {
+            books(where: {id: {_in: $ids}}) {
+                id
+                editions(where: {language: {language: {_in: $names}}}, order_by: [{users_count: desc}, {id: asc}], limit: 100) {
+                    \(fields)
+                }
+            }
+        }
+        """, ["ids": bookIDs, "names": names])
+        var out: [Int: [JSON]] = [:]
+        for book in data["books"].array {
+            if let id = book["id"].int { out[id] = book["editions"].array }
         }
         return out
+    }
+
+    private func catalogueLanguageNames() async throws -> [String: [String]] {
+        if let editionLanguageNames { return editionLanguageNames }
+        if let editionLanguageLookup { return try await editionLanguageLookup.value }
+        let lookup = Task {
+            let data = try await query("query EditionCatalogueLanguages { languages { language } }")
+            var names: [String: [String]] = [:]
+            for row in data["languages"].array {
+                if let name = row["language"].string, let code = BookLanguage.code(name) {
+                    names[code, default: []].append(name)
+                }
+            }
+            return names
+        }
+        editionLanguageLookup = lookup
+        defer { editionLanguageLookup = nil }
+        let names = try await lookup.value
+        if !names.isEmpty { editionLanguageNames = names }
+        return names
     }
 
     /// The languages a book has editions in, most-read first, each with the

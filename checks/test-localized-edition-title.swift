@@ -22,6 +22,9 @@ import Foundation
         }
         // Edition titles are picked among real ones, never rewritten.
         let picks: [(String, [String], String)] = [
+            ("CAMINO DE REYES (SAGA EL ARCHIVO DE LAS TORMENTAS)",
+             ["Palabras radiantes", "El camino de los reyes"], "El camino de los reyes"),
+            ("El camino de reyes", ["El camino de los reyes"], "El camino de reyes"),
             ("CAMINO DE LOS REYES (EL ARCHIVO DE LAS TORMENTAS 1)",
              ["El camino de los reyes (El Archivo de las Tormentas 1)", "El camino de los reyes", "Palabras radiantes"],
              "El camino de los reyes"),
