@@ -135,6 +135,8 @@ struct LocalBook: Codable, Identifiable, Hashable {
     var series: String?
     var seriesIndex: Double?
     var seriesChecked: Bool?
+    /// Set once Hardcover was asked for the series of a linked book that had none.
+    var seriesHardcoverChecked: Bool?
 
     var progressLabel: String {
         if status == .finished { return "Finished" }
