@@ -39,3 +39,22 @@ assert.throws(() => source.prepareDownload(`https://example.org/ads.php?md5=${ha
 context.folio.fetchText = () => "<title>Site Unavailable</title>";
 assert.throws(() => source.search("Pride"), /unavailable/);
 console.log("PASS LibGen catalogue, pagination, link validation and unavailable-source handling");
+
+// A blocked mirror (403) falls through to the next official mirror, and the
+// download page is then read on the mirror that served it.
+const tried = [];
+context.folio.fetchText = (url) => {
+  tried.push(url);
+  if (url.startsWith("https://libgen.li/") || url.startsWith("https://libgen.gl/")) throw new Error("libgen.li answered 403");
+  if (url.includes("/index.php?")) return search;
+  return `<a href="get.php?md5=${hash}&amp;key=mirror">GET</a>`;
+};
+source.host = "https://libgen.li";
+const mirrored = source.search("Pride and Prejudice", 0, "en", "Pride and Prejudice");
+assert.equal(mirrored.length, 1);
+assert.equal(source.host, "https://libgen.vg");
+assert.ok(mirrored[0].downloads[0].url.startsWith("https://libgen.vg/ads.php?md5="));
+assert.equal(source.prepareDownload(mirrored[0].downloads[0].url), `https://libgen.vg/get.php?md5=${hash}&key=mirror`);
+context.folio.fetchText = () => { throw new Error("answered 403"); };
+assert.throws(() => source.search("Pride"), /unavailable on this network.*403/);
+console.log("PASS LibGen mirror failover after a 403 and a clear error when every mirror is blocked");

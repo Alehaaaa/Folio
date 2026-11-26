@@ -1,5 +1,19 @@
 # Folio book source extensions
 
+## Open sources: Wikisource, Internet Archive and OAPEN
+
+These three are bundled with iOS builds and switched on by default. All three serve books that are free to download, need no account, and go through Folio's encrypted DNS like every other source.
+
+- **Wikisource** (`wikisource.js`) searches the Wikisource edition in the language the book is wanted in (29 languages, from `en.wikisource.org` to `hu.wikisource.org`) and reads each work's title, author and year from the page header. The EPUB comes from Wikisource's own export tool at `ws-export.wmcloud.org`, the same one behind its OPDS feeds and Download links. A language with no Wikisource edition is skipped without a request.
+- **Internet Archive** (`internet-archive.js`) searches texts by title and author surname, only among items with an open EPUB or text PDF. Borrow-only (lending library) items and LCP/ACS-encrypted files are never offered. The item's file list decides the file, and an EPUB the uploader supplied wins over one the archive generated from page scans. Results in another known language are dropped before Folio's own language check.
+- **OAPEN** (`oapen.js`) searches the OAPEN Library's open-access academic books through its public REST API and offers each item's EPUB and PDF files from `library.oapen.org`.
+
+`node checks/test-open-sources-extensions.cjs` checks the three parsers, requests and download links without network access.
+
+## Library Genesis
+
+`libgen.js` is bundled but switched off until the person turns it on. It tries the official mirrors in order (`libgen.li`, `.gl`, `.vg`, `.la`, `.bz`) and remembers the one that answered. A mirror that answers 403 or a challenge page is skipped. When every mirror is blocked, the search fails with one clear message that names each mirror's answer, and the other sources carry on. `node checks/test-libgen-extension.cjs` covers parsing, link validation and mirror failover.
+
 ## Lectulandia (Spanish)
 
 `lectulandia.js` is an optional Spanish-language (`es`) source for the Lectulandia catalogue. Install it from **Settings → Sources → Add Extension from File…**. iOS builds also bundle it automatically.

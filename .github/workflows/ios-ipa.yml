@@ -37,6 +37,8 @@ jobs:
           node checks/test-anna-folio-extension.cjs
           node checks/test-lectulandia-extension.cjs
           node checks/test-lectulandia-source-behavior.cjs
+          node checks/test-libgen-extension.cjs
+          node checks/test-open-sources-extensions.cjs
           node checks/test-amazon-metadata.cjs
           python3 checks/check-extension-versions.py
           zsh checks/test-hardcover-rate-gate.sh
