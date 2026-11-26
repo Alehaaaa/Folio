@@ -16,6 +16,12 @@ struct FolioMobileDownloadsView: View {
     @State private var expandedLogs: Set<UUID> = []
     /// The job whose log was just copied, to confirm it on the button.
     @State private var copiedJob: UUID?
+    @State private var detailRoute: DetailRoute?
+
+    private enum DetailRoute: Hashable {
+        case book(UUID)
+        case chooseSource(UUID)
+    }
 
     private struct DownloadedBookDetail: Identifiable {
         let id: UUID
@@ -117,7 +123,7 @@ struct FolioMobileDownloadsView: View {
                     }
             }
         }
-        .sheet(item: $selectedJob) { selected in
+        .sheet(item: $selectedJob, onDismiss: { detailRoute = nil }) { selected in
             NavigationStack {
                 ScrollView {
                     if let job = downloads.jobs.first(where: { $0.id == selected.id }) {
@@ -131,6 +137,21 @@ struct FolioMobileDownloadsView: View {
                 }
                 .navigationTitle("Download Details")
                 .folioScreen()
+                .navigationDestination(item: $detailRoute) { route in
+                    switch route {
+                    case .book(let id):
+                        FolioMobileBookDetail(bookID: id)
+                    case .chooseSource(let id):
+                        if let job = downloads.jobs.first(where: { $0.id == id }) {
+                            FolioMobileFindSourceView(
+                                title: job.title, author: job.author,
+                                hardcoverBookID: job.hardcoverBookID,
+                                hardcoverPages: job.hardcoverPages, cover: job.cover,
+                                failedJobID: job.id
+                            )
+                        }
+                    }
+                }
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -298,179 +319,205 @@ struct FolioMobileDownloadsView: View {
         }
     }
 
-    /// Full status, diagnostics and advanced actions are available on demand.
+    /// One header, one status line, one row of actions, then the log.
     private func jobDetail(_ job: DownloadJob) -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top, spacing: 15) {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack(alignment: .center, spacing: 15) {
                 FolioMobileRemoteCover(url: job.cover, title: job.title)
-                    .frame(width: 76, height: 108)
-                VStack(alignment: .leading, spacing: 7) {
-                    Text(job.editionTitle ?? job.title).font(.folioDisplay(.title2))
+                    .frame(width: 68, height: 96)
+                    .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(job.editionTitle ?? job.title)
+                        .font(.folioDisplay(.title3))
+                        .foregroundStyle(FolioTheme.ink)
+                        .lineLimit(3)
                     Text(job.author.isEmpty ? "Unknown Author" : job.author)
-                        .font(.subheadline).foregroundStyle(.secondary)
-                    Label(stageName(job.stage), systemImage: stageSymbol(job.stage))
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(stageColor(job.stage))
-                    Text("Language: \(displayLanguage(job.expectedLanguage))")
-                        .font(.caption).foregroundStyle(.secondary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
 
-            HStack(alignment: .top, spacing: 10) {
-                if job.stage.isActive { ProgressView().controlSize(.small) }
-                Text(job.statusText.isEmpty ? stageName(job.stage) : job.statusLine)
-                    .font(.subheadline)
+            jobStatus(job)
+
+            jobActions(for: job)
+
+            if !job.detailLog.isEmpty { activityLog(job) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The stage, what it is doing now, and the error when there is one.
+    private func jobStatus(_ job: DownloadJob) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if job.stage.isActive {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: stageSymbol(job.stage))
+                        .foregroundStyle(stageColor(job.stage))
+                }
+                Text(statusHeadline(job))
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(job.stage.isActive ? FolioTheme.ink : stageColor(job.stage))
                     .monospacedDigit()
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
             }
             if let fraction = job.transferFraction {
-                ProgressView(value: fraction)
-                    .tint(FolioTheme.ink)
+                ProgressView(value: fraction).tint(FolioTheme.olive)
             }
-
-            jobActions(for: job)
-
-            if let error = job.error, !error.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    Label("Download Failed", systemImage: "exclamationmark.triangle.fill")
-                        .font(.headline).foregroundStyle(FolioTheme.danger)
-                    Text(error)
-                        .font(.subheadline)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                    if let lastSourceMessage = job.detailLog.last(where: {
-                        $0.localizedCaseInsensitiveContains("source") ||
-                        $0.localizedCaseInsensitiveContains("link") ||
-                        $0.localizedCaseInsensitiveContains("error")
-                    }) {
-                        Text(lastSourceMessage)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .textSelection(.enabled)
-                    }
-                }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(FolioTheme.danger.opacity(0.08), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-            }
-
-            if !job.detailLog.isEmpty {
-                // One copy button for the whole report: error, status and every log line.
-                Button { copyDiagnostics(job) } label: {
-                    Label(copiedJob == job.id ? "Copied" : "Copy Log",
-                          systemImage: copiedJob == job.id ? "checkmark" : "doc.on.doc")
-                        .contentTransition(.symbolEffect(.replace))
-                }
-                .folioGlassPill()
-                .accessibilityIdentifier("folio.downloads.copyLog")
-                DisclosureGroup("Activity Log (\(job.detailLog.count))", isExpanded: Binding(
-                    get: { expandedLogs.contains(job.id) },
-                    set: { open in
-                        if open { expandedLogs.insert(job.id) }
-                        else { expandedLogs.remove(job.id) }
-                    }
-                )) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        // Newest first, like a message feed.
-                        ForEach(Array(job.detailLog.enumerated().reversed()), id: \.offset) { _, entry in
-                            Text(entry)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                    .padding(.top, 8)
-                }
-                .font(.footnote)
+            if job.stage == .failed, let error = job.error, !error.isEmpty {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(FolioTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
             }
         }
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .folioCard(cornerRadius: 16)
+    }
+
+    /// Live status while working; once finished, the outcome and language.
+    private func statusHeadline(_ job: DownloadJob) -> String {
+        if job.stage.isActive {
+            return job.statusText.isEmpty ? stageName(job.stage) : job.statusLine
+        }
+        return "\(stageName(job.stage)) · \(displayLanguage(job.expectedLanguage))"
+    }
+
+    /// One main action, with everything else in a single menu beside it.
+    @ViewBuilder
+    private func jobActions(for job: DownloadJob) -> some View {
+        HStack(spacing: 10) {
+            primaryAction(for: job)
+            Menu {
+                secondaryActions(for: job)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.headline)
+                    .frame(width: 26, height: 30)
+            }
+            .folioGlassPill()
+            .accessibilityLabel("More Actions")
+        }
     }
 
     @ViewBuilder
-    private func jobActions(for job: DownloadJob) -> some View {
-        switch job.stage {
-        case .queued, .searching, .choosing, .downloading, .importing:
-            Button(role: .destructive) { downloads.cancel(job.id) } label: {
-                Label("Cancel", systemImage: "xmark.circle")
+    private func primaryAction(for job: DownloadJob) -> some View {
+        if job.stage.isActive {
+            FolioGlassButton(title: "Cancel", systemImage: "xmark", fullWidth: true) {
+                downloads.cancel(job.id)
             }
-            .folioGlassPill()
-
-        case .completed:
-            if let id = job.importedBookID, library.book(id) != nil {
-                VStack(alignment: .leading, spacing: 10) {
-                    FolioGlassButton(title: "Read Now", systemImage: "book.fill", prominent: true, fullWidth: true) {
-                        selectedJob = nil
-                        navigation.read(id)
-                    }
-                    .accessibilityIdentifier("folio.downloads.read.\(job.id.uuidString)")
-                    HStack(spacing: 9) {
-                        NavigationLink { FolioMobileBookDetail(bookID: id) } label: {
-                            Label("Book Details", systemImage: "info.circle")
-                        }
-                        .folioGlassPill()
-                        Button("Dismiss") { dismissJob(job.id) }
-                            .folioGlassPill()
-                    }
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 9) {
-                    Label("The imported book is no longer in your library.", systemImage: "book.closed")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    FolioGlassButton(title: "Find Another Copy", systemImage: "arrow.clockwise", prominent: true, fullWidth: true) {
-                        downloads.retry(job.id)
-                    }
-                    Button("Dismiss") { dismissJob(job.id) }
-                        .folioGlassPill()
-                }
+        } else if job.stage == .completed, let id = job.importedBookID, library.book(id) != nil {
+            FolioGlassButton(title: "Read Now", systemImage: "book.fill", prominent: true, fullWidth: true) {
+                selectedJob = nil
+                navigation.read(id)
             }
-
-        case .failed:
-            VStack(alignment: .leading, spacing: 10) {
-                FolioGlassButton(title: "Retry Download", systemImage: "arrow.clockwise", prominent: true, fullWidth: true) {
-                    downloads.retry(job.id)
-                }
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) {
-                        retryLanguageMenu(for: job)
-                        chooseSourceButton(for: job)
-                        Button("Dismiss") { dismissJob(job.id) }.folioGlassPill()
-                    }
-                    VStack(alignment: .leading, spacing: 9) {
-                        retryLanguageMenu(for: job)
-                        chooseSourceButton(for: job)
-                        Button("Dismiss") { dismissJob(job.id) }.folioGlassPill()
-                    }
-                }
-            }
-
-        case .cancelled:
-            VStack(alignment: .leading, spacing: 9) {
-                FolioGlassButton(title: "Retry", systemImage: "arrow.clockwise", fullWidth: true) {
-                    downloads.retry(job.id)
-                }
-                retryLanguageMenu(for: job)
-                Button("Dismiss") { dismissJob(job.id) }.folioGlassPill()
+            .accessibilityIdentifier("folio.downloads.read.\(job.id.uuidString)")
+        } else {
+            FolioGlassButton(title: job.stage == .completed ? "Find Another Copy" : "Retry",
+                             systemImage: "arrow.clockwise", prominent: true, fullWidth: true) {
+                downloads.retry(job.id)
             }
         }
     }
 
-    private func chooseSourceButton(for job: DownloadJob) -> some View {
-        NavigationLink {
-            FolioMobileFindSourceView(
-                title: job.title, author: job.author,
-                hardcoverBookID: job.hardcoverBookID,
-                hardcoverPages: job.hardcoverPages, cover: job.cover,
-                failedJobID: job.id
-            )
-        } label: {
-            Label("Choose Source", systemImage: "list.bullet")
+    @ViewBuilder
+    private func secondaryActions(for job: DownloadJob) -> some View {
+        if job.stage == .completed, let id = job.importedBookID, library.book(id) != nil {
+            Button("Book Details", systemImage: "info.circle") { detailRoute = .book(id) }
         }
-        .folioGlassPill()
+        if !job.stage.isActive && !(job.stage == .completed && job.importedBookID.flatMap { library.book($0) } != nil) {
+            Menu {
+                ForEach(BookLanguage.downloadChoices(current: job.expectedLanguage), id: \.self) { code in
+                    Button {
+                        downloads.retry(job.id, expectedLanguage: code)
+                    } label: {
+                        if BookLanguage.code(job.expectedLanguage) == code {
+                            Label(BookLanguage.displayName(code), systemImage: "checkmark")
+                        } else {
+                            Text(BookLanguage.displayName(code))
+                        }
+                    }
+                }
+            } label: {
+                Label("Retry in Language", systemImage: "globe")
+            }
+            Button("Choose Source", systemImage: "list.bullet") { detailRoute = .chooseSource(job.id) }
+        }
+        Button(copiedJob == job.id ? "Copied" : "Copy Log", systemImage: "doc.on.doc") { copyDiagnostics(job) }
+        if !job.stage.isActive {
+            Divider()
+            Button("Dismiss", systemImage: "xmark", role: .destructive) { dismissJob(job.id) }
+        }
+    }
+
+    /// Newest first, time and message on separate lines, folded by default.
+    private func activityLog(_ job: DownloadJob) -> some View {
+        let open = expandedLogs.contains(job.id)
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.snappy) {
+                    if open { expandedLogs.remove(job.id) } else { expandedLogs.insert(job.id) }
+                }
+            } label: {
+                HStack {
+                    Text("Activity")
+                        .font(.headline)
+                        .foregroundStyle(FolioTheme.ink)
+                    Text("\(job.detailLog.count)")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(open ? 180 : 0))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("folio.downloads.activity")
+
+            if open {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(job.detailLog.enumerated().reversed()), id: \.offset) { index, entry in
+                        let parts = logParts(entry)
+                        VStack(alignment: .leading, spacing: 2) {
+                            if let time = parts.time {
+                                Text(time)
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Text(parts.message)
+                                .font(.footnote)
+                                .foregroundStyle(FolioTheme.muted)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .textSelection(.enabled)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 9)
+                        if index > 0 { Divider() }
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 4)
+                .folioCard(cornerRadius: 16)
+                .padding(.top, 12)
+                .transition(.opacity)
+            }
+        }
+    }
+
+    /// "14:35:44 · Anna's Archive: …" becomes its time and its message.
+    private func logParts(_ entry: String) -> (time: String?, message: String) {
+        guard let range = entry.range(of: " · ") else { return (nil, entry) }
+        let time = String(entry[..<range.lowerBound])
+        guard time.count <= 12, time.first?.isNumber == true else { return (nil, entry) }
+        return (time, String(entry[range.upperBound...]))
     }
 
     private func dismissJob(_ id: UUID) {
@@ -490,24 +537,6 @@ struct FolioMobileDownloadsView: View {
         }
     }
 
-    private func retryLanguageMenu(for job: DownloadJob) -> some View {
-        Menu {
-            ForEach(BookLanguage.downloadChoices(current: job.expectedLanguage), id: \.self) { code in
-                Button {
-                    downloads.retry(job.id, expectedLanguage: code)
-                } label: {
-                    if BookLanguage.code(job.expectedLanguage) == code {
-                        Label(BookLanguage.displayName(code), systemImage: "checkmark")
-                    } else {
-                        Text(BookLanguage.displayName(code))
-                    }
-                }
-            }
-        } label: {
-            Label("Retry in Language", systemImage: "globe")
-        }
-        .folioGlassPill()
-    }
 
     private func stageName(_ stage: DownloadJob.Stage) -> String {
         switch stage {
