@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.113",
+          "buildVersion": "114",
+          "date": "2026-11-26",
+          "localizedDescription": "Clear Status removes the book from Goodreads too",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.113-114.ipa",
+          "size": 6303541,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.111",
           "buildVersion": "112",
           "date": "2026-11-26",
