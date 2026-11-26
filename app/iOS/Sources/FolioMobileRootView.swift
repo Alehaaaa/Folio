@@ -616,6 +616,7 @@ final class FolioMobileHomeShelves {
 
 struct FolioMobileLibraryView: View {
     @Environment(LibraryStore.self) private var store
+    @Environment(HardcoverClient.self) private var hardcover
     @Environment(FolioMobileNavigation.self) private var navigation
     let showImporter: () -> Void
     @State private var search = ""
@@ -701,6 +702,14 @@ struct FolioMobileLibraryView: View {
             .padding(.bottom, 12)
         }
         .scrollDismissesKeyboard(.immediately)
+        .refreshable {
+            if showingShelves {
+                await FolioMobileShelvesModel.shared.refresh(navigation.shelfStatus, hardcover: hardcover,
+                                                             library: store, includeGoodreads: true)
+            } else {
+                FolioSync.pushPending(library: store, hardcover: hardcover)
+            }
+        }
         .folioScreen()
         .task(id: sorting) {
             if sorting == .series || sorting == .author { await store.fillInSeriesFromHardcover() }

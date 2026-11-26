@@ -917,5 +917,23 @@ final class LibraryStore {
         data.tracked.filter { GRShelf.from(csvShelf: $0.shelf) == shelf }
     }
 
+    /// The Goodreads copy of a book, by its Hardcover id, else its title and author.
+    func trackedMatch(hardcoverBookID: Int?, author: String, title: String) -> TrackedBook? {
+        if let id = hardcoverBookID, let t = data.tracked.first(where: { $0.hardcoverBookID == id }) { return t }
+        let key = BookMatch.key(author: author, title: title)
+        return data.tracked.first { BookMatch.key(author: $0.author, title: $0.title) == key }
+    }
+
+    /// Puts the Goodreads copy on the shelf Goodreads just took, ahead of the next shelf sync.
+    func moveTracked(goodreadsID: String?, hardcoverBookID: Int?, author: String, title: String, to status: HCStatus) {
+        let match = goodreadsID.flatMap { id in data.tracked.first { $0.goodreadsID == id } }
+            ?? trackedMatch(hardcoverBookID: hardcoverBookID, author: author, title: title)
+        let shelf = GoodreadsCSV.shelf(for: status)
+        guard let match, match.shelf != shelf,
+              let i = data.tracked.firstIndex(where: { $0.id == match.id }) else { return }
+        data.tracked[i].shelf = shelf
+        save()
+    }
+
 
 }

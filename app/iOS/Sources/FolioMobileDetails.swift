@@ -826,6 +826,10 @@ struct FolioMobileBookDetail: View {
         FolioReadBooks.shared.set(shownBook, read: status == .read)
         if let local {
             library.setStatus(local.id, status.local)
+        } else {
+            // Goodreads and the other synced services follow a book outside the library too.
+            let book = shownBook
+            Task { await FolioShelfSync.shared.sync(status, for: book) }
         }
         guard canSyncHardcover, let linkedID else { return }
         Task {

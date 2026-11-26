@@ -54,6 +54,62 @@ extension HCStatus {
     }
 }
 
+/// My Shelves' Hardcover books, saved per shelf so the page shows the last
+/// known books at once; entering the page and pulling down refresh them.
+@Observable
+@MainActor
+final class FolioMobileShelvesModel {
+    static let shared = FolioMobileShelvesModel()
+
+    private struct Snapshot: Codable {
+        var userID: Int
+        var shelves: [Int: [HCUserBook]] = [:]
+    }
+
+    private var snapshot: Snapshot
+    private var running = 0
+    var loading: Bool { running > 0 }
+    private(set) var notice: String?
+
+    private static var url: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("folio-my-shelves.json")
+    }
+
+    private init() {
+        snapshot = (try? Data(contentsOf: Self.url))
+            .flatMap { try? JSONDecoder().decode(Snapshot.self, from: $0) } ?? Snapshot(userID: -1)
+    }
+
+    func items(_ status: HCStatus, hardcover: HardcoverClient) -> [HCUserBook] {
+        guard hardcover.isConnected, snapshot.userID == (hardcover.user?.id ?? -1) else { return [] }
+        return snapshot.shelves[status.rawValue] ?? []
+    }
+
+    func refresh(_ status: HCStatus, hardcover: HardcoverClient, library: LibraryStore, includeGoodreads: Bool) async {
+        let goodreads = GoodreadsClient.shared
+        running += 1
+        defer { running -= 1 }
+        if hardcover.isConnected {
+            do {
+                let fetched = try await hardcover.shelf(status)
+                let userID = hardcover.user?.id ?? -1
+                if snapshot.userID != userID { snapshot = Snapshot(userID: userID) }
+                snapshot.shelves[status.rawValue] = fetched
+                notice = nil
+                if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: Self.url, options: .atomic) }
+            } catch is CancellationError {
+            } catch let error as URLError where error.code == .cancelled {
+            } catch {
+                notice = error.localizedDescription
+            }
+        }
+        if goodreads.isLinked && (includeGoodreads || goodreads.lastSync == nil) {
+            await goodreads.syncAll(into: library)
+        }
+    }
+}
+
 /// The reading shelves, shown inside Library rather than as a screen of their own.
 /// The surrounding Library view owns the scroll view, title and search field.
 struct FolioMobileShelvesView: View {
@@ -62,17 +118,17 @@ struct FolioMobileShelvesView: View {
     @Environment(HardcoverClient.self) private var hardcover
     @Environment(FolioMobileNavigation.self) private var navigation
     @State private var goodreads = GoodreadsClient.shared
+    @State private var model = FolioMobileShelvesModel.shared
     @State private var source = FolioMobileShelfSource.all
-    @State private var hcItems: [HCUserBook] = []
-    @State private var loadedStatus: HCStatus?
-    @State private var loading = false
-    @State private var notice: String?
+
+    private var loading: Bool { model.loading }
+    private var notice: String? { model.notice }
 
     private var selectedStatus: HCStatus { navigation.shelfStatus }
     private var grStatus: GRShelf? { selectedStatus.goodreadsShelf }
 
     private var merged: [FolioMobileShelfEntry] {
-        FolioMobileShelfEntry.merge(hardcover: hcItems, goodreads: grStatus.map { library.tracked($0) } ?? [])
+        FolioMobileShelfEntry.merge(hardcover: model.items(selectedStatus, hardcover: hardcover), goodreads: grStatus.map { library.tracked($0) } ?? [])
     }
 
     private var visible: [FolioMobileShelfEntry] {
@@ -199,34 +255,16 @@ struct FolioMobileShelvesView: View {
             }
         }
         .padding(.bottom, 14)
-        .task(id: "\(selectedStatus.rawValue)-\(hardcover.revision)") { await refresh(includeGoodreads: false) }
+        // Entering the page refreshes every source; switching shelves only Hardcover.
+        .task { await refresh(includeGoodreads: true) }
+        .onChange(of: "\(selectedStatus.rawValue)-\(hardcover.revision)") {
+            Task { await refresh(includeGoodreads: false) }
+        }
     }
 
     private func refresh(includeGoodreads: Bool) async {
-        // Switching shelves while one loads must not show the previous shelf's books.
-        let status = selectedStatus
-        if loadedStatus != status { hcItems = [] }
-        loading = true
-        defer { if status == selectedStatus { loading = false } }
-        if hardcover.isConnected {
-            do {
-                let items = try await hardcover.shelf(status)
-                guard status == selectedStatus else { return }
-                hcItems = items
-                loadedStatus = status
-                notice = nil
-            } catch {
-                guard status == selectedStatus, !Task.isCancelled else { return }
-                notice = error.localizedDescription
-            }
-        } else {
-            hcItems = []
-        }
-        if goodreads.isLinked && (includeGoodreads || goodreads.lastSync == nil) {
-            await goodreads.syncAll(into: library)
-        }
+        await model.refresh(selectedStatus, hardcover: hardcover, library: library, includeGoodreads: includeGoodreads)
     }
-
 }
 
 private enum FolioMobileShelfSource: String, CaseIterable, Identifiable {

@@ -173,17 +173,54 @@ final class FolioShelfSync {
 
     enum Outcome { case skipped, sent, failed, signedOut }
 
+    /// What a service needs to find a book and shelve it.
+    private struct Item {
+        var key: String
+        var title: String
+        var author: String
+        var isbn: String?
+        var hardcoverBookID: Int?
+        var status: HCStatus
+        var percent = 0
+    }
+
     private func sync(_ book: LocalBook, on s: ShelfService, retryMissing: Bool) async -> Outcome {
-        guard let status = book.status.hardcover, s.supports(status), let p = provider(s) else { return .skipped }
-        let key = s.rawValue + book.id.uuidString
+        guard let status = book.status.hardcover else { return .skipped }
+        return await send(Item(key: book.id.uuidString, title: book.title, author: book.author, isbn: book.isbn,
+                               hardcoverBookID: book.hardcoverBookID, status: status, percent: percent(book)),
+                          on: s, retryMissing: retryMissing)
+    }
+
+    /// A status set on a book outside the library (a My Shelves entry, a
+    /// recommendation) reaches every service that syncs automatically, so
+    /// marking it read on Hardcover also takes it off Goodreads' Want to Read.
+    func sync(_ status: HCStatus, for book: HCBook) async {
+        let key = book.id > 0 ? "hc-\(book.id)" : "t-" + BookMatch.key(author: book.authors, title: book.title)
+        let item = Item(key: key, title: book.title, author: book.authors,
+                        hardcoverBookID: book.id > 0 ? book.id : nil, status: status)
+        for s in ShelfService.allCases where isConnected(s) && automatic[s] == true {
+            _ = await send(item, on: s, retryMissing: true)
+        }
+    }
+
+    private func send(_ item: Item, on s: ShelfService, retryMissing: Bool) async -> Outcome {
+        let status = item.status
+        guard s.supports(status), let p = provider(s) else { return .skipped }
+        let key = s.rawValue + item.key
         guard !busy.contains(key) else { return .skipped }
         busy.insert(key)
         defer { busy.remove(key) }
         do {
-            var link = links[s.rawValue]?[book.id.uuidString]
+            var link = links[s.rawValue]?[item.key]
+            // The copy already on a Goodreads shelf is the one to move, even when
+            // an earlier search linked another edition.
+            if s == .goodreads, let gid = trackedGoodreadsID(item), link?.id != gid {
+                link = ShelfLink(id: gid, title: item.title)
+                store(link!, for: item.key, on: s)
+            }
             if link == nil || (link?.id == nil && (retryMissing || Date().timeIntervalSince(link!.checkedAt) > 7 * 24 * 3600)) {
-                link = try await find(book, with: p)
-                store(link!, for: book.id, on: s)
+                link = try await find(item, with: p)
+                store(link!, for: item.key, on: s)
             }
             guard var link, link.id != nil else { return .skipped }
             var sent = false
@@ -191,14 +228,17 @@ final class FolioShelfSync {
                 try await p.setStatus(status, link: &link)
                 link.status = status.rawValue
                 sent = true
-                store(link, for: book.id, on: s)
+                store(link, for: item.key, on: s)
             }
-            let pct = percent(book)
+            // My Shelves shows the Goodreads copy on its new shelf straight away.
+            if s == .goodreads { LibraryStore.shared.moveTracked(goodreadsID: link.id, hardcoverBookID: item.hardcoverBookID,
+                                                                  author: item.author, title: item.title, to: status) }
+            let pct = item.percent
             if s.sendsProgress, status == .reading, pct > 0, pct < 100, link.percent != pct {
                 try await p.setProgress(percent: pct, link: &link)
                 link.percent = pct
                 sent = true
-                store(link, for: book.id, on: s)
+                store(link, for: item.key, on: s)
             }
             if errors[s] != nil { errors[s] = nil }
             return sent ? .sent : .skipped
@@ -213,8 +253,13 @@ final class FolioShelfSync {
         }
     }
 
-    private func store(_ link: ShelfLink, for id: UUID, on s: ShelfService) {
-        links[s.rawValue, default: [:]][id.uuidString] = link
+    private func trackedGoodreadsID(_ item: Item) -> String? {
+        LibraryStore.shared.trackedMatch(hardcoverBookID: item.hardcoverBookID,
+                                         author: item.author, title: item.title)?.goodreadsID
+    }
+
+    private func store(_ link: ShelfLink, for key: String, on s: ShelfService) {
+        links[s.rawValue, default: [:]][key] = link
         saveLinks()
     }
 
@@ -232,7 +277,7 @@ final class FolioShelfSync {
     }
 
     /// The found title starts with the library title's main words (subtitles and series suffixes allowed).
-    private static func sameBook(_ book: LocalBook, _ found: ShelfFound) -> Bool {
+    private static func sameBook(_ book: Item, _ found: ShelfFound) -> Bool {
         let wanted = titleWords(book.title)
         guard !wanted.isEmpty else { return false }
         let got = Set(BookAutoMatch.words(found.title))
@@ -242,10 +287,11 @@ final class FolioShelfSync {
         return surnames.isEmpty || theirs.isEmpty || surnames.contains(where: theirs.contains)
     }
 
-    private func find(_ book: LocalBook, with p: ShelfProvider) async throws -> ShelfLink {
+    private func find(_ book: Item, with p: ShelfProvider) async throws -> ShelfLink {
         func link(_ f: ShelfFound) -> ShelfLink {
             ShelfLink(id: f.id, extra: p.service == .pagebound ? f.extra : nil, title: f.title, pages: f.pages)
         }
+
         if let isbn = book.isbn.flatMap(BookAutoMatch.isbn(in:)) {
             let found = try await p.search(isbn, isbn: true)
             if let f = found.first(where: { Self.sameBook(book, $0) }) ?? (found.count == 1 ? found[0] : nil) {

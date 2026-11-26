@@ -234,18 +234,15 @@ private struct FolioMobileShelfEntryContextMenu<Extra: View>: ViewModifier {
 
             extra
 
-            if hardcover.isConnected,
-               let bookID = entry.hardcover?.book.id ?? entry.goodreads?.hardcoverBookID {
+            if canMove {
                 Menu {
                     ForEach(HCStatus.allCases) { status in
                         Button {
-                            Task {
-                                _ = await hardcover.setStatus(bookID: bookID, status: status)
-                                changed()
-                            }
+                            move(to: status)
                         } label: {
                             Label(status.label,
-                                  systemImage: entry.hardcover?.status == status ? "checkmark" : status.symbol)
+                                  systemImage: (entry.hardcover?.status ?? entry.goodreads?.status) == status
+                                      ? "checkmark" : status.symbol)
                         }
                     }
                 } label: {
@@ -260,6 +257,28 @@ private struct FolioMobileShelfEntryContextMenu<Extra: View>: ViewModifier {
             if let link = entry.goodreads?.link, let url = URL(string: link) {
                 Link(destination: url) { Label("Open on Goodreads", systemImage: "safari") }
             }
+    }
+}
+
+extension FolioMobileShelfEntryContextMenu {
+    private var hardcoverID: Int? { entry.hardcover?.book.id ?? entry.goodreads?.hardcoverBookID }
+
+    var canMove: Bool {
+        (hardcover.isConnected && hardcoverID != nil) || FolioShelfSync.shared.isConnected(.goodreads)
+    }
+
+    /// Hardcover and every synced service (Goodreads too) take the new shelf.
+    func move(to status: HCStatus) {
+        let book = entry.hardcover?.book ?? entry.goodreads?.folioBook
+            ?? HCBook(id: 0, title: entry.title, authors: entry.author)
+        FolioReadBooks.shared.set(book, read: status == .read)
+        Task {
+            if hardcover.isConnected, let id = hardcoverID {
+                _ = await hardcover.setStatus(bookID: id, status: status)
+            }
+            await FolioShelfSync.shared.sync(status, for: book)
+            changed()
+        }
     }
 }
 
@@ -324,7 +343,11 @@ private struct FolioMobileRemoteBookContextMenu: ViewModifier {
                 Menu {
                     ForEach(HCStatus.allCases) { status in
                         Button {
-                            Task { _ = await hardcover.setStatus(bookID: book.id, status: status) }
+                            FolioReadBooks.shared.set(book, read: status == .read)
+                            Task {
+                                _ = await hardcover.setStatus(bookID: book.id, status: status)
+                                await FolioShelfSync.shared.sync(status, for: book)
+                            }
                         } label: {
                             Label(status.label, systemImage: status.symbol)
                         }
@@ -467,7 +490,10 @@ private struct FolioNookMenu: ViewModifier {
             library.setStatus(id, .finished, hardcover: hardcover)
         } else if let bookID = item.hardcoverBookID, let book = item.remoteBook {
             FolioReadBooks.shared.set(book, read: true)
-            Task { _ = await hardcover.setStatus(bookID: bookID, status: .read) }
+            Task {
+                _ = await hardcover.setStatus(bookID: bookID, status: .read)
+                await FolioShelfSync.shared.sync(.read, for: book)
+            }
         }
     }
 }
