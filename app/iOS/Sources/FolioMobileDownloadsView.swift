@@ -342,10 +342,10 @@ struct FolioMobileDownloadsView: View {
 
     /// One header, one status line, one row of actions, then the log.
     private func jobDetail(_ job: DownloadJob) -> some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack(alignment: .center, spacing: 15) {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .center, spacing: 12) {
                 jobCover(job)
-                    .frame(width: 68, height: 96)
+                    .frame(width: 52, height: 74)
                     .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(jobTitle(job))
@@ -373,7 +373,7 @@ struct FolioMobileDownloadsView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 if job.stage.isActive {
-                    ProgressView().controlSize(.small)
+                    if job.transferFraction == nil { ProgressView().controlSize(.small) }
                 } else {
                     Image(systemName: stageSymbol(job.stage))
                         .foregroundStyle(stageColor(job.stage))
@@ -404,7 +404,18 @@ struct FolioMobileDownloadsView: View {
     /// Live status while working; once finished, the outcome and language.
     private func statusHeadline(_ job: DownloadJob) -> String {
         if job.stage.isActive {
-            return job.statusText.isEmpty ? stageName(job.stage) : job.statusLine
+            if let amount = job.transferLabel { return "Downloading · \(amount)" }
+            if job.stage == .downloading {
+                if job.statusText.localizedCaseInsensitiveContains("resum") ||
+                    job.statusText.localizedCaseInsensitiveContains("retry") {
+                    return "Reconnecting…"
+                }
+                if job.statusText.localizedCaseInsensitiveContains("waiting") ||
+                    job.statusText.localizedCaseInsensitiveContains("preparing") {
+                    return "Preparing download…"
+                }
+            }
+            return stageName(job.stage)
         }
         let language = job.sourceName != nil && job.expectedLanguage == nil ? "Language unverified" : displayLanguage(job.expectedLanguage)
         return "\(stageName(job.stage)) · \(language)"
@@ -493,12 +504,9 @@ struct FolioMobileDownloadsView: View {
                 }
             } label: {
                 HStack {
-                    Text("Activity")
-                        .font(.headline)
-                        .foregroundStyle(FolioTheme.ink)
-                    Text("\(job.detailLog.count)")
-                        .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                    Text("Download activity")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(FolioTheme.muted)
                     Spacer()
                     Image(systemName: "chevron.down")
                         .font(.subheadline.weight(.semibold))

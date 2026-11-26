@@ -12,7 +12,6 @@ extension Notification.Name {
     /// Opens a library book's page over the current tab. `object` is its UUID.
     static let folioShowBook = Notification.Name("folio.mac.showBook")
     /// Switches the main window to the Sources tab.
-    static let folioShowDownloads = Notification.Name("folio.mac.showDownloads")
     static let folioShowSources = Notification.Name("folio.mac.showSources")
     /// Switches the main window to the Settings tab (Folio > Settings…, ⌘,).
     static let folioShowSettings = Notification.Name("folio.mac.showSettings")

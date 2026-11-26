@@ -88,6 +88,7 @@ struct ManualCopyPicker: View {
                 Text(problems.joined(separator: "\n")).font(.caption).foregroundStyle(.secondary)
             }
         }
+        .folioSourceDownloadNotice()
         .task(id: "\(title)|\(author)") { await search() }
     }
 
@@ -107,11 +108,9 @@ struct ManualCopyPicker: View {
     }
 
     private func get(_ copy: ExtensionStore.Copy) {
-        DownloadQueue.shared.enqueueSourceCopy(copy, cover: copy.result.cover ?? cover, fallbackAuthor: author,
+        FolioMobileDownloadNotice.enqueueSourceCopy(copy, cover: copy.result.cover ?? cover, fallbackAuthor: author,
                                                hardcoverBookID: hardcoverBookID, hardcoverPages: hardcoverPages,
                                                replacing: failedJobID)
-        PopupCenter.shared.close()
-        NotificationCenter.default.post(name: .folioShowDownloads, object: nil)
     }
 }
 

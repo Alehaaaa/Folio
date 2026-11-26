@@ -211,7 +211,8 @@ struct FolioMobileFindSourceView: View {
                 .frame(maxWidth: .infinity)
             }
             .navigationTitle("Choose Source")
-            .folioScreen()
+            .folioSourceDownloadNotice()
+        .folioScreen()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -332,11 +333,9 @@ struct FolioMobileFindSourceView: View {
 
     @MainActor
     private func download(_ copy: ExtensionStore.Copy) {
-        DownloadQueue.shared.enqueueSourceCopy(copy, cover: copy.result.cover ?? cover, fallbackAuthor: queryAuthor,
+        FolioMobileDownloadNotice.enqueueSourceCopy(copy, cover: copy.result.cover ?? cover, fallbackAuthor: queryAuthor,
                                                hardcoverBookID: hardcoverBookID, hardcoverPages: hardcoverPages,
                                                replacing: failedJobID)
-        dismiss()
-        navigation.openDownloads()
     }
 
     @MainActor

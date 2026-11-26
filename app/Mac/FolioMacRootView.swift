@@ -189,9 +189,6 @@ struct FolioMacRootView: View {
     private func events(_ content: some View) -> some View {
         content
         .onReceive(NotificationCenter.default.publisher(for: .folioImport)) { _ in importing = true }
-        .onReceive(NotificationCenter.default.publisher(for: .folioShowDownloads)) { _ in
-            navigation.selectedTab = .downloads
-        }
         .onReceive(NotificationCenter.default.publisher(for: .folioShowSources)) { _ in
             PopupCenter.shared.close()
             navigation.selectedTab = .sources
