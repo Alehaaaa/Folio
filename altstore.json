@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.98",
+          "buildVersion": "99",
+          "date": "2026-11-26",
+          "localizedDescription": "Match download sources by the book's writer, not the whole credit",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.98-99.ipa",
+          "size": 6114351,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.97",
           "buildVersion": "98",
           "date": "2026-11-26",
