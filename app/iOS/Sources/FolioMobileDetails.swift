@@ -158,8 +158,11 @@ struct FolioMobileBookDetail: View {
     }
 
     private var title: String {
-        local?.title ?? edits?.title ?? shownEdition?.title.flatMap { $0.isEmpty ? nil : $0 }
+        if let edited = edits?.title, local == nil { return edited }
+        // A messy catalogue title shows as the book's best-formed real edition title.
+        let shown = local?.title ?? shownEdition?.title.flatMap { $0.isEmpty ? nil : $0 }
             ?? requestedEditionTitle ?? remote?.title ?? initialRemote?.title ?? "Book"
+        return local == nil || EditionTitle.penalty(shown) > 0 ? overrides.bestTitle(shown, for: linkedID ?? 0) : shown
     }
     private var author: String { local?.author ?? edits?.authors ?? remote?.authors ?? initialRemote?.authors ?? "" }
     private var pages: Int? {

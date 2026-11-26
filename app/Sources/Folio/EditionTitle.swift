@@ -99,4 +99,20 @@ enum EditionTitle {
         }
         return best
     }
+
+    /// The title to show for a book in the reading language, picked among its
+    /// real edition titles in that language (most-read first). A title already
+    /// in that language keeps its form unless a sibling edition is better
+    /// formed; any other title ("The Way of Kings") becomes the language's own
+    /// ("El camino de los reyes"). Without editions in it, `current` stays.
+    static func languageTitle(_ current: String, among titles: [String]) -> String {
+        let titles = titles.filter { !BookAutoMatch.words($0).isEmpty }
+        guard !titles.isEmpty else { return current }
+        let core = titleCore(current)
+        if !core.isEmpty, titles.contains(where: { titleCore($0) == core }) {
+            return best(current, among: titles)
+        }
+        let pick = titles.first { penalty($0) == 0 } ?? titles[0]
+        return best(pick, among: titles)
+    }
 }

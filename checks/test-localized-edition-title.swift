@@ -35,6 +35,14 @@ import Foundation
             print(got == want ? "PASS" : "FAIL", "best \(chosen) -> \(got)")
             if got != want { failed = true }
         }
+        let languageTitles = ["CAMINO DE LOS REYES (EL ARCHIVO DE LAS TORMENTAS 1)", "El camino de los reyes"]
+        for (current, want) in [("The Way of Kings", "El camino de los reyes"),
+                                ("CAMINO DE LOS REYES (EL ARCHIVO DE LAS TORMENTAS 1)", "El camino de los reyes"),
+                                ("Elantris", "Elantris")] {
+            let got = EditionTitle.languageTitle(current, among: current == "Elantris" ? [] : languageTitles)
+            print(got == want ? "PASS" : "FAIL", "language \(current) -> \(got)")
+            if got != want { failed = true }
+        }
         let matches: [(String, String, Bool)] = [
             ("Camino de los reyes", "El camino de los reyes (El Archivo de las Tormentas 1)", true),
             ("El camino de los reyes", "El camino de los reyes (El Archivo de las Tormentas 1)", true),

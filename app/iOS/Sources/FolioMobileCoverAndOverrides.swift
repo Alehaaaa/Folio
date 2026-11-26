@@ -133,6 +133,13 @@ struct FolioBookOverride: Codable, Hashable {
 }
 
 /// The edition a book page showed for a work you don't own a file for.
+/// A book's real edition titles in one language, to show its best-formed one.
+struct FolioEditionTitles: Codable, Hashable {
+    var language: String
+    var titles: [String]
+    var fetched: Date
+}
+
 struct FolioShownEdition: Codable, Hashable {
     var editionID: Int?
     var title: String?
@@ -150,6 +157,12 @@ final class FolioBookOverrides {
     private(set) var items: [Int: FolioBookOverride] = [:]
     /// The edition each book page last showed, so every list shows that same one.
     private(set) var shown: [Int: FolioShownEdition] = [:]
+    private static let editionTitlesKey = "folio.book.editionTitles"
+    /// Real edition titles of books in the reading language (see `bestTitle`).
+    private(set) var editionTitles: [Int: FolioEditionTitles] = [:]
+    @ObservationIgnored private var pendingTitleIDs: [Int] = []
+    @ObservationIgnored private var askedTitleIDs: Set<Int> = []
+    @ObservationIgnored private var titleFetch: Task<Void, Never>?
     @ObservationIgnored private var matchKeys: [String: String] = [:]
 
     private init() {
@@ -160,6 +173,59 @@ final class FolioBookOverrides {
         if let data = UserDefaults.standard.data(forKey: Self.shownKey),
            let saved = try? JSONDecoder().decode([Int: FolioShownEdition].self, from: data) {
             shown = saved
+        }
+        if let data = UserDefaults.standard.data(forKey: Self.editionTitlesKey),
+           let saved = try? JSONDecoder().decode([Int: FolioEditionTitles].self, from: data) {
+            editionTitles = saved
+        }
+    }
+
+    /// The book's title as its edition in the reading language is published:
+    /// "The Way of Kings" and "CAMINO DE LOS REYES (EL ARCHIVO DE LAS TORMENTAS
+    /// 1)" both show as "El camino de los reyes". Titles are picked among the
+    /// book's real edition titles, never rewritten. They are fetched once, in
+    /// batches, the first time the book shows anywhere. Reading in English,
+    /// only a messy title is replaced.
+    func bestTitle(_ title: String, for id: Int) -> String {
+        guard id > 0 else { return title }
+        let language = BookLanguage.reading
+        guard language != "en" || EditionTitle.penalty(title) > 0 else { return title }
+        let known = editionTitles[id].flatMap { $0.language == language ? $0 : nil }
+        if known.map({ $0.fetched < Date().addingTimeInterval(-30 * 86_400) }) ?? true {
+            requestEditionTitles(id)
+        }
+        return known.map { EditionTitle.languageTitle(title, among: $0.titles) } ?? title
+    }
+
+    private func requestEditionTitles(_ id: Int) {
+        guard askedTitleIDs.insert(id).inserted else { return }
+        pendingTitleIDs.append(id)
+        guard titleFetch == nil else { return }
+        // Called while views draw: gather the screen's books, then ask once.
+        titleFetch = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(700))
+            await self?.fetchEditionTitles()
+        }
+    }
+
+    private func fetchEditionTitles() async {
+        while true {
+            let batch = Array(pendingTitleIDs.prefix(10))
+            guard !batch.isEmpty else { titleFetch = nil; return }
+            pendingTitleIDs.removeFirst(batch.count)
+            let language = BookLanguage.reading
+            guard let found = try? await HardcoverClient.shared.editionTitles(bookIDs: batch, language: language) else {
+                FolioLog.log("edition titles failed for \(batch.count) book(s)", "titles")
+                continue
+            }
+            let now = Date()
+            for (id, titles) in found {
+                editionTitles[id] = FolioEditionTitles(language: language, titles: Array(titles.prefix(20)), fetched: now)
+            }
+            FolioLog.log("edition titles for \(found.count) book(s)", "titles")
+            if let data = try? JSONEncoder().encode(editionTitles) {
+                UserDefaults.standard.set(data, forKey: Self.editionTitlesKey)
+            }
         }
     }
 
@@ -208,7 +274,8 @@ final class FolioBookOverrides {
     func apply(_ book: HCBook) -> HCBook {
         var out = book
         let library = LibraryStore.shared
-        if let local = libraryCopy(of: book) {
+        let owned = libraryCopy(of: book)
+        if let local = owned {
             let title = local.title.trimmingCharacters(in: .whitespacesAndNewlines)
             if !title.isEmpty, !BookAutoMatch.sameTitle(title, book.title) {
                 out.title = title
@@ -225,6 +292,11 @@ final class FolioBookOverrides {
                 out.editionTitle = title
             }
             if let cover = edition.coverURL { out.imageURL = cover }
+        }
+        // Your own file keeps its title (it may be another language's
+        // edition); every other book shows its reading-language edition title.
+        if owned == nil || EditionTitle.penalty(out.title) > 0 {
+            out.title = bestTitle(out.title, for: book.id)
         }
         guard let o = items[book.id] else { return out }
         if let title = o.title { out.title = title }

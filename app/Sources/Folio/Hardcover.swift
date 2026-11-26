@@ -1210,6 +1210,25 @@ final class HardcoverClient {
         return out
     }
 
+    /// Every edition title these books have in one language, most-read first,
+    /// so lists can show a book's best-formed real title without opening it.
+    /// Books with no edition in that language map to an empty list.
+    func editionTitles(bookIDs: [Int], language code: String) async throws -> [Int: [String]] {
+        guard let wanted = BookLanguage.code(code), !bookIDs.isEmpty else { return [:] }
+        // Filtered here: Hardcover refuses text-pattern filters with HTTP 403.
+        let d = try await query("""
+        query EditionTitles($ids: [Int!]!) { editions(where: {book_id: {_in: $ids}}, order_by: {users_count: desc}, limit: \(min(500, bookIDs.count * 50))) { book_id title language { language } } }
+        """, ["ids": bookIDs])
+        var out = Dictionary(uniqueKeysWithValues: bookIDs.map { ($0, [String]()) })
+        for e in d["editions"].array {
+            guard let id = e["book_id"].int, let title = e["title"].string, !title.isEmpty,
+                  BookLanguage.code(e["language"]["language"].string) == wanted,
+                  out[id]?.contains(title) == false else { continue }
+            out[id, default: []].append(title)
+        }
+        return out
+    }
+
     /// The languages a book has editions in, most-read first, each with the
     /// title its most-read edition in that language carries.
     func editionLanguages(bookID: Int) async throws -> [(code: String, title: String?)] {
