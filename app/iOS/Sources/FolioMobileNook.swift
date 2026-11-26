@@ -296,7 +296,8 @@ final class FolioNookStore {
         var list = order
         list.removeAll { keys.contains($0) }
         let at = previous.flatMap { list.firstIndex(of: $0).map { $0 + 1 } } ?? (previous == nil ? 0 : list.count)
-        list.insert(contentsOf: keys, at: at)
+        // Only its own key: aliases kept beside it would hold its old place.
+        if let key = keys.first { list.insert(key, at: at) }
         order = list
         save()
     }
@@ -307,8 +308,12 @@ final class FolioNookStore {
 
     /// Position in the stored order, by the item's key or one of its aliases.
     private func position(_ item: FolioNookItem, _ index: [String: Int]) -> Int? {
-        item.keys.compactMap { index[$0] }.min()
+        // Its own key wins: an older alias left behind must not pin it to
+        // its old place when it's moved.
+        if let own = index[item.id] { return own }
+        return item.aliases.compactMap { index[$0] }.min()
     }
+
 
     /// Visible books in their places. Books not placed yet follow, oldest first.
     func arranged(_ items: [FolioNookItem]) -> [FolioNookItem] {
@@ -344,6 +349,14 @@ final class FolioNookStore {
                 order.append(item.id)
             }
             changed = true
+        }
+        // A book placed under its own key needs no older ones in the order.
+        for item in items where index[item.id] != nil {
+            let stale = Set(item.aliases.filter { $0 != item.id })
+            if order.contains(where: stale.contains) {
+                order.removeAll { stale.contains($0) }
+                changed = true
+            }
         }
         for item in items where !item.aliases.isEmpty {
             for alias in item.aliases where hidden[alias] != nil && hidden[item.id] == nil {

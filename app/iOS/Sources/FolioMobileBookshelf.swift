@@ -476,7 +476,7 @@ struct FolioMobileBookshelf: View {
         // A pressed spine stands a little raised (see FolioSpineButtonStyle).
         let home = CGPoint(x: place.x + shift.width, y: place.y + shift.height)
         let seen = CGPoint(x: home.x, y: home.y - FolioSpineButtonStyle.raise)
-        folioDragLog.debug("lift \(item.id, privacy: .public)")
+        FolioLog.log("lift \"\(item.title)\" (\(item.id))", "nook")
 
         var still = Transaction()
         still.disablesAnimations = true
@@ -533,7 +533,7 @@ struct FolioMobileBookshelf: View {
     private func release(_ key: String, at location: CGPoint) {
         guard let current = held, current.id == key, current.phase == .carried else { return }
         swayRest.cancel()
-        folioDragLog.debug("drop at=\(location.debugDescription, privacy: .public) spot=\(String(describing: dropSpot), privacy: .public)")
+        FolioLog.log("let go \"\(current.item.title)\" spot=\(dropSpot.map { "\($0.shelf)/\($0.position)" } ?? "off the shelf")", "nook")
         var still = Transaction()
         still.disablesAnimations = true
         withTransaction(still) {
@@ -559,6 +559,9 @@ struct FolioMobileBookshelf: View {
             }
             dropSpot = nil
         }
+        let was = list.firstIndex { $0.id == key } ?? -1
+        let now = nook.arranged(items).firstIndex { $0.id == key } ?? -1
+        FolioLog.log("moved from \(was) to \(now) (gap \(spot.position))", "nook")
         // Where it will stand, from the new order.
         let after = layout(widths: widths, items: nook.arranged(items))
         guard let place = center(of: key, in: after, widths: widths) else {
