@@ -129,7 +129,7 @@ struct FolioMobileBookshelf: View {
                     }
                 }
             },
-            dropped: { dropIncoming() }
+            dropped: { provider in dropIncoming(provider) }
         ))
         .background(
             LinearGradient(colors: [FolioTheme.wood.opacity(0.92), FolioTheme.wood],
@@ -289,6 +289,7 @@ struct FolioMobileBookshelf: View {
     // MARK: Spines
 
     static let space = "folio.nook"
+    @MainActor private static var reportedUnknown = false
 
     @ViewBuilder
     private func link(_ item: FolioNookItem) -> some View {
@@ -635,13 +636,21 @@ struct FolioMobileBookshelf: View {
 
     private func hoverIncoming(_ location: CGPoint, shelves: [[FolioNookItem]], widths: [String: CGFloat],
                                leans: [[String: FolioSpineLean]]) {
-        guard held == nil, let book = nook.incoming else { return }
+        guard held == nil else { return }
+        guard let book = nook.incoming else {
+            if !Self.reportedUnknown {
+                Self.reportedUnknown = true
+                FolioLog.log("hover without a known book", "nook")
+            }
+            return
+        }
         leaving.cancel()
         let existing = copy(of: book)
         let bookKeys = FolioNookShelf.keys(for: book)
         if incoming.map({ !Set($0.keys).isDisjoint(with: bookKeys) }) != true {
             var item = existing ?? FolioNookShelf.item(for: book)
             if existing == nil { item.pinned = true }
+            FolioLog.log("hover \"\(book.title)\" as \(item.id)\(existing == nil ? "" : " (already on the shelf)")", "nook")
             FolioSpinePalettes.shared.prepare([item])
             withAnimation(Self.slide) { incoming = item }
         }
@@ -654,28 +663,52 @@ struct FolioMobileBookshelf: View {
     }
 
     /// Puts the incoming book on the shelf, in the gap it was shown in.
-    /// Runs inside the drop itself: right after it the system reports the
-    /// drag leaving the shelf, which clears the gap.
-    private func dropIncoming() {
+    /// The gap is taken at once: right after the drop the system reports the
+    /// drag leaving the shelf. The book comes from the drag itself when the
+    /// shelf didn't see it start.
+    private func dropIncoming(_ provider: NSItemProvider?) {
         leaving.cancel()
-        defer { nook.incoming = nil }
-        guard let book = nook.incoming else {
+        let spot = dropSpot
+        let known = nook.incoming
+        let shown = incoming
+        nook.incoming = nil
+        FolioLog.log("drop known=\(known?.title ?? "nil") spot=\(spot.map { "\($0.shelf)/\($0.position)" } ?? "nil")", "nook")
+        if let known {
+            place(known, ghost: shown, spot: spot)
+            return
+        }
+        guard let provider else {
             withAnimation(Self.slide) { incoming = nil; dropSpot = nil }
             return
         }
-        let ghost = incoming ?? copy(of: book) ?? FolioNookShelf.item(for: book)
+        _ = provider.loadObject(ofClass: NSString.self) { object, error in
+            let text = (object as? NSString).map { $0 as String }
+            DispatchQueue.main.async {
+                guard let book = FolioNookIncomingDrop.book(from: text) else {
+                    FolioLog.log("drop without a Folio book: \(error?.localizedDescription ?? String((text ?? "").prefix(40)))", "nook")
+                    withAnimation(Self.slide) { incoming = nil; dropSpot = nil }
+                    return
+                }
+                place(book, ghost: shown, spot: spot)
+            }
+        }
+    }
+
+    private func place(_ book: HCBook, ghost shown: FolioNookItem?, spot: FolioNookDropSpot?) {
+        let ghost = shown ?? copy(of: book) ?? FolioNookShelf.item(for: book)
         let widths = Dictionary(items.map { ($0.id, FolioSpineMetrics.width(for: $0)) },
                                 uniquingKeysWith: { a, _ in a })
         let list = layout(widths: widths).flatMap { $0 }
-        let position = min(dropSpot?.position ?? list.count, list.count)
+        let position = min(spot?.position ?? list.count, list.count)
         let keys = Set(copy(of: book)?.keys ?? FolioNookShelf.keys(for: book))
         let previous = list[..<position].last { keys.isDisjoint(with: $0.keys) }?.id
-        folioDragLog.debug("add \(ghost.id, privacy: .public) after=\(previous ?? "start", privacy: .public)")
+        FolioLog.log("add \(ghost.id) \"\(book.title)\" after \(previous ?? "start")", "nook")
         withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
             nook.pin(book, keys: [ghost.id] + ghost.aliases, after: previous)
             incoming = nil
             dropSpot = nil
         }
+        FolioLog.log("pinned \(nook.pinned.count), order has it: \(nook.order.contains(ghost.id))", "nook")
     }
 
     private func lean(of key: String, in shelves: [[FolioNookItem]], widths: [String: CGFloat]) -> FolioSpineLean {
@@ -1021,12 +1054,24 @@ struct FolioSpineLean {
 struct FolioNookIncomingDrop: DropDelegate {
     let hovered: (CGPoint) -> Void
     let left: () -> Void
-    let dropped: () -> Void
+    let dropped: (NSItemProvider?) -> Void
 
-    static func payload(for book: HCBook) -> String { "folio-book:\(book.id):\(book.title)" }
+    /// The book itself travels with the drag, so a drop never depends on
+    /// what the shelf remembered while it hovered.
+    static func payload(for book: HCBook) -> String {
+        let json = (try? JSONEncoder().encode(book)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        return prefix + json
+    }
+
+    static let prefix = "folio-book:"
+
+    static func book(from payload: String?) -> HCBook? {
+        guard let payload, payload.hasPrefix(prefix) else { return nil }
+        return try? JSONDecoder().decode(HCBook.self, from: Data(payload.dropFirst(prefix.count).utf8))
+    }
 
     func validateDrop(info: DropInfo) -> Bool {
-        MainActor.assumeIsolated { FolioNookStore.shared.incoming != nil } && info.hasItemsConforming(to: [.plainText])
+        info.hasItemsConforming(to: [.plainText])
     }
     func dropEntered(info: DropInfo) { hovered(info.location) }
     func dropExited(info: DropInfo) { left() }
@@ -1035,7 +1080,7 @@ struct FolioNookIncomingDrop: DropDelegate {
         return DropProposal(operation: .copy)
     }
     func performDrop(info: DropInfo) -> Bool {
-        dropped()
+        dropped(info.itemProviders(for: [.plainText]).first)
         return true
     }
 
@@ -1052,7 +1097,10 @@ struct FolioNookDragSource: ViewModifier {
             content
                 .contentShape(.dragPreview, RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .onDrag {
-                MainActor.assumeIsolated { FolioNookStore.shared.incoming = book }
+                MainActor.assumeIsolated {
+                    if FolioNookStore.shared.incoming?.id != book.id { FolioLog.log("drag \"\(book.title)\"", "nook") }
+                    FolioNookStore.shared.incoming = book
+                }
                 return NSItemProvider(object: FolioNookIncomingDrop.payload(for: book) as NSString)
             } preview: {
                 // A small cover, so the spine it becomes on the shelf stays in view.
