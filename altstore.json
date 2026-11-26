@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.107",
+          "buildVersion": "108",
+          "date": "2026-11-26",
+          "localizedDescription": "Merge pull request #15 from Alehaaaa/add/libgen-source",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.107-108.ipa",
+          "size": 6234590,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.105",
           "buildVersion": "106",
           "date": "2026-11-26",
