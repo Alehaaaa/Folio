@@ -19,6 +19,9 @@ struct FolioMobileBookDetail: View {
     @Environment(\.dismiss) private var dismiss
     @State private var downloads = DownloadQueue.shared
     @State private var selectedVersionID: UUID?
+    @State private var managingVersions = false
+    @State private var editingVersion: LocalBook?
+    @State private var removingVersion: LocalBook?
     @State private var remoteDetails: HCBook?
     @State private var myHardcoverBook: HCUserBook?
     @State private var bookSeries: [HCBookSeries] = []
@@ -230,6 +233,7 @@ struct FolioMobileBookDetail: View {
         .folioScreen()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { detailToolbar }
+        .sheet(isPresented: $managingVersions) { versionsSheet }
         .sheet(isPresented: $editingMetadata) {
             if let local {
                 FolioMobileEditDetails(bookID: local.id)
@@ -464,22 +468,85 @@ struct FolioMobileBookDetail: View {
         }
     }
 
-    private func versionPicker(_ versions: [LocalBook], current: LocalBook) -> some View {
-        Menu {
-            ForEach(versions) { version in
-                let language = BookLanguage.code(version.language).map(BookLanguage.displayName)
-                let metadata = [language, version.publishedYear.map(String.init), version.format.rawValue.uppercased()]
-                    .compactMap { $0 }.joined(separator: " · ")
-                let label = "\(overrides.downloadedTitle(version)) · \(metadata)"
-                Button { selectedVersionID = version.id } label: {
-                    if version.id == current.id { Label(label, systemImage: "checkmark") }
-                    else { Text(label) }
+    private var versionsSheet: some View {
+        NavigationStack {
+            List {
+                if let current = local {
+                    let copies = versions(of: current)
+                    ForEach(copies) { version in
+                        HStack(spacing: 12) {
+                            Button {
+                                selectedVersionID = version.id
+                                managingVersions = false
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(overrides.downloadedTitle(version))
+                                            .font(.subheadline.weight(.semibold))
+                                        Text(versionDescription(version))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if version.id == current.id {
+                                        Image(systemName: "checkmark")
+                                            .accessibilityLabel("Selected")
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            Menu {
+                                Button("Edit Details", systemImage: "square.and.pencil") { editingVersion = version }
+                                ShareLink(item: library.fileURL(version)) {
+                                    Label("Export File", systemImage: "square.and.arrow.up")
+                                }
+                                if copies.count > 1 {
+                                    Button("Remove Version", systemImage: "trash", role: .destructive) {
+                                        removingVersion = version
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis.circle")
+                                    .font(.title3)
+                                    .padding(6)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Actions for \(versionDescription(version))")
+                        }
+                    }
                 }
             }
-        } label: {
-            Label("Versions (\(versions.count))", systemImage: "books.vertical")
+            .navigationTitle("Manage Versions")
+            .folioScreen()
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { managingVersions = false }
+                }
+            }
+            .sheet(item: $editingVersion) { version in
+                FolioMobileEditDetails(bookID: version.id)
+            }
+            .confirmationDialog("Remove this version and its imported file?", isPresented: Binding(
+                get: { removingVersion != nil },
+                set: { if !$0 { removingVersion = nil } }
+            ), presenting: removingVersion) { version in
+                Button("Remove Version", role: .destructive) {
+                    guard let current = local,
+                          let remaining = versions(of: current).first(where: { $0.id != version.id }) else { return }
+                    if current.id == version.id { selectedVersionID = remaining.id }
+                    library.remove(version.id)
+                }
+            } message: { version in
+                Text(versionDescription(version))
+            }
         }
-        .folioGlassPill()
+    }
+
+    private func versionDescription(_ version: LocalBook) -> String {
+        let language = BookLanguage.code(version.language).map(BookLanguage.displayName)
+        return [language, version.publishedYear.map(String.init), version.format.rawValue.uppercased()]
+            .compactMap { $0 }.joined(separator: " · ")
     }
 
     private var primaryActions: some View {
@@ -491,7 +558,12 @@ struct FolioMobileBookDetail: View {
                 }
                 .accessibilityIdentifier("folio.readBook")
                 let copies = versions(of: local)
-                if copies.count > 1 { versionPicker(copies, current: local) }
+                if copies.count > 1 {
+                    Button("Versions (\(copies.count))", systemImage: "books.vertical") {
+                        managingVersions = true
+                    }
+                    .folioGlassPill()
+                }
             } else {
                 // Like picking an edition in a bookstore: the button says which
                 // language you'll get, and the globe lists the others this book
