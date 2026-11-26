@@ -5,15 +5,16 @@ import SwiftUI
 struct FolioMobileRemoteBookTile: View {
     private let original: HCBook
     var width: CGFloat? = nil
-    /// Whether the tile brings its own long-press menu; rows from a reading
-    /// shelf pass false and add their shelf's menu instead.
-    var menu = true
+    /// The reading-shelf entry the tile stands for, whose menu it shows.
+    var entry: FolioMobileShelfEntry? = nil
+    var changed: () -> Void = {}
     @State private var overrides = FolioBookOverrides.shared
 
-    init(book: HCBook, width: CGFloat? = nil, menu: Bool = true) {
+    init(book: HCBook, width: CGFloat? = nil, entry: FolioMobileShelfEntry? = nil, changed: @escaping () -> Void = {}) {
         original = book
         self.width = width
-        self.menu = menu
+        self.entry = entry
+        self.changed = changed
     }
 
     /// The book with the reader's own edits; navigation keeps the Hardcover record.
@@ -37,6 +38,9 @@ struct FolioMobileRemoteBookTile: View {
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .strokeBorder(.primary.opacity(0.07), lineWidth: 0.7)
                 }
+                // A long press lifts the cover alone, as it is, over the blurred screen.
+                .modifier(FolioCoverMenuShape())
+                .modifier(FolioRemoteTileMenu(book: original, entry: entry, changed: changed))
 
                 Text(book.title)
                     .font(.body.weight(.semibold))
@@ -55,7 +59,6 @@ struct FolioMobileRemoteBookTile: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .modifier(FolioRemoteTileMenu(book: original, enabled: menu))
         // On Home, it can be dragged onto the shelf.
         .modifier(FolioNookDragSource(book: original))
         .accessibilityElement(children: .combine)
@@ -102,13 +105,25 @@ enum FolioMobileDiscoverySections {
 /// The tile's own long-press menu, unless the row gives it another one.
 private struct FolioRemoteTileMenu: ViewModifier {
     let book: HCBook
-    let enabled: Bool
+    let entry: FolioMobileShelfEntry?
+    let changed: () -> Void
 
     func body(content: Content) -> some View {
-        if enabled {
-            content.folioRemoteBookContextMenu(book)
+        if let entry {
+            content.folioShelfEntryCoverMenu(entry, changed: changed)
         } else {
-            content
+            content.folioRemoteBookContextMenu(book, lifted: true)
         }
+    }
+}
+
+/// The shape a long press lifts: the cover's own rounded corners (iOS only).
+private struct FolioCoverMenuShape: ViewModifier {
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 11, style: .continuous))
+        #else
+        content
+        #endif
     }
 }

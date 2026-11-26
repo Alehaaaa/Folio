@@ -43,6 +43,10 @@ struct FolioMobileBookshelf: View {
     /// that follows still lands where it was shown.
     @State private var leaving = FolioNookSwayRest()
     @State private var swayRest = FolioNookSwayRest()
+    @State private var swipe = FolioNookSwipe()
+    /// The bookcase opened out to every book, past the shelf limit, to see
+    /// and reorder the ones waiting in the pile.
+    @State private var expanded = false
     @Namespace private var shelfSpace
     @ScaledMetric(relativeTo: .body) private var rowHeight: CGFloat = 186
 
@@ -66,6 +70,9 @@ struct FolioMobileBookshelf: View {
             leans(row, free: innerWidth - used(row, widths), keepBookend: index == standing.count - 1)
         }
         let shelves = withIncoming(standing, widths: widths)
+        let onShelves = Set(shelves.flatMap { $0 }.map(\.id))
+        let pile = ordered.filter { !onShelves.contains($0.id) && $0.id != incoming?.id }
+        let limit = max(1, nook.maxShelves)
         let slides = self.slides(shelves, widths: widths)
         let rowLeans = incoming == nil ? standingLeans : shelves.enumerated().map { index, row in
             leans(row, free: innerWidth - used(row, widths), keepBookend: index == shelves.count - 1)
@@ -111,7 +118,23 @@ struct FolioMobileBookshelf: View {
                 // Books stepping aside for a gap slide behind the frame, not over it.
                 .clipped()
                 .background(shelfBack)
-                plank(last: last)
+                .overlay(alignment: .topLeading) {
+                    if expanded && index == limit {
+                        Text("Beyond your shelves")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, sidePadding)
+                            .padding(.top, 5)
+                    }
+                }
+                plank(last: last && pile.isEmpty && !(expanded && shelves.count > limit))
+            }
+            if !expanded && !pile.isEmpty {
+                pileDrawer(pile, widths: widths)
+                plank(last: true)
+            } else if expanded && shelves.count > limit {
+                showLess
+                plank(last: true)
             }
         }
         .padding(.horizontal, frameInset)
@@ -159,6 +182,7 @@ struct FolioMobileBookshelf: View {
             // The system ended the press without a release (a menu opened):
             // the book goes home. A real release settles it first.
             guard !pressed else { return }
+            swipe.reset()
             DispatchQueue.main.async { if held?.phase == .carried { putBack() } }
         }
         #if os(iOS)
@@ -169,6 +193,82 @@ struct FolioMobileBookshelf: View {
         .accessibilityLabel("Bookshelf")
     }
 
+    // MARK: The pile
+
+    /// The books past the shelf limit, as a low drawer under the shelves:
+    /// small books lying flat in their colors, stacked a few high. A tap
+    /// opens the bookcase out to every book.
+    private func pileDrawer(_ pile: [FolioNookItem], widths: [String: CGFloat]) -> some View {
+        let stacks = stride(from: 0, to: min(pile.count, 40), by: 4).map { Array(pile[$0..<min($0 + 4, pile.count)]) }
+        return Button {
+            FolioLog.log("open the pile (\(pile.count))", "nook")
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.86)) { expanded = true }
+        } label: {
+            HStack(alignment: .bottom, spacing: 10) {
+                HStack(alignment: .bottom, spacing: 4) {
+                    ForEach(Array(stacks.prefix(8).enumerated()), id: \.offset) { _, stack in
+                        VStack(spacing: 1) {
+                            ForEach(stack.reversed()) { item in
+                                let palette = FolioSpinePalettes.shared.palette(for: item)
+                                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                                    .fill(palette.baseColor)
+                                    .overlay(alignment: .leading) {
+                                        palette.accentColor.frame(width: 3)
+                                    }
+                                    .clipShape(RoundedRectangle(cornerRadius: 1.5, style: .continuous))
+                                    .frame(width: 26 + 18 * FolioSpineMetrics.heightFactor(for: item) - 9,
+                                           height: max(5, min(10, (widths[item.id] ?? 40) * 0.17)))
+                                    .shadow(color: .black.opacity(0.15), radius: 0.5, y: 0.5)
+                            }
+                        }
+                    }
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(pile.count == 1 ? "1 more book" : "\(pile.count) more books")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Tap to see and arrange them")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.down")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, 4)
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, sidePadding)
+            .padding(.top, 12)
+            .padding(.bottom, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(shelfBack)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(pile.count == 1 ? "1 more book" : "\(pile.count) more books")
+        .accessibilityHint("Shows every book so you can arrange them")
+    }
+
+    /// Folds the opened-out bookcase back to its shelves.
+    private var showLess: some View {
+        Button {
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.86)) { expanded = false }
+        } label: {
+            HStack(spacing: 6) {
+                Text("Show less")
+                    .font(.subheadline.weight(.semibold))
+                Image(systemName: "chevron.up")
+                    .font(.footnote.weight(.semibold))
+            }
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(shelfBack)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: Layout
 
     /// Fills shelves left to right in the books' places. When there are more
@@ -176,24 +276,20 @@ struct FolioMobileBookshelf: View {
     /// earliest places, so the shelf never shuffles.
     private func layout(widths: [String: CGFloat], items: [FolioNookItem]? = nil) -> [[FolioNookItem]] {
         let items = items ?? nook.arranged(self.items)
-        let maxRows = max(1, nook.maxShelves)
         let all = pack(items, widths)
-        if all.count <= maxRows { return all.isEmpty ? [[]] : all }
+        if all.isEmpty { return [[]] }
+        // One rule: the shelves hold the books in their order, and the rest
+        // wait in the pile below until the bookcase is opened out.
+        if expanded { return all }
+        return Array(all.prefix(max(1, nook.maxShelves)))
+    }
 
-        var chosen = Set<String>()
-        let reading = items.filter(\.reading)
-        for item in reading {
-            chosen.insert(item.id)
-            if pack(items.filter { chosen.contains($0.id) }, widths).count > maxRows { chosen.remove(item.id) }
-        }
-        for item in items where !item.reading {
-            chosen.insert(item.id)
-            if pack(items.filter { chosen.contains($0.id) }, widths).count > maxRows {
-                chosen.remove(item.id)
-                break
-            }
-        }
-        return pack(items.filter { chosen.contains($0.id) }, widths)
+    /// Notes in the log which books the shelves have no room for.
+    private func reportCrowding(_ shown: [[FolioNookItem]], of all: [FolioNookItem]) {
+        let ids = Set(shown.flatMap { $0 }.map(\.id))
+        let left = all.filter { !ids.contains($0.id) }.map(\.title)
+        guard !left.isEmpty else { return }
+        FolioLog.log("no room on \(nook.maxShelves) shelf(s) for: \(left.joined(separator: ", "))", "nook")
     }
 
     /// Which books lean, and by how much. A book only tips into space the
@@ -340,23 +436,21 @@ struct FolioMobileBookshelf: View {
     }
 
     #if os(iOS)
-    /// Touch: a tap opens the book, holding still opens its menu, and holding
-    /// then moving picks it up.
+    /// Touch: a tap opens the book and a hold opens its menu, both at the
+    /// system's own timing. Sliding a book sideways picks it up; a vertical
+    /// swipe is left to the page.
     private func carry(_ item: FolioNookItem, lean: FolioSpineLean, shelves: [[FolioNookItem]],
                        widths: [String: CGFloat], leans: [[String: FolioSpineLean]]) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.25, maximumDistance: 10)
-            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space)))
-            .updating($pressing) { value, state, _ in
-                if case .second(true, _) = value { state = true }
-            }
-            .onChanged { value in
-                guard case .second(true, let drag?) = value else { return }
-                // Holding still leaves room for the menu; moving picks the book up.
-                if held == nil, hypot(drag.translation.width, drag.translation.height) < 4 { return }
+        DragGesture(minimumDistance: 8, coordinateSpace: .named(Self.space))
+            .updating($pressing) { _, state, _ in state = true }
+            .onChanged { drag in
+                if held == nil {
+                    guard swipe.decide(drag.translation) else { return }
+                }
                 follow(item, lean: lean, drag: drag, shelves: shelves, widths: widths, leans: leans)
             }
-            .onEnded { value in
-                guard case .second(true, let drag?) = value else { return }
+            .onEnded { drag in
+                swipe.reset()
                 release(item.id, at: drag.location)
             }
     }
@@ -709,6 +803,10 @@ struct FolioMobileBookshelf: View {
             dropSpot = nil
         }
         FolioLog.log("pinned \(nook.pinned.count), order has it: \(nook.order.contains(ghost.id))", "nook")
+        let all = nook.arranged(items + (copy(of: book) == nil ? [ghost] : []))
+        var widthsAfter = widths
+        widthsAfter[ghost.id] = FolioSpineMetrics.width(for: ghost)
+        reportCrowding(layout(widths: widthsAfter, items: all), of: all)
     }
 
     private func lean(of key: String, in shelves: [[FolioNookItem]], widths: [String: CGFloat]) -> FolioSpineLean {
@@ -1073,13 +1171,20 @@ struct FolioNookIncomingDrop: DropDelegate {
     func validateDrop(info: DropInfo) -> Bool {
         info.hasItemsConforming(to: [.plainText])
     }
-    func dropEntered(info: DropInfo) { hovered(info.location) }
-    func dropExited(info: DropInfo) { left() }
+    func dropEntered(info: DropInfo) {
+        FolioLog.log("enter shelf at \(Int(info.location.x)),\(Int(info.location.y))", "nook")
+        hovered(info.location)
+    }
+    func dropExited(info: DropInfo) {
+        FolioLog.log("leave shelf", "nook")
+        left()
+    }
     func dropUpdated(info: DropInfo) -> DropProposal? {
         hovered(info.location)
         return DropProposal(operation: .copy)
     }
     func performDrop(info: DropInfo) -> Bool {
+        FolioLog.log("perform drop at \(Int(info.location.x)),\(Int(info.location.y))", "nook")
         dropped(info.itemProviders(for: [.plainText]).first)
         return true
     }
@@ -1095,7 +1200,6 @@ struct FolioNookDragSource: ViewModifier {
         if enabled {
             let cover = FolioBookOverrides.shared.apply(book).imageURL
             content
-                .contentShape(.dragPreview, RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .onDrag {
                 MainActor.assumeIsolated {
                     if FolioNookStore.shared.incoming?.id != book.id { FolioLog.log("drag \"\(book.title)\"", "nook") }
@@ -1107,8 +1211,8 @@ struct FolioNookDragSource: ViewModifier {
                 FolioCachedImage(url: cover) {
                     FolioClothCover(title: book.title, compact: true)
                 }
-                .frame(width: 58, height: 84)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .frame(width: 76, height: 110)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
             }
         } else {
             content
@@ -1119,6 +1223,21 @@ struct FolioNookDragSource: ViewModifier {
 extension EnvironmentValues {
     /// Whether book tiles here can be dragged onto the Home shelf.
     @Entry var folioNookDragSource = false
+}
+
+/// Whether a touch sliding over a spine means to pick it up: decided once,
+/// by its first movement, sideways for the book and up or down for the page.
+final class FolioNookSwipe {
+    private var decided: Bool?
+
+    func decide(_ translation: CGSize) -> Bool {
+        if let decided { return decided }
+        let sideways = abs(translation.width) > abs(translation.height) * 1.2
+        decided = sideways
+        return sideways
+    }
+
+    func reset() { decided = nil }
 }
 
 /// The book in the hand.

@@ -28,6 +28,7 @@ private struct FolioMobileBookContextMenu<Extra: View>: ViewModifier {
                     // since this runs each time a tile redraws.
                     image: library.book(bookID).flatMap { library.coverURL($0) }
                         .flatMap { FolioImageCache.shared.localCoverInMemory($0) },
+                    local: library.book(bookID).flatMap { library.coverURL($0) },
                     title: library.book(bookID)?.title ?? "",
                     author: library.book(bookID)?.author ?? ""
                 )
@@ -116,9 +117,22 @@ private struct FolioMobileBookContextMenu<Extra: View>: ViewModifier {
 /// at its own shape, so the system lifts and enlarges it while the screen
 /// behind blurs and dims, with no box around it.
 struct FolioMobileBookMenuPreview: View {
-    let image: UIImage?
+    let initial: UIImage?
+    var local: URL? = nil
+    var remote: URL? = nil
     let title: String
     let author: String
+    @State private var loaded: UIImage?
+
+    init(image: UIImage?, local: URL? = nil, remote: URL? = nil, title: String, author: String) {
+        initial = image
+        self.local = local
+        self.remote = remote
+        self.title = title
+        self.author = author
+    }
+
+    private var image: UIImage? { initial ?? loaded }
 
     private static let width: CGFloat = 240
 
@@ -156,6 +170,15 @@ struct FolioMobileBookMenuPreview: View {
         }
         .frame(width: Self.width, height: Self.width / aspect)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .task {
+            // Covers not in memory yet are read here, off the main thread.
+            guard initial == nil else { return }
+            if let local, let image = await FolioImageCache.shared.loadLocalCover(local) {
+                loaded = image
+            } else if let remote, let image = await FolioImageCache.shared.load(remote) {
+                loaded = image
+            }
+        }
     }
 }
 
@@ -164,6 +187,8 @@ private struct FolioMobileShelfEntryContextMenu<Extra: View>: ViewModifier {
     let entry: FolioMobileShelfEntry
     var changed: () -> Void = {}
     var extra: Extra
+    /// Attached to a cover the system can lift as is, with no separate preview.
+    var lifted = false
     @Environment(LibraryStore.self) private var library
     @Environment(HardcoverClient.self) private var hardcover
     @Environment(FolioMobileNavigation.self) private var navigation
@@ -175,11 +200,16 @@ private struct FolioMobileShelfEntryContextMenu<Extra: View>: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        content.contextMenu {
-            menu
-        } preview: {
-            FolioMobileBookMenuPreview(image: entry.cover.flatMap { FolioImageCache.shared.cached($0) },
-                                       title: entry.title, author: entry.author)
+        if lifted {
+            // Shown on the cover itself: the system lifts it as it is.
+            content.contextMenu { menu }
+        } else {
+            content.contextMenu {
+                menu
+            } preview: {
+                FolioMobileBookMenuPreview(image: entry.cover.flatMap { FolioImageCache.shared.cached($0) },
+                                           remote: entry.cover, title: entry.title, author: entry.author)
+            }
         }
     }
 
@@ -237,6 +267,7 @@ private struct FolioMobileShelfEntryContextMenu<Extra: View>: ViewModifier {
 /// Because you read, an author's books...).
 private struct FolioMobileRemoteBookContextMenu: ViewModifier {
     let book: HCBook
+    var lifted = false
     @Environment(LibraryStore.self) private var library
     @Environment(HardcoverClient.self) private var hardcover
     @Environment(FolioMobileNavigation.self) private var navigation
@@ -248,12 +279,16 @@ private struct FolioMobileRemoteBookContextMenu: ViewModifier {
     }
 
     func body(content: Content) -> some View {
-        content.contextMenu {
-            menu
-        } preview: {
-            let shown = FolioBookOverrides.shared.apply(book)
-            FolioMobileBookMenuPreview(image: shown.imageURL.flatMap { FolioImageCache.shared.cached($0) },
-                                       title: shown.title, author: shown.authors)
+        if lifted {
+            content.contextMenu { menu }
+        } else {
+            content.contextMenu {
+                menu
+            } preview: {
+                let shown = FolioBookOverrides.shared.apply(book)
+                FolioMobileBookMenuPreview(image: shown.imageURL.flatMap { FolioImageCache.shared.cached($0) },
+                                           remote: shown.imageURL, title: shown.title, author: shown.authors)
+            }
         }
     }
 
@@ -308,8 +343,13 @@ private struct FolioMobileRemoteBookContextMenu: ViewModifier {
 
 extension View {
     /// The long-press menu for a Hardcover book in a row.
-    func folioRemoteBookContextMenu(_ book: HCBook) -> some View {
-        modifier(FolioMobileRemoteBookContextMenu(book: book))
+    func folioRemoteBookContextMenu(_ book: HCBook, lifted: Bool = false) -> some View {
+        modifier(FolioMobileRemoteBookContextMenu(book: book, lifted: lifted))
+    }
+
+    /// A shelf entry's menu on a cover the system lifts as it is.
+    func folioShelfEntryCoverMenu(_ entry: FolioMobileShelfEntry, changed: @escaping () -> Void = {}) -> some View {
+        modifier(FolioMobileShelfEntryContextMenu(entry: entry, changed: changed, extra: EmptyView(), lifted: true))
     }
 
     func folioBookContextMenu(_ book: LocalBook) -> some View {
@@ -345,6 +385,7 @@ private struct FolioNookMenu: ViewModifier {
                 content.contextMenu { section } preview: {
                     FolioMobileBookMenuPreview(
                         image: item.remoteCover.flatMap { FolioImageCache.shared.cached($0) },
+                        local: item.localCover, remote: item.remoteCover,
                         title: item.title, author: item.author)
                 }
             }
@@ -405,7 +446,12 @@ private struct FolioNookMenu: ViewModifier {
             Button {
                 withAnimation(.snappy) { FolioNookStore.shared.hide(item) }
             } label: {
-                Label("Hide from Nook", systemImage: "eye.slash")
+                // A book put here by hand just comes off again; others are hidden.
+                if item.pinned && !item.reading {
+                    Label("Remove from Nook", systemImage: "minus.circle")
+                } else {
+                    Label("Hide from Nook", systemImage: "eye.slash")
+                }
             }
         }
     }

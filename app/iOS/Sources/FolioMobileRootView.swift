@@ -544,11 +544,11 @@ struct FolioMobileHomeView: View {
             section(title, seeAll: { navigation.openShelf(status) }) {
                 ForEach(entries) { entry in
                     if let item = entry.hardcover {
-                        FolioMobileRemoteBookTile(book: item.book, width: min(tileWidth, 180), menu: false)
-                            .folioShelfEntryContextMenu(entry) { Task { await shelves.load(from: hardcover) } }
+                        FolioMobileRemoteBookTile(book: item.book, width: min(tileWidth, 180), entry: entry) {
+                            Task { await shelves.load(from: hardcover) }
+                        }
                     } else if let tracked = entry.goodreads {
-                        FolioMobileRemoteBookTile(book: tracked.folioBook, width: min(tileWidth, 180), menu: false)
-                            .folioShelfEntryContextMenu(entry)
+                        FolioMobileRemoteBookTile(book: tracked.folioBook, width: min(tileWidth, 180), entry: entry)
                     }
                 }
             }
