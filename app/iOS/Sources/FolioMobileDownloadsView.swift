@@ -259,7 +259,8 @@ struct FolioMobileDownloadsView: View {
                 if job.stage.isActive { ProgressView().controlSize(.mini) }
                 Group {
                     if job.stage.isActive {
-                        Text(stageName(job.stage))
+                        Text(job.transferLabel.map { "\(stageName(job.stage)) \($0)" } ?? stageName(job.stage))
+                            .monospacedDigit()
                     } else {
                         Label(stageName(job.stage), systemImage: stageSymbol(job.stage))
                     }
@@ -317,10 +318,15 @@ struct FolioMobileDownloadsView: View {
 
             HStack(alignment: .top, spacing: 10) {
                 if job.stage.isActive { ProgressView().controlSize(.small) }
-                Text(job.statusText.isEmpty ? stageName(job.stage) : job.statusText)
+                Text(job.statusText.isEmpty ? stageName(job.stage) : job.statusLine)
                     .font(.subheadline)
+                    .monospacedDigit()
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)
+            }
+            if let fraction = job.transferFraction {
+                ProgressView(value: fraction)
+                    .tint(FolioTheme.ink)
             }
 
             jobActions(for: job)

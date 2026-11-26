@@ -347,6 +347,8 @@ struct FolioMobileFindSourceView: View {
                         asking = "\(source) · \(line)"
                     case .log(let line):
                         appendMessage("\(source): \(line)")
+                    case .transfer:
+                        break
                     }
                 }
             }
@@ -378,6 +380,12 @@ struct FolioMobileFindSourceView: View {
                             appendMessage("\(copy.sourceName): \(line)")
                         case .log(let line):
                             appendMessage("\(copy.sourceName): \(line)")
+                        case .transfer(let received, let expected):
+                            let amount = expected > 0
+                                ? "\(min(100, Int(received * 100 / expected)))%"
+                                : ByteCountFormatter.string(fromByteCount: received, countStyle: .file)
+                            let base = downloadStatus.components(separatedBy: " · ").first ?? downloadStatus
+                            downloadStatus = "\(base) · \(amount)"
                         }
                     }
                 })
