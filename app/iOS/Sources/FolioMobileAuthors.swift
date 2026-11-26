@@ -795,14 +795,17 @@ struct FolioMobileSavedSeriesRow: View {
                         VStack(alignment: .leading, spacing: 6) {
                             FolioMobileRemoteCover(url: item.coverURL, title: item.name)
                                 .frame(width: 100, height: 146)
-                            Text(item.name)
-                                .font(.system(.caption, design: .serif))
-                                .foregroundStyle(FolioTheme.ink)
-                                .lineLimit(2, reservesSpace: true)
-                            if let count = FolioSeriesCache.load(item.id)?.mainCount ?? item.count {
-                                Text(count == 1 ? "1 book" : "\(count) books")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
+                            // The count sits right under the name, however many lines it takes.
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.name)
+                                    .font(.system(.caption, design: .serif))
+                                    .foregroundStyle(FolioTheme.ink)
+                                    .lineLimit(2)
+                                if let count = FolioSeriesCache.load(item.id)?.mainCount ?? item.count {
+                                    Text(count == 1 ? "1 book" : "\(count) books")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
                         .frame(width: 100, alignment: .leading)
