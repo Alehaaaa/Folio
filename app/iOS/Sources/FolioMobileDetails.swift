@@ -108,7 +108,13 @@ struct FolioMobileBookDetail: View {
 
     /// The edition this page was opened for from search ("El nombre del viento"),
     /// for books outside the library. Ratings, series and shelves stay the work's.
-    private var requestedEditionID: Int? { local == nil ? initialRemote?.editionID : nil }
+    /// Opened from a list, it keeps the edition this page showed last time, so the
+    /// page and every list agree on one edition.
+    private var requestedEditionID: Int? {
+        guard local == nil else { return nil }
+        if let id = initialRemote?.editionID { return id }
+        return linkedID.flatMap { overrides.shownEdition(for: $0)?.editionID }
+    }
     private var requestedEditionTitle: String? {
         local == nil ? initialRemote?.editionTitle.flatMap { $0.isEmpty ? nil : $0 } : nil
     }
@@ -1042,6 +1048,18 @@ struct FolioMobileBookDetail: View {
         edition = found
     }
 
+    /// Remembers the edition this page shows (before your edits), so Home, Discover,
+    /// search and shelves show the same title and cover for the book.
+    private func recordShownEdition() {
+        guard local == nil, let linkedID, linkedID > 0 else { return }
+        let shelf = myHardcoverBook
+        let cover = shelf?.book.imageURL ?? shownEdition?.imageURL ?? (remote ?? initialRemote)?.imageURL
+        let title = shownEdition?.title.flatMap { $0.isEmpty ? nil : $0 }
+            ?? requestedEditionTitle ?? remote?.title ?? initialRemote?.title
+        let id = shownEdition?.id ?? shelf?.editionID
+        overrides.recordShown(FolioShownEdition(editionID: id, title: title, coverURL: cover), for: linkedID)
+    }
+
     /// This book as Hardcover knows it, or as far as the page knows it.
     private var shownBook: HCBook {
         remote ?? HCBook(id: linkedID ?? 0, title: title, authors: author, imageURL: initialRemote?.imageURL)
@@ -1176,6 +1194,7 @@ struct FolioMobileBookDetail: View {
         bookSeries = openSeries ?? page.series
         pageGenres = page.genres ?? []
         await backfillEdition(linkedID)
+        recordShownEdition()
         var fresh = page.stats
         // Keep the bars on screen while the distribution refreshes.
         if let old = stats?.distribution, !old.isEmpty { fresh?.distribution = old }
@@ -1201,6 +1220,7 @@ struct FolioMobileBookDetail: View {
         myHardcoverBook = snapshot.page.userBook
         stats = snapshot.page.stats
         edition = snapshot.page.edition
+        recordShownEdition()
         bookSeries = openSeries ?? snapshot.page.series
         if openSeries == nil { seriesEntries = snapshot.seriesBooks }
         topReviews = snapshot.reviews

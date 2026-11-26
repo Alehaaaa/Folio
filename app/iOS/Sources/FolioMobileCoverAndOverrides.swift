@@ -132,19 +132,63 @@ struct FolioBookOverride: Codable, Hashable {
     var isEmpty: Bool { self == FolioBookOverride() }
 }
 
+/// The edition a book page showed for a work you don't own a file for.
+struct FolioShownEdition: Codable, Hashable {
+    var editionID: Int?
+    var title: String?
+    var coverURL: URL?
+}
+
 @Observable
 @MainActor
 final class FolioBookOverrides {
     static let shared = FolioBookOverrides()
     private static let defaultsKey = "folio.bookOverrides"
 
+    private static let shownKey = "folio.book.shownEditions"
+
     private(set) var items: [Int: FolioBookOverride] = [:]
+    /// The edition each book page last showed, so every list shows that same one.
+    private(set) var shown: [Int: FolioShownEdition] = [:]
+    @ObservationIgnored private var matchKeys: [String: String] = [:]
 
     private init() {
         if let data = UserDefaults.standard.data(forKey: Self.defaultsKey),
            let saved = try? JSONDecoder().decode([Int: FolioBookOverride].self, from: data) {
             items = saved
         }
+        if let data = UserDefaults.standard.data(forKey: Self.shownKey),
+           let saved = try? JSONDecoder().decode([Int: FolioShownEdition].self, from: data) {
+            shown = saved
+        }
+    }
+
+    func shownEdition(for id: Int) -> FolioShownEdition? { shown[id] }
+
+    /// Remembers the edition a book page showed (title and cover, without edits).
+    func recordShown(_ edition: FolioShownEdition, for id: Int) {
+        guard id > 0, shown[id] != edition else { return }
+        shown[id] = edition
+        if let data = try? JSONEncoder().encode(shown) {
+            UserDefaults.standard.set(data, forKey: Self.shownKey)
+        }
+    }
+
+    /// The library copy that stands for a Hardcover book: one linked to it, else an
+    /// unlinked file with the same title and author (a download not matched yet).
+    func libraryCopy(of book: HCBook) -> LocalBook? {
+        let books = LibraryStore.shared.books
+        if book.id > 0, let linked = books.first(where: { $0.hardcoverBookID == book.id }) { return linked }
+        let wanted = matchKey(author: book.authors, title: book.title)
+        return books.first { $0.hardcoverBookID == nil && matchKey(author: $0.author, title: $0.title) == wanted }
+    }
+
+    private func matchKey(author: String, title: String) -> String {
+        let raw = author + "\u{1F}" + title
+        if let hit = matchKeys[raw] { return hit }
+        let key = BookMatch.key(author: author, title: title)
+        matchKeys[raw] = key
+        return key
     }
 
     func override(for id: Int) -> FolioBookOverride? { items[id] }
@@ -164,7 +208,7 @@ final class FolioBookOverrides {
     func apply(_ book: HCBook) -> HCBook {
         var out = book
         let library = LibraryStore.shared
-        if let local = library.books.first(where: { $0.hardcoverBookID == book.id }) {
+        if let local = libraryCopy(of: book) {
             let title = local.title.trimmingCharacters(in: .whitespacesAndNewlines)
             if !title.isEmpty, !BookAutoMatch.sameTitle(title, book.title) {
                 out.title = title
@@ -173,6 +217,14 @@ final class FolioBookOverrides {
             if let cover = library.coverURL(local), FileManager.default.fileExists(atPath: cover.path) {
                 out.imageURL = cover
             }
+        } else if let edition = shown[book.id], book.editionID == nil || book.editionID == edition.editionID {
+            // Not owned: the edition its book page shows ("El nombre del viento").
+            if let title = edition.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty,
+               !BookAutoMatch.sameTitle(title, book.title) {
+                out.title = title
+                out.editionTitle = title
+            }
+            if let cover = edition.coverURL { out.imageURL = cover }
         }
         guard let o = items[book.id] else { return out }
         if let title = o.title { out.title = title }
