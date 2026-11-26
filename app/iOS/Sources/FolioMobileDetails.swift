@@ -91,9 +91,7 @@ struct FolioMobileBookDetail: View {
     private var local: LocalBook? {
         if let localBookID { return library.book(localBookID) }
         guard let remote = initialRemote else { return nil }
-        // Prefer an explicit Hardcover association, then an exact local copy.
-        return library.books.first(where: { $0.hardcoverBookID == remote.id })
-            ?? library.localCopy(author: remote.authors, title: remote.title)
+        return overrides.libraryCopy(of: remote)
     }
 
     private var linkedID: Int? {
@@ -158,11 +156,11 @@ struct FolioMobileBookDetail: View {
     }
 
     private var title: String {
-        if let edited = edits?.title, local == nil { return edited }
-        // A messy catalogue title shows as the book's best-formed real edition title.
-        let shown = local?.title ?? shownEdition?.title.flatMap { $0.isEmpty ? nil : $0 }
+        if let local { return overrides.downloadedTitle(local) }
+        if let edited = edits?.title { return edited }
+        let shown = shownEdition?.title.flatMap { $0.isEmpty ? nil : $0 }
             ?? requestedEditionTitle ?? remote?.title ?? initialRemote?.title ?? "Book"
-        return local == nil || EditionTitle.penalty(shown) > 0 ? overrides.bestTitle(shown, for: linkedID ?? 0) : shown
+        return overrides.bestTitle(shown, for: linkedID ?? 0)
     }
     private var author: String { local?.author ?? edits?.authors ?? remote?.authors ?? initialRemote?.authors ?? "" }
     private var pages: Int? {

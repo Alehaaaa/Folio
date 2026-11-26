@@ -243,6 +243,10 @@ struct EPUBPackage {
             let searches = source.searched.filter { !$0.hasPrefix("CANDIDATE:") }
             let candidates = source.searched.filter { $0.hasPrefix("CANDIDATE:") }
             if translated {
+                guard job.displayTitle().localizedCaseInsensitiveCompare("Aleación de ley") == .orderedSame,
+                      job.displayTitle(importedTitle: "The Alloy of Law") == "The Alloy of Law" else {
+                    fatalError("Download row lost the resolved title or relabeled a different imported edition")
+                }
                 guard searches.count == 1 && searches[0].localizedCaseInsensitiveCompare("Aleación de ley") == .orderedSame else {
                     fatalError("Unnecessary original search or fallback translation failed: \(searches)")
                 }

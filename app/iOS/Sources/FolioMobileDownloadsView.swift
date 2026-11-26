@@ -214,18 +214,35 @@ struct FolioMobileDownloadsView: View {
     }
 
     /// The grid shows the essentials; the entire cover opens the full job record.
+    private func jobTitle(_ job: DownloadJob) -> String {
+        let title = job.importedBookID.flatMap { library.book($0) }
+            .map { FolioBookOverrides.shared.downloadedTitle($0) }
+        return job.displayTitle(importedTitle: title)
+    }
+
+    @ViewBuilder
+    private func jobCover(_ job: DownloadJob) -> some View {
+        if let book = job.importedBookID.flatMap({ library.book($0) }), library.coverURL(book) != nil {
+            FolioMobileCover(book: book)
+                .clipShape(RoundedRectangle(cornerRadius: 7))
+                .accessibilityHidden(true)
+        } else {
+            FolioMobileRemoteCover(url: job.cover, title: jobTitle(job))
+        }
+    }
+
     private func jobTile(_ job: DownloadJob) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             ZStack(alignment: .topTrailing) {
                 HStack {
                     Spacer(minLength: 0)
                     Button { selectedJob = SelectedDownloadJob(id: job.id) } label: {
-                        FolioMobileRemoteCover(url: job.cover, title: job.title)
+                        jobCover(job)
                             .frame(width: 94, height: 133)
                             .shadow(color: .black.opacity(0.12), radius: 7, y: 4)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Details for \(job.title)")
+                    .accessibilityLabel("Details for \(jobTitle(job))")
                     Spacer(minLength: 0)
                 }
 
@@ -260,10 +277,10 @@ struct FolioMobileDownloadsView: View {
                         .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("More options for \(job.title)")
+                .accessibilityLabel("More options for \(jobTitle(job))")
             }
 
-            Text(job.editionTitle ?? job.title)
+            Text(jobTitle(job))
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
@@ -323,11 +340,11 @@ struct FolioMobileDownloadsView: View {
     private func jobDetail(_ job: DownloadJob) -> some View {
         VStack(alignment: .leading, spacing: 22) {
             HStack(alignment: .center, spacing: 15) {
-                FolioMobileRemoteCover(url: job.cover, title: job.title)
+                jobCover(job)
                     .frame(width: 68, height: 96)
                     .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(job.editionTitle ?? job.title)
+                    Text(jobTitle(job))
                         .font(.folioDisplay(.title3))
                         .foregroundStyle(FolioTheme.ink)
                         .lineLimit(3)

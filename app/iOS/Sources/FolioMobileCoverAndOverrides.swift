@@ -159,9 +159,10 @@ final class FolioBookOverrides {
     private(set) var shown: [Int: FolioShownEdition] = [:]
     private static let editionTitlesKey = "folio.book.editionTitles"
     /// Real edition titles of books in the reading language (see `bestTitle`).
-    private(set) var editionTitles: [Int: FolioEditionTitles] = [:]
-    @ObservationIgnored private var pendingTitleIDs: [Int] = []
-    @ObservationIgnored private var askedTitleIDs: Set<Int> = []
+    private var editionTitles: [String: [Int: FolioEditionTitles]] = [:]
+    @ObservationIgnored private var pendingTitleIDs: [String: Set<Int>] = [:]
+    @ObservationIgnored private var inFlightTitleIDs: [String: Set<Int>] = [:]
+    @ObservationIgnored private var retryTitlesAfter: [String: [Int: Date]] = [:]
     @ObservationIgnored private var titleFetch: Task<Void, Never>?
     @ObservationIgnored private var matchKeys: [String: String] = [:]
 
@@ -174,9 +175,12 @@ final class FolioBookOverrides {
            let saved = try? JSONDecoder().decode([Int: FolioShownEdition].self, from: data) {
             shown = saved
         }
-        if let data = UserDefaults.standard.data(forKey: Self.editionTitlesKey),
-           let saved = try? JSONDecoder().decode([Int: FolioEditionTitles].self, from: data) {
-            editionTitles = saved
+        if let data = UserDefaults.standard.data(forKey: Self.editionTitlesKey) {
+            if let saved = try? JSONDecoder().decode([String: [Int: FolioEditionTitles]].self, from: data) {
+                editionTitles = saved
+            } else if let saved = try? JSONDecoder().decode([Int: FolioEditionTitles].self, from: data) {
+                for (id, entry) in saved { editionTitles[entry.language, default: [:]][id] = entry }
+            }
         }
     }
 
@@ -190,16 +194,32 @@ final class FolioBookOverrides {
         guard id > 0 else { return title }
         let language = BookLanguage.reading
         guard language != "en" || EditionTitle.penalty(title) > 0 else { return title }
-        let known = editionTitles[id].flatMap { $0.language == language ? $0 : nil }
-        if known.map({ $0.fetched < Date().addingTimeInterval(-30 * 86_400) }) ?? true {
-            requestEditionTitles(id)
-        }
-        return known.map { EditionTitle.languageTitle(title, among: $0.titles) } ?? title
+        return EditionTitle.languageTitle(title, among: titles(for: id, language: language))
     }
 
-    private func requestEditionTitles(_ id: Int) {
-        guard askedTitleIDs.insert(id).inserted else { return }
-        pendingTitleIDs.append(id)
+    func downloadedTitle(_ book: LocalBook) -> String {
+        let hint = DownloadQueue.shared.jobs.first {
+            $0.importedBookID == book.id && $0.editionTitle != nil
+        }?.editionTitle
+        var candidates = hint.map { [$0] } ?? []
+        if let id = book.hardcoverBookID, id > 0, let language = BookLanguage.code(book.language) {
+            candidates += titles(for: id, language: language)
+        }
+        return EditionTitle.best(book.title, among: candidates)
+    }
+
+    private func titles(for id: Int, language: String) -> [String] {
+        let known = editionTitles[language]?[id]
+        if known.map({ $0.fetched < Date().addingTimeInterval(-30 * 86_400) }) ?? true {
+            requestEditionTitles(id, language: language)
+        }
+        return known?.titles ?? []
+    }
+
+    private func requestEditionTitles(_ id: Int, language: String) {
+        guard inFlightTitleIDs[language]?.contains(id) != true,
+              (retryTitlesAfter[language]?[id] ?? .distantPast) <= Date(),
+              pendingTitleIDs[language, default: []].insert(id).inserted else { return }
         guard titleFetch == nil else { return }
         // Called while views draw: gather the screen's books, then ask once.
         titleFetch = Task { @MainActor [weak self] in
@@ -210,17 +230,24 @@ final class FolioBookOverrides {
 
     private func fetchEditionTitles() async {
         while true {
-            let batch = Array(pendingTitleIDs.prefix(10))
-            guard !batch.isEmpty else { titleFetch = nil; return }
-            pendingTitleIDs.removeFirst(batch.count)
-            let language = BookLanguage.reading
-            guard let found = try? await HardcoverClient.shared.editionTitles(bookIDs: batch, language: language) else {
+            guard let (language, ids) = pendingTitleIDs.first else { titleFetch = nil; return }
+            let batch = Set(ids.sorted().prefix(10))
+            let remaining = ids.subtracting(batch)
+            pendingTitleIDs[language] = remaining.isEmpty ? nil : remaining
+            inFlightTitleIDs[language] = batch
+            let found = try? await HardcoverClient.shared.editionTitles(bookIDs: batch.sorted(), language: language)
+            inFlightTitleIDs[language] = nil
+            guard let found else {
+                let retryAfter = Date().addingTimeInterval(30)
+                for id in batch { retryTitlesAfter[language, default: [:]][id] = retryAfter }
                 FolioLog.log("edition titles failed for \(batch.count) book(s)", "titles")
                 continue
             }
             let now = Date()
-            for (id, titles) in found {
-                editionTitles[id] = FolioEditionTitles(language: language, titles: Array(titles.prefix(20)), fetched: now)
+            for id in batch {
+                retryTitlesAfter[language]?[id] = nil
+                editionTitles[language, default: [:]][id] = FolioEditionTitles(
+                    language: language, titles: Array((found[id] ?? []).prefix(20)), fetched: now)
             }
             FolioLog.log("edition titles for \(found.count) book(s)", "titles")
             if let data = try? JSONEncoder().encode(editionTitles) {
@@ -276,8 +303,8 @@ final class FolioBookOverrides {
         let library = LibraryStore.shared
         let owned = libraryCopy(of: book)
         if let local = owned {
-            let title = local.title.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !title.isEmpty, !BookAutoMatch.sameTitle(title, book.title) {
+            let title = downloadedTitle(local).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !title.isEmpty {
                 out.title = title
                 out.editionTitle = title
             }
@@ -295,7 +322,7 @@ final class FolioBookOverrides {
         }
         // Your own file keeps its title (it may be another language's
         // edition); every other book shows its reading-language edition title.
-        if owned == nil || EditionTitle.penalty(out.title) > 0 {
+        if owned == nil {
             out.title = bestTitle(out.title, for: book.id)
         }
         guard let o = items[book.id] else { return out }

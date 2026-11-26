@@ -888,7 +888,7 @@ struct FolioMobileBookTile: View {
                 .aspectRatio(0.7, contentMode: .fit)
                 .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .shadow(color: .black.opacity(0.14), radius: 6, x: 1, y: 4)
-            Text(book.title)
+            Text(FolioBookOverrides.shared.downloadedTitle(book))
                 .font(.system(.subheadline, design: .serif))
                 .foregroundStyle(FolioTheme.ink)
                 .lineLimit(2, reservesSpace: true)
@@ -949,7 +949,7 @@ struct FolioMobileCover: View {
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .clipped()
             } else {
-                FolioClothCover(title: book.title,
+                FolioClothCover(title: FolioBookOverrides.shared.downloadedTitle(book),
                                 subtitle: book.author.isEmpty ? nil : book.author,
                                 systemImage: book.format.symbol,
                                 compact: geometry.size.width < 90)
