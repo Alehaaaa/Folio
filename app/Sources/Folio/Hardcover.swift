@@ -309,11 +309,13 @@ struct HCUserBook: Identifiable, Hashable, Codable {
     var dateAdded: String?
     /// The edition on the reader's shelf (e.g. a Spanish translation), if one was chosen.
     var editionID: Int? = nil
+    var workTitle: String? = nil
 
     static func from(_ j: JSON) -> HCUserBook? {
         guard let id = j["id"].int, var book = HCBook.from(book: j["book"]) else { return nil }
         let read = j["user_book_reads"].array.first ?? .null
         // Show the edition being read: its title, cover and length, under the work's id.
+        let workTitle = book.title
         let edition = j["edition"]
         if let title = edition["title"].string, !title.isEmpty { book.title = title }
         if let url = (edition["image"]["url"].string ?? edition["cached_image"]["url"].string).flatMap(URL.init(string:)) {
@@ -330,7 +332,8 @@ struct HCUserBook: Identifiable, Hashable, Codable {
             startedAt: read["started_at"].string,
             finishedAt: read["finished_at"].string,
             dateAdded: j["date_added"].string,
-            editionID: j["edition_id"].int
+            editionID: j["edition_id"].int,
+            workTitle: workTitle
         )
     }
 }
@@ -770,6 +773,27 @@ final class HardcoverClient {
         }
         """, ["uid": user.id, "status": status.rawValue])
         return d["user_books"].array.compactMap(HCUserBook.from)
+    }
+
+    /// Read-history pages for recommendation filtering, including older finishes.
+    func readHistory() async throws -> [HCUserBook] {
+        guard let user else { throw HCError(message: "Not connected.") }
+        var cursor = 0
+        var history: [HCUserBook] = []
+        while true {
+            try Task.checkCancellation()
+            let data = try await query("""
+            query ReadHistory($uid: Int!, $status: Int!, $after: Int!) {
+              user_books(where: {user_id: {_eq: $uid}, status_id: {_eq: $status}, id: {_gt: $after}}, order_by: {id: asc}, limit: 200) {
+                \(Self.userBookFields)
+              }
+            }
+            """, ["uid": user.id, "status": HCStatus.read.rawValue, "after": cursor])
+            let rows = data["user_books"].array
+            history.append(contentsOf: rows.compactMap(HCUserBook.from))
+            guard rows.count == 200, let next = rows.last?["id"].int, next > cursor else { return history }
+            cursor = next
+        }
     }
 
     func allUserBooks() async throws -> [HCUserBook] {

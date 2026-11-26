@@ -42,17 +42,19 @@ struct FolioMobileRemoteBookTile: View {
                 .modifier(FolioCoverMenuShape())
                 .modifier(FolioRemoteTileMenu(book: original, entry: entry, changed: changed))
 
-                Text(book.title)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2, reservesSpace: true)
-                    .multilineTextAlignment(.leading)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(book.title)
+                        .font(.system(.body, design: .serif))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
 
-                Text(book.authors.isEmpty ? "Unknown author" : book.authors)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1, reservesSpace: true)
-                    .multilineTextAlignment(.leading)
+                    Text(book.authors.isEmpty ? "Unknown author" : book.authors)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                        .multilineTextAlignment(.leading)
+                }
             }
             .frame(width: width, alignment: .topLeading)
             .frame(maxWidth: width == nil ? .infinity : nil, alignment: .topLeading)
