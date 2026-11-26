@@ -7,7 +7,7 @@ var source = {
   id: "annas-archive-free",
   name: "Anna's Archive",
   description: "Free EPUB search and published Slow Partner file delivery after a normal background countdown. No paid API or keys.",
-  version: "1.4.0",
+  version: "1.4.1",
   languages: ["*"],
   allowedHosts: [
     "https://raw.githubusercontent.com",
@@ -91,6 +91,10 @@ var source = {
 
   mirrors: function () {
     var now = Date.now();
+    if (!this.mirrorCache) {
+      var kept = this.recall("mirrors");
+      if (kept && kept.hosts && kept.hosts.length) this.mirrorCache = kept;
+    }
     if (this.mirrorCache && now - this.mirrorCache.checkedAt < 86400000)
       return this.mirrorCache.hosts.slice();
 
@@ -115,7 +119,31 @@ var source = {
       this.diagnostic("Mirror refresh unavailable; using previously verified official hosts: " + error);
     }
     this.mirrorCache = {checkedAt: now, hosts: hosts};
+    this.keep("mirrors", this.mirrorCache, 86400);
     return hosts.slice();
+  },
+
+  // Notes kept across download jobs (each job gets a fresh runtime) while
+  // Folio runs. Older Folio versions have no folio.recall: nothing is kept.
+  recall: function (key) {
+    try {
+      var text = typeof folio.recall === "function" ? folio.recall(key) : null;
+      return text ? JSON.parse(text) : null;
+    } catch (e) { return null; }
+  },
+
+  keep: function (key, value, seconds) {
+    if (typeof folio.remember === "function") folio.remember(key, JSON.stringify(value), seconds);
+  },
+
+  // A mirror that just timed out from this network is skipped by the next
+  // jobs too (a retry used to wait out the same three timeouts again).
+  coolDown: function (host, kind) {
+    var seconds = kind === "connection timeout" ? 180 : 60;
+    this.mirrorCooldowns[host] = {until: Date.now() + seconds * 1000, kind: kind};
+    var shared = this.recall("cooldowns") || {};
+    shared[host] = this.mirrorCooldowns[host];
+    this.keep("cooldowns", shared, seconds);
   },
 
   transportFailure: function (error) {
@@ -153,10 +181,10 @@ var source = {
   rememberTransportFailure: function (host, error) {
     var kind = this.transportFailure(error);
     if (kind && this.trustedHosts.indexOf(host) >= 0) {
-      // One minute avoids retry storms within this private source runtime,
-      // while allowing quick recovery if DNS/TLS begins working again.
-      this.mirrorCooldowns[host] = {until: Date.now() + 60000, kind: kind};
-      this.diagnostic(host + ": " + kind + " failed; skipping repeated attempts in this source session for 60 seconds.");
+      // A short pause avoids retry storms, across jobs too, while allowing
+      // quick recovery once the network changes.
+      this.coolDown(host, kind);
+      this.diagnostic(host + ": " + kind + " failed; skipping it for a few minutes.");
     }
     return kind;
   },
@@ -168,8 +196,10 @@ var source = {
       hosts.unshift(this.preferredMirror);
     }
     var available = [], now = Date.now();
+    var shared = this.recall("cooldowns") || {};
     for (var i = 0; i < hosts.length; i++) {
-      var state = this.mirrorCooldowns[hosts[i]];
+      var own = this.mirrorCooldowns[hosts[i]], kept = shared[hosts[i]];
+      var state = own && kept ? (kept.until > own.until ? kept : own) : (own || kept);
       if (state && state.until > now) {
         this.diagnostic("Skipping " + hosts[i] + " for " + state.kind +
           " (recent connection failure; temporary, not a mirror-list change).");
@@ -745,9 +775,13 @@ var source = {
     this.failedDetailHosts = {};
     var hosts = this.orderedMirrors();
     if (!hosts.length) {
-      this.progress("All official mirrors temporarily unreachable.",
-        "Recent DNS, TLS, or network failures in this source session; retry in about a minute. No new mirror was added.");
-      throw new Error("Anna's Archive official mirrors are temporarily unreachable in this network session. Retry in about a minute.");
+      var shared = this.recall("cooldowns") || {}, latest = 0;
+      for (var h in shared) if (shared[h] && shared[h].until > latest) latest = shared[h].until;
+      for (var h2 in this.mirrorCooldowns) if (this.mirrorCooldowns[h2].until > latest) latest = this.mirrorCooldowns[h2].until;
+      var minutes = Math.max(1, Math.ceil((latest - Date.now()) / 60000));
+      this.progress("Skipped: no official mirror answered from this network moments ago.",
+        "Every official mirror failed within the last few minutes; checking again in about " + minutes + " min.");
+      throw new Error("Skipped: no official mirror answered from this network moments ago (next check in about " + minutes + " min).");
     }
     var failures = [];
     var transportFailures = 0;
@@ -780,7 +814,7 @@ var source = {
           if (reason && this.transportFailure(reason)) {
             failures.push(hosts[r] + ": " + reason);
             transportFailures++;
-            this.mirrorCooldowns[hosts[r]] = {until: Date.now() + 60000, kind: this.transportFailure(reason)};
+            this.coolDown(hosts[r], this.transportFailure(reason));
           } else {
             remaining.push(hosts[r]);
           }

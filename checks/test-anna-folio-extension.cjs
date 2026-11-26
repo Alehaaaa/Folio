@@ -37,7 +37,7 @@ function harness(fetch, browser, withStatus = true, clock = Date, fetchFirst = n
   vm.runInContext(script, context, {timeout: 5000});
   assert.equal(context.source.name, "Anna's Archive");
   assert.equal(context.source.id, 'annas-archive-free');
-  assert.equal(context.source.version, '1.4.0');
+  assert.equal(context.source.version, '1.4.1');
   assert.equal(context.source.allowedHosts.length, 5);
   return {source: context.source, requested, statuses, logs};
 }
@@ -707,7 +707,7 @@ assert.ok(unreachable.logs.some(s => /annas-archive\.pk: connection timeout fail
 assert.ok(unreachable.logs.some(s => /annas-archive\.gd: network connection failed/i.test(s)));
 const requestsAfterFailure = unreachable.requested.length;
 assert.throws(() => unreachable.source.search('Pride and Prejudice Jane Austen', 0),
-  /official mirrors are temporarily unreachable/i,
+  /Skipped: no official mirror answered from this network moments ago/i,
   'immediate repeated searches should explain the temporary cooldown');
 assert.equal(unreachable.requested.length, requestsAfterFailure,
   'rapid retry must not refetch known-unreachable official hosts or the GitHub list');
@@ -796,7 +796,7 @@ assert.ok(legacy.logs.length > 0, 'older Folio versions still receive diagnostic
   assert.equal(stalled.logs.filter(line => /monitoring the page/.test(line)).length, 1);
 }
 
-console.log('PASS: Folio extension v1.4.0, paced partner-link polling, bounded transient transport retry, runtime-local mirror cooldown, source availability diagnostics, Want subtitle matches, language safeguards, and free countdown without verified-query resets.');
+console.log('PASS: Folio extension v1.4.1, paced partner-link polling, bounded transient transport retry, runtime-local mirror cooldown, source availability diagnostics, Want subtitle matches, language safeguards, and free countdown without verified-query resets.');
 
 
 // Folio 1.0.114+: the first search page is raced across every official

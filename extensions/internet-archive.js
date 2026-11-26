@@ -5,7 +5,7 @@ var source = {
   id: "internet-archive",
   name: "Internet Archive",
   description: "Openly downloadable books from the Internet Archive, in any language. Borrow-only and DRM-protected items are left out.",
-  version: "1.0.0",
+  version: "1.0.1",
   languages: ["*"],
   allowedHosts: ["https://archive.org"],
   settings: [],
@@ -56,6 +56,18 @@ var source = {
     return value ? [String(value)] : [];
   },
 
+  // Uploads titled "The Calamity Club By Kathryn Stockett", sometimes with
+  // that same text as the creator. When the "by" part is the requested
+  // author, split it into title and author so Folio can match the book; the
+  // downloaded EPUB's own metadata is still checked after import.
+  byline: function (title, authors, expectedAuthor) {
+    var simple = function (v) { return String(v || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); };
+    var m = String(title).match(/^(.+?)\s+by\s+(.+)$/i);
+    if (!m || !expectedAuthor || simple(m[2]) !== simple(expectedAuthor)) return { title: title, authors: authors };
+    var cleaned = authors.filter(function (a) { return simple(a) !== simple(title); });
+    return { title: m[1].trim(), authors: cleaned.length ? cleaned : [m[2].trim()] };
+  },
+
   search: function (query, page, preferredLanguage, expectedTitle, expectedAuthor) {
     var title = String(expectedTitle || "").split(":")[0].trim();
     var free = String(query || "").trim();
@@ -84,10 +96,11 @@ var source = {
       if (formats.indexOf("Text PDF") >= 0) downloads.push({ format: "pdf", url: this.host + "/details/" + d.identifier + "?folio-format=pdf" });
       if (!downloads.length) continue;
       var year = parseInt(d.year || String(d.date || "").slice(0, 4), 10);
+      var named = this.byline(this.list(d.title)[0] || d.identifier, this.list(d.creator), expectedAuthor);
       results.push({
         id: d.identifier,
-        title: this.list(d.title)[0] || d.identifier,
-        authors: this.list(d.creator),
+        title: named.title,
+        authors: named.authors,
         cover: this.host + "/services/img/" + d.identifier,
         year: year > 0 ? year : null,
         downloadCount: typeof d.downloads === "number" ? d.downloads : null,

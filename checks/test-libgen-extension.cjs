@@ -86,3 +86,25 @@ source.confirmed = false;
 context.folio.fetchFirst = () => { throw new Error("libgen.li: Timed out | libgen.gl: Timed out"); };
 assert.throws(() => source.search("Pride"), /No mirror answered \(li, gl: timed out\)/);
 console.log("PASS LibGen races its mirrors and keeps the fastest");
+
+// libgen.li's title cell (seen on a phone, 2026-11-26): a series link, a
+// tooltip whose title attribute holds "<br>" and ">", the edition link, then
+// format badges and the file id. Only the edition link's text is the title.
+{
+  const md5 = "686de11f0d38fe80f9bbfd9c4d6eff16";
+  const cell = `<td><b><a href="series.php?id=7">Standalone</a></b><br>` +
+    `<a data-toggle="tooltip" title="Add/Edit : 2025-01-02/2025-01-03<br>The Calamity Club - Kathryn Stockett" href="edition.php?id=208485630">The Calamity Club<br><font color="green"><i>A Novel</i></font></a> ` +
+    `<nobr><span class="badge badge-primary">b</span> <span class="badge badge-secondary">f</span> 10094557</nobr></td>`;
+  const table = `<table id="tablelibgen"><tr>${cell}
+    <td><a href="/author.php?id=1" title="x > y">Kathryn Stockett</a></td><td>Putnam</td><td>2025</td><td>English</td>
+    <td>400</td><td>1 MB</td><td>epub</td><td><a title="mirror <b>1</b>" href="/ads.php?md5=${md5}">LibGen</a></td></tr></table>`;
+  context.folio.fetchFirst = undefined;
+  context.folio.fetchText = () => table;
+  source.confirmed = true;
+  const found = source.search("The Calamity Club stockett", 0, "en", "The Calamity Club");
+  assert.equal(found.length, 1);
+  assert.equal(found[0].title, "The Calamity Club");
+  assert.deepEqual([...found[0].authors], ["Kathryn Stockett"]);
+  assert.equal(found[0].id, md5);
+  console.log("PASS LibGen titles ignore tooltip markup, series links and badges");
+}

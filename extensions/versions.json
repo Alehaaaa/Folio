@@ -3,15 +3,15 @@
   "extensions": [
     {
       "id": "annas-archive-free",
-      "version": "1.4.0",
+      "version": "1.4.1",
       "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/annas-archive.js",
-      "sha256": "6a17fcb5fe74f437abab249f854324e1dd1443925e6c4d6dee947053725cc3e7"
+      "sha256": "04c37d6de6ba79645fd379fcd2cb474a2d781621f06ecdca47c43a5a8aaaaeed"
     },
     {
       "id": "internet-archive",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/internet-archive.js",
-      "sha256": "b9f0b341c23dea2353079a5091b05835d9b21c1267ccdc3ca94f73986097cf6c"
+      "sha256": "bd642f30ef1bbabe5952914c16c843556d6cbae9277d76517f76598702d58780"
     },
     {
       "id": "lectulandia",
@@ -21,9 +21,9 @@
     },
     {
       "id": "libgen",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/libgen.js",
-      "sha256": "4576584ef0d22286cdbbcc46fa67a448ce612ee8bf30c9515414a78c487ac29e"
+      "sha256": "65d2050e46a8014b9488ee303bb6f89fc9c95a2e032d2a43505a345fa8ac0dbc"
     },
     {
       "id": "metadata-amazon",

@@ -3,7 +3,7 @@ var source = {
   id: "libgen",
   name: "Library Genesis",
   description: "Search Library Genesis for EPUB and PDF editions.",
-  version: "1.2.0",
+  version: "1.2.1",
   languages: ["*"],
   // The same catalogue answers on several official mirrors. Networks often
   // block one (libgen.li answering 403) while another still works.
@@ -39,14 +39,32 @@ var source = {
     });
   },
 
+  // A tag whose quoted attributes may themselves hold "<br>" or ">" (the
+  // catalogue's tooltip titles do), so a plain /<[^>]*>/ would leak markup.
+  TAG: /<\/?[A-Za-z](?:"[^"]*"|'[^']*'|[^'">])*>/g,
+
   text: function (html) {
-    return this.decode(html.replace(/<i\b[^>]*>[\s\S]*?<\/i>/gi, " ").replace(/<[^>]*>/g, " "))
+    return this.decode(String(html || "")
+      .replace(/<i\b(?:"[^"]*"|'[^']*'|[^'">])*>[\s\S]*?<\/i>/gi, " ")
+      .replace(this.TAG, " "))
       .replace(/\s+/g, " ").trim();
+  },
+
+  // The title cell also holds the series link, format badges ("b", "f") and
+  // the file id; the book's own title is the text of its edition link.
+  title: function (cell) {
+    var links = this.links(cell);
+    for (var i = 0; i < links.length; i++) {
+      if (/(?:^|\/)(?:edition|book\/index|file)\.php\?/.test(links[i].href) && links[i].label) return links[i].label;
+    }
+    var stripped = String(cell).replace(/<nobr\b[\s\S]*?<\/nobr>/gi, " ")
+      .replace(/<span\b[^>]*\bbadge\b[\s\S]*?<\/span>/gi, " ");
+    return this.text(stripped);
   },
 
   links: function (html) {
     var links = [];
-    var pattern = /<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
+    var pattern = /<a\b(?:"[^"]*"|'[^']*'|[^'">])*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))(?:"[^"]*"|'[^']*'|[^'">])*>([\s\S]*?)<\/a>/gi;
     var match;
     while ((match = pattern.exec(html))) {
       links.push({ href: this.decode(match[1] || match[2] || match[3]).trim(), label: this.text(match[4]) });
@@ -164,7 +182,7 @@ var source = {
       var landing = null;
       for (var j = 0; j < links.length && !landing; j++) landing = this.endpoint(links[j].href, "ads.php");
       if (!landing || seen[landing.hash]) continue;
-      var title = this.text(cells[offset]);
+      var title = this.title(cells[offset]);
       if (!title) continue;
       var authorLinks = this.links(cells[offset + 1]);
       var authors = authorLinks.map(function (link) { return link.label; }).filter(Boolean);

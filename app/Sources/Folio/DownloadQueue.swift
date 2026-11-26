@@ -597,6 +597,16 @@ final class DownloadQueue {
         let author = Self.primaryAuthor(job.author)
         if author != job.author { append(id, "Matching sources by the writer \(author) (credit: \(job.author))") }
         append(id, "Automatic EPUB language requirement: \(language) (edition metadata must agree)")
+        // Whether source lookups used encrypted DNS: a timeout with it active
+        // is not a DNS problem, and a 403 is always the server's own answer.
+        let dns = FolioEncryptedDNS.shared
+        switch (dns.enabled, dns.status) {
+        case (false, _): append(id, "Encrypted DNS: off (network DNS)")
+        case (true, .active): append(id, "Encrypted DNS: \(dns.provider.label), active")
+        case (true, .unavailable): append(id, "Encrypted DNS: \(dns.provider.label) unreachable; using network DNS")
+        case (true, .needsSetup): append(id, "Encrypted DNS: \(dns.provider.label) needs setup; using network DNS")
+        case (true, _): append(id, "Encrypted DNS: \(dns.provider.label), still checking")
+        }
         // Editions in another language often carry their own title ("Dune"
         // is "Duna" in Catalan). Search with Hardcover's edition title for the
         // chosen language too, and accept a copy under either title.
@@ -752,7 +762,9 @@ final class DownloadQueue {
                          ? (titles.count == 1
                             ? "No matching EPUB found by the original title in \(language); a translated edition title was not verified. Try searching by the published \(language) title or retry when metadata providers are available."
                             : "No matching EPUB listing in \(language). Try refining the book title, or select a different language if you want another edition.")
-                         : "Sources could not complete a search for an EPUB in \(language). Check the activity log, then retry."))))
+                         : (names.copies.isEmpty
+                            ? "Sources could not complete a search for an EPUB in \(language). Check the activity log, then retry."
+                            : "Found \(names.copies.count) listing(s) near this title, but none is a verified \(language) EPUB of this book. Choose Source to pick one by hand.")))))
             return
         }
 

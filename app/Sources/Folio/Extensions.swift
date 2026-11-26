@@ -149,6 +149,8 @@ final class SourceRuntime: @unchecked Sendable {
     /// waiting for can still be running JavaScript; its next request must fail
     /// at once instead of touching a URLSession that is being invalidated.
     private var stopping = false
+    /// "<source id>" or "<source id>.job.<token>"; names this source's notes.
+    private let label: String
     private var configHosts: Set<String> = []
     private var fixedHosts: Set<String> = []
     private var config: [String: Any] = [:]
@@ -174,6 +176,7 @@ final class SourceRuntime: @unchecked Sendable {
 
     init(script: String, label: String) {
         self.script = script
+        self.label = label
         queue = DispatchQueue(label: "folio.extension.\(label)", qos: .userInitiated)
         guard_ = RedirectGuard { [weak self] url in self?.isAllowed(url) ?? false }
         let cfg = URLSessionConfiguration.ephemeral
@@ -335,6 +338,19 @@ final class SourceRuntime: @unchecked Sendable {
             }
         }
         folio.setObject(fetchFirst, forKeyedSubscript: "fetchFirst" as NSString)
+        // folio.remember(key, text, seconds) / folio.recall(key): small notes a
+        // source keeps across download jobs until the app quits (each job has
+        // a fresh runtime). Used for "these mirrors did not answer a minute
+        // ago" so a retry doesn't wait out the same timeouts again.
+        let space = label.components(separatedBy: ".job.").first ?? label
+        let remember: @convention(block) (String, String, Double) -> Void = { key, value, seconds in
+            SourceMemo.shared.set(space + "|" + key, value, seconds: seconds)
+        }
+        let recall: @convention(block) (String) -> String? = { key in
+            SourceMemo.shared.get(space + "|" + key)
+        }
+        folio.setObject(remember, forKeyedSubscript: "remember" as NSString)
+        folio.setObject(recall, forKeyedSubscript: "recall" as NSString)
         // folio.decodeHTML("Mu&ntilde;oz") -> "Muñoz": every HTML character
         // reference, so scrapers needn't keep their own partial tables.
         let decodeHTML: @convention(block) (String) -> String = { $0.decodingHTMLEntities }
@@ -1557,4 +1573,25 @@ private final class SearchMute: @unchecked Sendable {
     private var names: Set<String> = []
     func mute(_ name: String) { lock.lock(); names.insert(name); lock.unlock() }
     func isMuted(_ name: String) -> Bool { lock.lock(); defer { lock.unlock() }; return names.contains(name) }
+}
+
+/// Process-wide notes that sources keep across their per-job runtimes.
+final class SourceMemo: @unchecked Sendable {
+    static let shared = SourceMemo()
+    private let lock = NSLock()
+    private var notes: [String: (value: String, until: Date)] = [:]
+
+    func set(_ key: String, _ value: String, seconds: Double) {
+        lock.lock(); defer { lock.unlock() }
+        if seconds <= 0 { notes[key] = nil; return }
+        notes[key] = (value, Date().addingTimeInterval(min(seconds, 86_400)))
+        if notes.count > 200 { notes = notes.filter { $0.value.until > Date() } }
+    }
+
+    func get(_ key: String) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        guard let note = notes[key] else { return nil }
+        if note.until <= Date() { notes[key] = nil; return nil }
+        return note.value
+    }
 }

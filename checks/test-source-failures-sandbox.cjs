@@ -26,8 +26,7 @@ const STALL = 35;
 
 /// A simulated network. `hosts` maps a host to {after, fail, body(url)}:
 /// `fail: "stall"` waits out the timeout, any other string is the error text.
-function network(hosts) {
-  const clock = { now: 0 };
+function network(hosts, memo = new Map(), clock = { now: 0 }) {
   const requests = [];
   const outcome = (url, limit) => {
     const host = new URL(url).host;
@@ -51,6 +50,9 @@ function network(hosts) {
   };
   const withRace = {
     ...folio,
+    // Notes kept across job runtimes, as SourceMemo does in Folio.
+    remember(key, value, seconds) { memo.set(key, { value, until: clock.now + seconds }); },
+    recall(key) { const n = memo.get(key); return n && n.until > clock.now ? n.value : null; },
     fetchWith(url, options) {
       const limit = Math.min(Math.max(JSON.parse(options).timeout || 30, 3), 30);
       requests.push(url);
@@ -237,7 +239,62 @@ for (const [name, rule, pattern] of [
   assert.equal(ends, 10);
 }
 
+// 13. The Calamity Club (second phone log): libgen.li's tooltip markup
+// leaked into titles, so an English EPUB was "nearby but not verified".
+{
+  const md5 = "686de11f0d38fe80f9bbfd9c4d6eff16";
+  const table = `<table id="tablelibgen"><tr><td><b><a href="series.php?id=7">Standalone</a></b><br>` +
+    `<a data-toggle="tooltip" title="Add/Edit : 2025-01-02<br>The Calamity Club - Kathryn Stockett" href="edition.php?id=208485630">The Calamity Club</a> ` +
+    `<nobr><span class="badge badge-primary">b</span> <span class="badge badge-secondary">f</span> 10094557</nobr></td>` +
+    `<td><a href="/author.php?id=1">Kathryn Stockett</a></td><td>Putnam</td><td>2025</td><td>English</td><td>400</td>` +
+    `<td>1 MB</td><td>epub</td><td><a href="/ads.php?md5=${md5}">LibGen</a></td></tr></table>`;
+  const r = compare("extensions/libgen.js", { "libgen.la": { after: 0.8, body: () => table } },
+    (s) => s.search("The Calamity Club stockett", 0, "en", "The Calamity Club"));
+  rows.push(["Library Genesis: tooltip markup in titles (log 2)", "-", r.after.seconds,
+    "title: " + r.after.result[0].title]);
+  assert.equal(r.after.result[0].title, "The Calamity Club");
+}
+
+// 14. Internet Archive upload titled "X By Author" with the same creator.
+{
+  const r = compare("extensions/internet-archive.js", {
+    "archive.org": { after: 0.6, body: () => JSON.stringify({ response: { docs: [{
+      identifier: "the-calamity-club-by-kathryn-stockett", title: "The Calamity Club By Kathryn Stockett",
+      creator: "The Calamity Club By Kathryn Stockett", format: ["EPUB"] }] } }) },
+  }, (s) => s.search("The Calamity Club stockett", 0, "en", "The Calamity Club", "Kathryn Stockett"));
+  rows.push(["Internet Archive: \"Title By Author\" upload (log 2)", "-", r.after.seconds,
+    r.after.result[0].title + " / " + r.after.result[0].authors.join(", ")]);
+  assert.equal(r.after.result[0].title, "The Calamity Club");
+  assert.deepEqual([...r.after.result[0].authors], ["Kathryn Stockett"]);
+}
+
+// 15. Retrying soon after Anna's mirrors all stalled (log 2 waited 15–17 s on
+// each of three retries): later jobs skip them until the note expires.
+{
+  const memo = new Map(), clock = { now: 0 };
+  const hosts = { ...github, "annas-archive.gl": { fail: "stall" }, "annas-archive.pk": { fail: "stall" }, "annas-archive.gd": { fail: "stall" } };
+  const job = () => {
+    const net = network(hosts, memo, clock);
+    const source = load("extensions/annas-archive.js", net.withRace, clock);
+    const start = clock.now;
+    let error;
+    try { annaSearchCall(source); } catch (e) { error = String(e.message); }
+    return { seconds: Math.round((clock.now - start) * 10) / 10, error, requests: net.requests.length };
+  };
+  const first = job();
+  clock.now += 30;
+  const retry = job();
+  clock.now += 200;
+  const later = job();
+  rows.push(["Anna's Archive: retry right after all mirrors stalled (log 2)", first.seconds, retry.seconds, retry.error.slice(0, 70)]);
+  assert.ok(first.seconds <= 16);
+  assert.equal(retry.seconds, 0);
+  assert.equal(retry.requests, 0, "no mirror list or search requests on the retry");
+  assert.match(retry.error, /Skipped: no official mirror answered/);
+  assert.ok(later.requests > 0, "mirrors are probed again once the note expires");
+}
+
 const pad = (v, n) => String(v).padEnd(n);
-console.log(pad("Case", 56) + pad("before s", 10) + pad("after s", 9) + "result");
-for (const [name, before, after, result] of rows) console.log(pad(name, 56) + pad(before, 10) + pad(after, 9) + result);
+console.log(pad("Case", 64) + pad("before s", 10) + pad("after s", 9) + "result");
+for (const [name, before, after, result] of rows) console.log(pad(name, 64) + pad(before, 10) + pad(after, 9) + result);
 console.log("PASS: every logged source failure is fast, quiet and recoverable in the sandbox");
