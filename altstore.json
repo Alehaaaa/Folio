@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.124",
+          "buildVersion": "125",
+          "date": "2026-11-26",
+          "localizedDescription": "Split the shelf's haptic and held-book expressions so they type-check fast",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.124-125.ipa",
+          "size": 6495890,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.118",
           "buildVersion": "119",
           "date": "2026-11-26",
