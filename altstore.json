@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.96",
+          "buildVersion": "97",
+          "date": "2026-11-26",
+          "localizedDescription": "Library: more sort options, series order, hide read and reverse",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.96-97.ipa",
+          "size": 6114748,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.95",
           "buildVersion": "96",
           "date": "2026-11-26",
