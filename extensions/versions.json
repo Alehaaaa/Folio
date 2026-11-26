@@ -3,9 +3,9 @@
   "extensions": [
     {
       "id": "annas-archive-free",
-      "version": "1.3.11",
+      "version": "1.3.12",
       "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/annas-archive.js",
-      "sha256": "a72892fffae1b439267232cc150a4936e9f66e887f10d6940417fbad07d84492"
+      "sha256": "9c4e8794eac0cf808e833e398907213168370247e1816d7dc58e196cd031b7df"
     },
     {
       "id": "lectulandia",

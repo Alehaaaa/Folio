@@ -1176,8 +1176,21 @@ final class HardcoverClient {
         """, ["id": bookID])
         let editions = d["editions"].array.map(Self.edition(from:))
             .filter { BookLanguage.code($0.language) == wanted }
-        if let title, let titled = editions.first(where: { BookAutoMatch.sameTitle(title, $0.title ?? "") }) { return titled }
-        return editions.first
+        let picked = title.flatMap { title in editions.first { BookAutoMatch.sameTitle(title, $0.title ?? "") } } ?? editions.first
+        return picked.map { Self.bestTitled($0, among: editions) }
+    }
+
+    /// The edition shown under the best-formed real title its book has in the
+    /// same language: "El camino de los reyes" rather than "CAMINO DE LOS REYES
+    /// (EL ARCHIVO DE LAS TORMENTAS 1)". Titles are picked, never rewritten.
+    static func bestTitled(_ edition: HCEdition, among editions: [HCEdition]) -> HCEdition {
+        guard let title = edition.title, !title.isEmpty else { return edition }
+        let code = BookLanguage.code(edition.language)
+        let siblings = editions.filter { $0.id != edition.id && BookLanguage.code($0.language) == code }
+            .compactMap(\.title)
+        var out = edition
+        out.title = EditionTitle.best(title, among: siblings)
+        return out
     }
 
     /// The languages a book has editions in, most-read first, each with the
@@ -1262,6 +1275,7 @@ final class HardcoverClient {
             query BookPage($id: Int!, $uid: Int!\(titleVariable)) {
               books(where: {id: {_eq: $id}}, limit: 1) { \(Self.bookFields) reviews_count users_count users_read_count release_date cached_tags }
               \(editions) { \(Self.editionFields) }
+              siblingEditions: editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 60) { id title language { language } }
               book_series(where: {book_id: {_eq: $id}}) { position series { id name } }
               user_books(where: {user_id: {_eq: $uid}, book_id: {_eq: $id}}, limit: 1) { \(Self.userBookFields) }
             }
@@ -1275,7 +1289,9 @@ final class HardcoverClient {
                                    readCount: b["users_read_count"].int, releaseDate: b["release_date"].string),
                 edition: (pickLanguage.flatMap { code in
                     d["editions"].array.first { BookLanguage.code($0["language"]["language"].string) == code }
-                } ?? d["editions"].array.first ?? d["fallbackEdition"].array.first).map(Self.edition(from:)),
+                } ?? d["editions"].array.first ?? d["fallbackEdition"].array.first).map { chosen in
+                    Self.bestTitled(Self.edition(from: chosen), among: d["siblingEditions"].array.map(Self.edition(from:)))
+                },
                 series: Self.dedupeSeries(d["book_series"].array),
                 genres: Self.genreNames(b["cached_tags"])
             )
