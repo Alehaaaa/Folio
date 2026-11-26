@@ -7,7 +7,7 @@ var source = {
   id: "annas-archive-free",
   name: "Anna's Archive",
   description: "Free EPUB search and published Slow Partner file delivery after a normal background countdown. No paid API or keys.",
-  version: "1.3.12",
+  version: "1.3.13",
   languages: ["*"],
   allowedHosts: [
     "https://raw.githubusercontent.com",
@@ -650,8 +650,9 @@ var source = {
 
     var previousWait = null;
     var waitLimit = Date.now() + 6 * 60 * 1000;
-    var polls = 0;
-    while (Date.now() < waitLimit && polls < 26) {
+    var reportedMonitoring = false;
+    var reportedSpan = null;
+    while (Date.now() < waitLimit) {
       var direct = this.publishedFileURL(html);
       if (direct) {
         var finalHost = direct.match(/^https:\/\/([^/]+)/i);
@@ -671,20 +672,45 @@ var source = {
           this.diagnostic("The partner extended the countdown; server availability has not been confirmed.");
         this.progress("Free partner wait: about " + this.waitLabel(remaining) + "…",
           "Waiting for the source's published countdown (" + remaining + " seconds); no EPUB yet.");
-      } else {
+        reportedMonitoring = false;
+      } else if (!reportedMonitoring) {
+        // Say it once per quiet stretch, not on every poll.
         this.progress("Waiting for the free partner link…",
           "Partner page has not published a valid file URL; monitoring the page.");
+        reportedMonitoring = true;
+      }
+      var spanText = this.publishedSpanText(html);
+      if (spanText && spanText !== reportedSpan) {
+        reportedSpan = spanText;
+        this.diagnostic("Partner link box shows: " + JSON.stringify(spanText.slice(0, 160)));
       }
       previousWait = remaining;
       // Each poll waits at most 15 seconds and allows the site's own
       // JavaScript to reload the page. Never force-reload or skip a timer.
+      var pollStarted = Date.now();
       try { folio.browser.waitFor("span.bg-gray-200.break-all"); }
       catch (error) { this.diagnostic("Partner page changed during wait: " + error); }
+      // waitFor returns at once when the link box already exists but holds no
+      // usable https URL yet. Without a pause the loop burned all its polls
+      // in under a second and gave up long before the six-minute budget.
+      if (Date.now() - pollStarted < 4000) this.pause();
       try { html = folio.browser.html(); }
       catch (error) { throw new Error("Free partner page became unavailable: " + error); }
-      polls++;
     }
-    throw new Error("Free partner never published an EPUB file link (waited up to six minutes). Try another official free partner later.");
+    throw new Error("Free partner never published an EPUB file link (waited six minutes). Try another official free partner later.");
+  },
+
+  // Text inside the partner's link box, whatever it holds (for diagnostics).
+  publishedSpanText: function (html) {
+    var span = String(html || "").match(/<span\b[^>]*class=["'][^"']*\bbg-gray-200\b[^"']*\bbreak-all\b[^"']*["'][^>]*>([\s\S]*?)<\/span>/i);
+    return span ? this.plainText(span[1]) : "";
+  },
+
+  // A real wait between polls: waitFor on a selector that never appears
+  // waits its full 15 seconds and then returns "false".
+  pause: function () {
+    try { folio.browser.waitFor("#folio-poll-pause-never-present"); }
+    catch (_) { /* A failed pause must not abort the wait. */ }
   },
 
   // The preferred language is optional; older Folio versions invoke search

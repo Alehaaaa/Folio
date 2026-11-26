@@ -2,7 +2,7 @@
 // All network traffic uses a Python localhost fixture; store is an isolated temp directory.
 import Foundation
 
-enum SourceEvent { case status(String), log(String) }
+enum SourceEvent { case status(String), log(String), transfer(received: Int64, expected: Int64) }
 
 enum BookLanguage {
     static func code(_ raw: String?) -> String? { raw?.lowercased() == "es" ? "es" : nil }

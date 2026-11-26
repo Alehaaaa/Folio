@@ -117,6 +117,9 @@ struct ExtensionError: LocalizedError {
 enum SourceEvent: Sendable {
     case status(String)
     case log(String)
+    /// Bytes of the file transfer so far; `expected` is -1 when the server
+    /// did not say how big the file is.
+    case transfer(received: Int64, expected: Int64)
 }
 
 /// The source engine's queue is the sole consumer of these payloads. The
@@ -452,6 +455,124 @@ final class FileRedirects: NSObject, URLSessionTaskDelegate, @unchecked Sendable
                     newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         guard let url = request.url, url.scheme?.lowercased() == "https" else { return completionHandler(nil) }
         completionHandler(RedirectGuard.stripped(request, from: response.url))
+    }
+}
+
+/// Streams one book file to disk and reports its progress.
+///
+/// The source runtime's session caps a whole request at 45 seconds, which
+/// suits pages but cut slow partner file hosts off midway through an EPUB
+/// ("The request timed out" about 45 s into every transfer). A file gets its
+/// own in-app session instead: it fails only after 60 s with no data at all,
+/// may take up to 30 minutes overall, and picks up where it stopped when the
+/// connection drops ("The network connection was lost").
+final class FileTransfer: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<(URL, URLResponse), Error>?
+    private var finished: (URL, URLResponse)?
+    private var moveError: Error?
+    private var lastReport = Date.distantPast
+    private var lastPercent = -1
+    private let report: (Int64, Int64) -> Void
+
+    private init(report: @escaping (Int64, Int64) -> Void) { self.report = report }
+
+    static let idleTimeout: TimeInterval = 60
+    static let totalTimeout: TimeInterval = 30 * 60
+
+    /// Downloads `request`, retrying twice after a dropped or stalled
+    /// connection and resuming from the bytes already received when the
+    /// server allows it.
+    static func download(_ request: URLRequest,
+                         progress: @escaping (Int64, Int64) -> Void,
+                         onRetry: @escaping (String) -> Void = { _ in }) async throws -> (URL, URLResponse) {
+        var resumeData: Data?
+        var attempt = 0
+        while true {
+            do {
+                return try await FileTransfer(report: progress).run(request, resumeData: resumeData)
+            } catch let error as URLError where attempt < 2 && retryable(error.code) {
+                attempt += 1
+                resumeData = error.downloadTaskResumeData
+                onRetry("\(error.localizedDescription) Retrying (\(attempt) of 2)" +
+                        (resumeData == nil ? " from the start." : " from where it stopped."))
+                try await Task.sleep(for: .seconds(2 * attempt))
+            }
+        }
+    }
+
+    private static func retryable(_ code: URLError.Code) -> Bool {
+        [.networkConnectionLost, .timedOut, .notConnectedToInternet, .cannotConnectToHost,
+         .dnsLookupFailed, .cannotFindHost, .secureConnectionFailed].contains(code)
+    }
+
+    private func run(_ request: URLRequest, resumeData: Data?) async throws -> (URL, URLResponse) {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpCookieStorage = nil
+        configuration.urlCache = nil
+        configuration.waitsForConnectivity = true
+        configuration.timeoutIntervalForRequest = Self.idleTimeout
+        configuration.timeoutIntervalForResource = Self.totalTimeout
+        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        var request = request
+        request.timeoutInterval = Self.idleTimeout
+        let task = resumeData.map { session.downloadTask(withResumeData: $0) } ?? session.downloadTask(with: request)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                lock.lock()
+                self.continuation = continuation
+                lock.unlock()
+                task.resume()
+            }
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        // File links often redirect to a CDN or mirror: follow any HTTPS one.
+        guard let url = request.url, url.scheme?.lowercased() == "https" else { return completionHandler(nil) }
+        completionHandler(RedirectGuard.stripped(request, from: response.url))
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
+                    totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        let expected = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : -1
+        let percent = expected > 0 ? Int(totalBytesWritten * 100 / expected) : -1
+        let now = Date()
+        lock.lock()
+        // At most a few updates a second, and only when the number shown changes.
+        let due = now.timeIntervalSince(lastReport) >= 0.25 && (percent != lastPercent || expected < 0)
+        if due { lastReport = now; lastPercent = percent }
+        lock.unlock()
+        if due { report(totalBytesWritten, expected) }
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        // The system deletes `location` when this returns: keep the file first.
+        let kept = FileManager.default.temporaryDirectory.appendingPathComponent("folio-transfer-\(UUID().uuidString)")
+        lock.lock(); defer { lock.unlock() }
+        do {
+            try FileManager.default.moveItem(at: location, to: kept)
+            if let response = downloadTask.response { finished = (kept, response) }
+        } catch {
+            moveError = error
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        lock.lock()
+        let continuation = self.continuation
+        self.continuation = nil
+        let result = finished, moveError = moveError
+        lock.unlock()
+        guard let continuation else { return }
+        if let error { return continuation.resume(throwing: error) }
+        if let moveError { return continuation.resume(throwing: moveError) }
+        if let result { return continuation.resume(returning: result) }
+        continuation.resume(throwing: URLError(.badServerResponse))
     }
 }
 
@@ -1143,15 +1264,21 @@ final class ExtensionStore {
                 try Task.checkCancellation()
                 onEvent(.status("Downloading EPUB from \(actual.host ?? "approved source")…"))
                 var req = URLRequest(url: actual)
-                req.timeoutInterval = 120
                 req.setValue("Folio / demeter-compatible", forHTTPHeaderField: "User-Agent")
                 // A separate cookie-less URLSession would lose the browser's
                 // ephemeral verification cookies. Share only the approved host.
                 for (header, value) in await e.runtime.browserDownloadHeaders(for: actual) {
                     req.setValue(value, forHTTPHeaderField: header)
                 }
-                // File links often redirect to a CDN or mirror: follow any HTTPS one.
-                let (tmp, resp) = try await e.runtime.session.download(for: req, delegate: FileRedirects.shared)
+                // The file gets its own long-lived transfer (see FileTransfer),
+                // still in-app, so encrypted DNS covers it.
+                let host = actual.host ?? "the file host"
+                let (tmp, resp) = try await FileTransfer.download(req,
+                    progress: { received, expected in onEvent(.transfer(received: received, expected: expected)) },
+                    onRetry: { note in
+                        onEvent(.log("\(host) link \(index + 1): \(note)"))
+                        onEvent(.status("Connection dropped; resuming the EPUB from \(host)…"))
+                    })
                 try Task.checkCancellation()
                 if let http = resp as? HTTPURLResponse, http.statusCode >= 300 {
                     lastError = ExtensionError(message: (300..<400).contains(http.statusCode)

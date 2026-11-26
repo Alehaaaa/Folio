@@ -509,7 +509,7 @@ struct FolioMobileBookDetail: View {
                     HStack(spacing: 9) {
                         Image(systemName: job.stage.isActive ? "arrow.down.circle" :
                               job.stage == .failed ? "exclamationmark.triangle" : "checkmark.circle")
-                        Text(job.statusText.isEmpty ? job.stage.rawValue.capitalized : job.statusText)
+                        Text(job.statusText.isEmpty ? job.stage.rawValue.capitalized : job.statusLine)
                             .lineLimit(2)
                         Spacer(minLength: 4)
                         Button("Downloads") { navigation.openDownloads() }

@@ -13,7 +13,7 @@ const hash = '51d2b22ca12a8b470b51f543298b34c9';
 const official = ['annas-archive.gl', 'annas-archive.pk', 'annas-archive.gd'];
 const githubConfig = 'export const OFFICIAL_MIRRORS = ["annas-archive.gl", "annas-archive.pk", "annas-archive.gd"] as const;';
 
-function harness(fetch, browser, withStatus = true) {
+function harness(fetch, browser, withStatus = true, clock = Date) {
   const requested = [];
   const statuses = [];
   const logs = [];
@@ -26,7 +26,7 @@ function harness(fetch, browser, withStatus = true) {
       log(message) { logs.push(message); },
       config: {}
     },
-    Date,
+    Date: clock,
     RegExp,
     encodeURIComponent
   };
@@ -36,7 +36,7 @@ function harness(fetch, browser, withStatus = true) {
   vm.runInContext(script, context, {timeout: 5000});
   assert.equal(context.source.name, "Anna's Archive");
   assert.equal(context.source.id, 'annas-archive-free');
-  assert.equal(context.source.version, '1.3.12');
+  assert.equal(context.source.version, '1.3.13');
   assert.equal(context.source.allowedHosts.length, 5);
   return {source: context.source, requested, statuses, logs};
 }
@@ -770,4 +770,29 @@ const legacy = harness(url => url.includes('raw.githubusercontent.com') ? github
 assert.equal(legacy.source.search('Pride and Prejudice', 0).length, 1, 'older Folio versions work without status');
 assert.ok(legacy.logs.length > 0, 'older Folio versions still receive diagnostics');
 
-console.log('PASS: Folio extension v1.3.12, bounded transient transport retry, runtime-local mirror cooldown, source availability diagnostics, Want subtitle matches, language safeguards, and free countdown without verified-query resets.');
+// An empty link box already on the page made waitFor return at once; the
+// six-minute wait must still pace itself and log "monitoring" only once.
+{
+  let now = 1_700_000_000_000;
+  const fakeDate = {now: () => now};
+  let pauses = 0;
+  const emptyBox = '<span class="bg-gray-200 break-all"></span>';
+  const stalled = harness(() => { throw new Error('no fetch expected'); }, {
+    open() { return emptyBox; },
+    html() { return emptyBox; },
+    url() { return ''; },
+    evaluate() { return ''; },
+    waitFor(selector) {
+      if (selector === 'span.bg-gray-200.break-all') return 'true';
+      pauses++;
+      now += 15_000;
+      return 'false';
+    }
+  }, true, fakeDate);
+  assert.throws(() => stalled.source.prepareDownload(`https://annas-archive.gl/slow_download/${hash}/0/0`),
+    /waited six minutes/);
+  assert.ok(pauses >= 23, `expected the wait to last six minutes, paused ${pauses} times`);
+  assert.equal(stalled.logs.filter(line => /monitoring the page/.test(line)).length, 1);
+}
+
+console.log('PASS: Folio extension v1.3.13, paced partner-link polling, bounded transient transport retry, runtime-local mirror cooldown, source availability diagnostics, Want subtitle matches, language safeguards, and free countdown without verified-query resets.');
