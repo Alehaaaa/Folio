@@ -149,6 +149,10 @@ enum FolioOpenLibrary {
                           rating: d["ratings_average"].double.map { ($0 * 100).rounded() / 100 },
                           ratingsCount: d["ratings_count"].int, description: nil, slug: nil)
         book.authorRefs = names.prefix(3).map { HCAuthorRef(id: nil, name: $0) }
+        // The work's own title (often the original) and other edition titles, so a book
+        // read in one language is recognised when it is shown in another.
+        book.alternateTitles = HCBook.otherTitles([title] + d["editions"]["docs"].array.compactMap { $0["title"].string },
+                                                  besides: shownTitle)
         return book
     }
 

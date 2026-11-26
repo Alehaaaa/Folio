@@ -131,12 +131,12 @@ struct FolioMobileDiscoverView: View {
                 .frame(maxWidth: .infinity, minHeight: 120)
         } else if let error {
             failureView(error)
-        } else if FolioReadBooks.shared.unread(searchHits).isEmpty {
+        } else if FolioReadBooks.shared.unread(searchHits, recommendations: false).isEmpty {
             ContentUnavailableView.search(text: searchText)
         } else {
             FolioMobileRemoteBookGridSection(
                 title: "Results",
-                books: FolioReadBooks.shared.unread(FolioMobileDiscoverySections.unique(searchHits))
+                books: FolioReadBooks.shared.unread(FolioMobileDiscoverySections.unique(searchHits), recommendations: false)
             )
         }
     }

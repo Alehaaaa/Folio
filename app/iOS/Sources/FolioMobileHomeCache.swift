@@ -13,15 +13,18 @@ enum FolioMobileHomeCache {
         var rating: Double?
         var ratingsCount: Int?
         var slug: String?
+        var alternateTitles: [String]?
 
         init(_ b: HCBook) {
             id = b.id; title = b.title; authors = b.authors; imageURL = b.imageURL; year = b.year
             pages = b.pages; rating = b.rating; ratingsCount = b.ratingsCount; slug = b.slug
+            alternateTitles = b.alternateTitles
         }
 
         var value: HCBook {
             HCBook(id: id, title: title, authors: authors, imageURL: imageURL, year: year, pages: pages,
-                   rating: rating, ratingsCount: ratingsCount, description: nil, slug: slug)
+                   rating: rating, ratingsCount: ratingsCount, description: nil, slug: slug,
+                   alternateTitles: alternateTitles)
         }
     }
 

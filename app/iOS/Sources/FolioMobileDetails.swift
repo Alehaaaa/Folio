@@ -834,7 +834,7 @@ struct FolioMobileBookDetail: View {
     }
 
     private func choose(_ status: HCStatus) {
-        FolioReadBooks.shared.set(shownBook, read: status == .read)
+        FolioReadBooks.shared.set(shownBook, status: status)
         if let local {
             library.setStatus(local.id, status.local)
         } else {

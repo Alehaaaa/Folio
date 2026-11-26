@@ -125,6 +125,9 @@ struct HCBook: Identifiable, Hashable, Codable {
     /// "The Name of the Wind"): its page shows that edition, the work's data stays shared.
     var editionID: Int? = nil
     var editionTitle: String? = nil
+    /// Other titles the same work is known by (the original, translations), when the
+    /// source listed them. Read filters use them to spot a read book in another language.
+    var alternateTitles: [String]? = nil
 
     var webURL: URL? {
         if id < 0 { return URL(string: "https://openlibrary.org/works/OL\(-id)W") }
@@ -183,9 +186,28 @@ struct HCBook: Identifiable, Hashable, Codable {
             ratingsCount: d["ratings_count"].int,
             description: d["description"].string,
             slug: d["slug"].string,
-            authorRefs: refs
+            authorRefs: refs,
+            alternateTitles: Self.otherTitles(d["alternative_titles"].array.compactMap(\.string), besides: d["title"].string)
         )
     }
+
+    /// Distinct titles other than the main one, at most 40.
+    static func otherTitles(_ titles: [String], besides main: String?) -> [String]? {
+        var seen = Set([main.map { BookAutoMatch.words($0).joined(separator: " ") } ?? ""])
+        let out = titles.filter { seen.insert(BookAutoMatch.words($0).joined(separator: " ")).inserted }.prefix(40)
+        return out.isEmpty ? nil : Array(out)
+    }
+}
+
+/// The titles and numbered series places a work is known by.
+struct HCWorkIdentity: Codable, Hashable {
+    struct Place: Codable, Hashable {
+        var seriesID: Int?
+        var name: String
+        var position: Double
+    }
+    var titles: [String] = []
+    var places: [Place] = []
 }
 
 struct HCAuthorRef: Hashable, Codable {
@@ -780,18 +802,23 @@ final class HardcoverClient {
 
     /// Read-history pages for recommendation filtering, including older finishes.
     func readHistory() async throws -> [HCUserBook] {
+        try await shelfEntries([.read])
+    }
+
+    /// Every shelf entry with one of these statuses, however many there are.
+    func shelfEntries(_ statuses: [HCStatus]) async throws -> [HCUserBook] {
         guard let user else { throw HCError(message: "Not connected.") }
         var cursor = 0
         var history: [HCUserBook] = []
         while true {
             try Task.checkCancellation()
             let data = try await query("""
-            query ReadHistory($uid: Int!, $status: Int!, $after: Int!) {
-              user_books(where: {user_id: {_eq: $uid}, status_id: {_eq: $status}, id: {_gt: $after}}, order_by: {id: asc}, limit: 200) {
+            query ShelfHistory($uid: Int!, $statuses: [Int!]!, $after: Int!) {
+              user_books(where: {user_id: {_eq: $uid}, status_id: {_in: $statuses}, id: {_gt: $after}}, order_by: {id: asc}, limit: 200) {
                 \(Self.userBookFields)
               }
             }
-            """, ["uid": user.id, "status": HCStatus.read.rawValue, "after": cursor])
+            """, ["uid": user.id, "statuses": statuses.map(\.rawValue), "after": cursor])
             let rows = data["user_books"].array
             history.append(contentsOf: rows.compactMap(HCUserBook.from))
             guard rows.count == 200, let next = rows.last?["id"].int, next > cursor else { return history }
@@ -1147,6 +1174,52 @@ final class HardcoverClient {
                 .components(separatedBy: CharacterSet.alphanumerics.inverted).joined()
             guard titles.insert(key).inserted else { continue }
             out.append(b)
+        }
+        return out
+    }
+
+    /// Every way these works are known, for telling whether a book in another
+    /// language is one of them: the titles of their most-read editions (any language)
+    /// and their numbered places in series. Hardcover keeps some translations as
+    /// books of their own, which share those titles and series places.
+    func workIdentities(bookIDs: [Int]) async throws -> [Int: HCWorkIdentity] {
+        let ids = Array(Set(bookIDs.filter { $0 > 0 })).sorted()
+        var out: [Int: HCWorkIdentity] = [:]
+        for start in stride(from: 0, to: ids.count, by: 40) {
+            let batch = Array(ids[start..<min(start + 40, ids.count)])
+            var found = Dictionary(uniqueKeysWithValues: batch.map { ($0, HCWorkIdentity()) })
+            let titles = try await query("""
+            query WorkTitles($ids: [Int!]!) { books(where: {id: {_in: $ids}}) { id title editions(order_by: {users_count: desc}, limit: 30) { title } } }
+            """, ["ids": batch])
+            for book in titles["books"].array {
+                guard let id = book["id"].int else { continue }
+                let all = [book["title"].string].compactMap { $0 } + book["editions"].array.compactMap { $0["title"].string }
+                found[id]?.titles = HCBook.otherTitles(all, besides: nil) ?? []
+            }
+            if let series = try? await query("""
+            query WorkSeries($ids: [Int!]) { book_series(where: {book_id: {_in: $ids}, position: {_is_null: false}}) { book_id position series { id name } } }
+            """, ["ids": batch]) {
+                for row in series["book_series"].array {
+                    guard let id = row["book_id"].int, let position = row["position"].double else { continue }
+                    found[id]?.places.append(.init(seriesID: row["series"]["id"].int, name: row["series"]["name"].string ?? "", position: position))
+                }
+            }
+            out.merge(found) { _, new in new }
+        }
+        return out
+    }
+
+    /// Numbered series places for many books, for matching works across languages.
+    func seriesPlaces(forBooks bookIDs: [Int]) async throws -> [Int: [HCWorkIdentity.Place]] {
+        let ids = Array(Set(bookIDs.filter { $0 > 0 })).sorted()
+        guard !ids.isEmpty else { return [:] }
+        let d = try await query("""
+        query CandidateSeries($ids: [Int!]) { book_series(where: {book_id: {_in: $ids}, position: {_is_null: false}}) { book_id position series { id name } } }
+        """, ["ids": ids])
+        var out = Dictionary(uniqueKeysWithValues: ids.map { ($0, [HCWorkIdentity.Place]()) })
+        for row in d["book_series"].array {
+            guard let id = row["book_id"].int, let position = row["position"].double else { continue }
+            out[id]?.append(.init(seriesID: row["series"]["id"].int, name: row["series"]["name"].string ?? "", position: position))
         }
         return out
     }

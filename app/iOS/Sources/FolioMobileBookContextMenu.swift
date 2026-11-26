@@ -271,7 +271,7 @@ extension FolioMobileShelfEntryContextMenu {
     func move(to status: HCStatus) {
         let book = entry.hardcover?.book ?? entry.goodreads?.folioBook
             ?? HCBook(id: 0, title: entry.title, authors: entry.author)
-        FolioReadBooks.shared.set(book, read: status == .read)
+        FolioReadBooks.shared.set(book, status: status)
         Task {
             if hardcover.isConnected, let id = hardcoverID {
                 _ = await hardcover.setStatus(bookID: id, status: status)
@@ -343,7 +343,7 @@ private struct FolioMobileRemoteBookContextMenu: ViewModifier {
                 Menu {
                     ForEach(HCStatus.allCases) { status in
                         Button {
-                            FolioReadBooks.shared.set(book, read: status == .read)
+                            FolioReadBooks.shared.set(book, status: status)
                             Task {
                                 _ = await hardcover.setStatus(bookID: book.id, status: status)
                                 await FolioShelfSync.shared.sync(status, for: book)
