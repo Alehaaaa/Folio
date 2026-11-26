@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.118",
+          "buildVersion": "119",
+          "date": "2026-11-26",
+          "localizedDescription": "Switch to another mirror when a book download stalls or crawls",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.118-119.ipa",
+          "size": 6331049,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.116",
           "buildVersion": "117",
           "date": "2026-11-26",
