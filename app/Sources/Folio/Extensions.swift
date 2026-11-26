@@ -1211,7 +1211,24 @@ final class ExtensionStore {
 // MARK: - Matching (demeter's hashBook: author's last name + simplified title)
 
 enum BookMatch {
+    /// Keys already worked out. Lists ask for the same books on every redraw
+    /// (read filters, library checks), and each key runs several regular
+    /// expressions, which made scrolling those lists stutter.
+    private static let cache: NSCache<NSString, NSString> = {
+        let cache = NSCache<NSString, NSString>()
+        cache.countLimit = 20_000
+        return cache
+    }()
+
     static func key(author: String, title: String) -> String {
+        let cacheKey = (author + "\u{1F}" + title) as NSString
+        if let hit = cache.object(forKey: cacheKey) { return hit as String }
+        let value = computeKey(author: author, title: title)
+        cache.setObject(value as NSString, forKey: cacheKey)
+        return value
+    }
+
+    private static func computeKey(author: String, title: String) -> String {
         var a = author.lowercased().replacingOccurrences(of: "-", with: " ")
         if a.contains(",") {
             let parts = a.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }

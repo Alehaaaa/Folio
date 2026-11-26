@@ -321,12 +321,17 @@ struct FolioMobileRow<Content: View>: View {
 extension String {
     /// "2014-07-15" as a readable date; other strings pass through.
     var folioReadableDate: String {
+        guard let date = Self.folioDayParser.date(from: String(prefix(10))) else { return self }
+        return date.formatted(date: .long, time: .omitted)
+    }
+
+    /// Made once: building a DateFormatter for every date shown is slow.
+    private static let folioDayParser: DateFormatter = {
         let parser = DateFormatter()
         parser.locale = Locale(identifier: "en_US_POSIX")
         parser.dateFormat = "yyyy-MM-dd"
-        guard let date = parser.date(from: String(prefix(10))) else { return self }
-        return date.formatted(date: .long, time: .omitted)
-    }
+        return parser
+    }()
 }
 
 // MARK: - Author page
