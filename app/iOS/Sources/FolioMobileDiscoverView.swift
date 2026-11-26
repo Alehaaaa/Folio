@@ -106,7 +106,7 @@ struct FolioMobileDiscoverView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 14) {
-                    if let books = feed.books[topic.id].map(FolioReadBooks.shared.unread), !books.isEmpty {
+                    if let books = feed.books[topic.id].map { FolioReadBooks.shared.unread($0) }, !books.isEmpty {
                         ForEach(books) { book in
                             FolioMobileRemoteBookTile(book: book, width: min(tileWidth, 180))
                         }

@@ -25,7 +25,7 @@ final class FolioReadBooks {
     }
 
     /// The keys a set of works is known by.
-    private struct Known: Codable {
+    struct Known: Codable {
         var keys: Set<String> = []
         var titles: Set<String> = []
         var places: Set<String> = []
