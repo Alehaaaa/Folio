@@ -32,7 +32,8 @@ struct FolioMobileRemoteBookTile: View {
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .clipped()
                 }
-                .aspectRatio(0.69, contentMode: .fit)
+                // A fixed cover frame, so a two-line title can never squeeze it in a row.
+                .modifier(FolioCoverFrame(width: width, aspect: 0.69))
                 .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
@@ -42,19 +43,12 @@ struct FolioMobileRemoteBookTile: View {
                 .modifier(FolioCoverMenuShape())
                 .modifier(FolioRemoteTileMenu(book: original, entry: entry, changed: changed))
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(book.title)
-                        .font(.system(.body, design: .serif))
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-
-                    Text(book.authors.isEmpty ? "Unknown author" : book.authors)
-                        .font(.subheadline)
-                        .foregroundStyle(FolioTheme.muted)
-                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
-                        .multilineTextAlignment(.leading)
-                }
+                FolioTileCaption(title: book.title,
+                                 caption: book.authors.isEmpty ? "Unknown author" : book.authors,
+                                 titleFont: .system(.body, design: .serif),
+                                 captionFont: .subheadline,
+                                 titleColor: .primary,
+                                 captionLines: dynamicTypeSize.isAccessibilitySize ? 2 : 1)
             }
             .frame(width: width, alignment: .topLeading)
             .frame(maxWidth: width == nil ? .infinity : nil, alignment: .topLeading)
@@ -66,6 +60,60 @@ struct FolioMobileRemoteBookTile: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(book.title), \(book.authors.isEmpty ? "unknown author" : book.authors)")
         .accessibilityHint("Open book details")
+    }
+}
+
+/// Gives a tile's cover the same frame in every row: an exact height when the tile
+/// width is known, otherwise the aspect ratio with its full height kept.
+struct FolioCoverFrame: ViewModifier {
+    let width: CGFloat?
+    let aspect: CGFloat
+
+    func body(content: Content) -> some View {
+        if let width {
+            content.frame(width: width, height: (width / aspect).rounded())
+        } else {
+            content.aspectRatio(aspect, contentMode: .fit)
+        }
+    }
+}
+
+/// A tile's title (up to two lines) with its caption (one line) right under it.
+/// The block always takes the room of two title lines and the caption, so every tile
+/// in a row or grid is the same height and the covers stay lined up; a one-line
+/// title just leaves the caption higher with the spare room below.
+struct FolioTileCaption: View {
+    let title: String
+    let caption: String
+    let titleFont: Font
+    let captionFont: Font
+    var titleColor: Color = FolioTheme.ink
+    var captionLines = 1
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            column(title: " ", caption: " ", reserve: true)
+                .hidden()
+                .accessibilityHidden(true)
+            column(title: title, caption: caption)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func column(title: String, caption: String, reserve: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(titleFont)
+                .foregroundStyle(titleColor)
+                .lineLimit(2, reservesSpace: reserve)
+                .multilineTextAlignment(.leading)
+            Text(caption)
+                .font(captionFont)
+                .foregroundStyle(FolioTheme.muted)
+                .lineLimit(captionLines, reservesSpace: reserve)
+                .multilineTextAlignment(.leading)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

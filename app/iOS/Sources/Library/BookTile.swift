@@ -33,16 +33,10 @@ struct FolioMobileBookTile: View {
                             .accessibilityHidden(true)
                     }
                 }
-            VStack(alignment: .leading, spacing: 3) {
-                Text(FolioBookOverrides.shared.downloadedTitle(book))
-                    .font(.system(.subheadline, design: .serif))
-                    .foregroundStyle(FolioTheme.ink)
-                    .lineLimit(2)
-                Text(caption)
-                    .font(.caption)
-                    .foregroundStyle(FolioTheme.muted)
-                    .lineLimit(1)
-            }
+            FolioTileCaption(title: FolioBookOverrides.shared.downloadedTitle(book),
+                             caption: caption,
+                             titleFont: .system(.subheadline, design: .serif),
+                             captionFont: .caption)
             // Marking a book read collapses its bar toward the start and hides it; the
             // empty row stays so the grid keeps its alignment.
             ZStack(alignment: .leading) {
