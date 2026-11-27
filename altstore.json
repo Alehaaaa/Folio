@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.130",
+          "buildVersion": "131",
+          "date": "2026-11-27",
+          "localizedDescription": "Faster, more accurate search: Hardcover results at once, Open Library streams in",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.130-131.ipa",
+          "size": 6593869,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.129",
           "buildVersion": "130",
           "date": "2026-11-27",
