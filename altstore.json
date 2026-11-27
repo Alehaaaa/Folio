@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.139",
+          "buildVersion": "140",
+          "date": "2026-11-27",
+          "localizedDescription": "Library copies found under any edition's title, so owned books say Read",
+          "downloadURL": "https://github.com/Alehaaaa/Folio/releases/download/ios-1.0.139-140/Folio-1.0.139-140.ipa",
+          "size": 6801985,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.138",
           "buildVersion": "139",
           "date": "2026-11-27",
