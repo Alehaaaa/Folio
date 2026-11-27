@@ -668,6 +668,12 @@ final class DownloadQueue {
                 ? try? EPUBPackage.load(root: store.extractedURL(local)) : nil
             if BookLanguage.matches(package?.language, expected: language) == true {
                 append(id, "Existing local EPUB \(local.id) has verified language \(package?.language ?? "?")")
+                if local.hardcoverBookID == nil, let hcID = job.hardcoverBookID {
+                    store.update(local.id) { book in
+                        book.hardcoverBookID = hcID
+                        book.hardcoverPages = job.hardcoverPages ?? book.hardcoverPages
+                    }
+                }
                 complete(id, bookID: local.id, existing: true)
                 return
             }

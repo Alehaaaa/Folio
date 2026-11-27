@@ -99,7 +99,18 @@ struct FolioMobileBookDetail: View {
         if let selectedVersionID, let selected = library.book(selectedVersionID) { return selected }
         if let localBookID { return library.book(localBookID) }
         guard let remote = initialRemote else { return nil }
-        return overrides.libraryCopy(of: remote)
+        return overrides.libraryCopy(of: remote) ?? downloadedCopy(of: remote)
+    }
+
+    /// The library copy a finished download of this book put on the shelf
+    /// ("Crónicas marcianas" for "The Martian Chronicles"), so the page offers Read.
+    private func downloadedCopy(of remote: HCBook) -> LocalBook? {
+        let key = BookMatch.key(author: remote.authors, title: remote.title)
+        return downloads.jobs.lazy.filter { job in
+            job.stage == .completed &&
+            ((remote.id > 0 && job.hardcoverBookID == remote.id) ||
+             BookMatch.key(author: job.author, title: job.title) == key)
+        }.compactMap { job in job.importedBookID.flatMap { library.book($0) } }.first
     }
 
     private var linkedID: Int? {
