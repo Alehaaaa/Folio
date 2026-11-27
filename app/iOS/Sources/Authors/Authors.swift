@@ -30,6 +30,8 @@ extension View {
             .navigationDestination(for: FolioMobileAuthorRoute.self) { FolioMobileAuthorView(route: $0) }
             .navigationDestination(for: FolioMobileSeriesRoute.self) { FolioMobileSeriesView(route: $0) }
             .navigationDestination(for: FolioMobileRatingsRoute.self) { FolioMobileRatingsView(route: $0) }
+            .navigationDestination(for: FolioMobileListRoute.self) { FolioMobileListView(route: $0) }
+            .navigationDestination(for: FolioMobileListsRoute.self) { FolioMobileListsView(route: $0) }
             .navigationDestination(for: FolioMobileTopicRoute.self) { route in
                 FolioMobileDiscoverTopicPage(topic: route.topic, initial: route.initial,
                                              filters: FolioDiscoverFilters(sort: route.sort))

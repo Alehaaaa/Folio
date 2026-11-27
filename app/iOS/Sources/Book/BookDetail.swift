@@ -46,6 +46,12 @@ struct FolioMobileBookDetail: View {
     @State private var settledPageID: Int?
     @State private var moreByAuthor: [HCBook] = []
     @State private var similar: [HCBook] = []
+    /// How many editions Hardcover has of this book.
+    @State private var editionsCount: Int?
+    /// Characters from Hardcover, else Wikidata.
+    @State private var hardcoverCharacters: [String] = []
+    /// Awards and characters from Wikidata.
+    @State private var workFacts = FolioWorkFacts()
     @State private var remoteProgress = 0.0
     /// The Hardcover record found for a book that arrived without one (an
     /// unlinked library file or a Goodreads shelf entry).
@@ -243,6 +249,9 @@ struct FolioMobileBookDetail: View {
                     ratingsCard
                     seriesSection
                     recommendationRows
+                    if let linkedID, linkedID > 0, hardcover.isConnected {
+                        FolioMobileBookListsRow(bookID: linkedID)
+                    }
                     detailsSection
                     if let local, !library.data.collections.isEmpty { collectionsSection(local) }
                 }
@@ -336,6 +345,13 @@ struct FolioMobileBookDetail: View {
         // Keyed on the work, not the shown title: the title changes when the edition in
         // your language arrives, and that used to restart every Open Library request.
         .task(id: "open-\(openBase.id)-\(openBase.title)") { await loadOpenData() }
+        .task(id: "extras-\(linkedID ?? 0)-\(hardcover.isConnected)") { await loadExtras() }
+        .task(id: "facts-\(openBase.id)-\(openBase.title)") {
+            let base = openBase
+            guard !base.title.isEmpty else { return }
+            let facts = await FolioWikidataSeries.facts(of: base)
+            if !Task.isCancelled { workFacts = facts }
+        }
         .task(id: "similar-\(openBase.id)-\(openBase.title)-\(pageGenres.prefix(3).joined(separator: ","))") {
             await loadSimilar()
         }
@@ -667,6 +683,7 @@ struct FolioMobileBookDetail: View {
     private var detailToolbar: some ToolbarContent {
         // The title sits on the page; the bar keeps it only as the back label.
         ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
+        ToolbarItem(placement: .topBarTrailing) { shareButton }
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 if let local {
@@ -719,6 +736,21 @@ struct FolioMobileBookDetail: View {
         }
     }
 
+    /// The book's page on Hardcover (or Open Library), else its title and author.
+    @ViewBuilder
+    private var shareButton: some View {
+        let message = author.isEmpty ? title : "\(title) by \(author)"
+        if let url = (remote ?? initialRemote)?.webURL {
+            ShareLink(item: url, subject: Text(title), message: Text(message)) {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
+        } else {
+            ShareLink(item: message, subject: Text(title)) {
+                Label("Share", systemImage: "square.and.arrow.up")
+            }
+        }
+    }
+
     // MARK: Reading
 
     /// One status control, one progress bar and, on Hardcover, your stars.
@@ -758,7 +790,45 @@ struct FolioMobileBookDetail: View {
         canSyncHardcover ? HCStatus.allCases : [.wantToRead, .reading, .read]
     }
 
+    /// A book not on a shelf yet shows "Want to Read": one tap shelves it there
+    /// (a long press offers the other shelves). Once shelved, the button opens the
+    /// menu to change the status.
+    @ViewBuilder
     private var statusMenu: some View {
+        if currentStatus == nil {
+            Menu {
+                statusChoices
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: HCStatus.wantToRead.symbol)
+                    Text(HCStatus.wantToRead.label)
+                }
+                .font(.subheadline.weight(.medium))
+                .padding(.horizontal, 4)
+            } primaryAction: {
+                choose(.wantToRead)
+            }
+            .folioGlassPill(prominent: true)
+            .disabled(busy)
+            .accessibilityLabel("Want to Read")
+            .accessibilityHint("Adds the book to Want to Read. Touch and hold for other shelves.")
+        } else {
+            statusChangeMenu
+        }
+    }
+
+    @ViewBuilder
+    private var statusChoices: some View {
+        ForEach(statusOptions) { status in
+            Button {
+                choose(status)
+            } label: {
+                Label(status.label, systemImage: currentStatus == status ? "checkmark" : status.symbol)
+            }
+        }
+    }
+
+    private var statusChangeMenu: some View {
         Menu {
             ForEach(statusOptions) { status in
                 Button {
@@ -1088,7 +1158,35 @@ struct FolioMobileBookDetail: View {
     }
 
     private var hasDetails: Bool {
-        local != nil || edition != nil || nonEmpty(local?.publisher) != nil
+        local != nil || edition != nil || nonEmpty(local?.publisher) != nil || !bookSeries.isEmpty
+            || editionsCount != nil || !characters.isEmpty || !workFacts.awards.isEmpty
+    }
+
+    private var characters: [String] {
+        hardcoverCharacters.isEmpty ? workFacts.characters : hardcoverCharacters
+    }
+
+    /// Editions and characters from Hardcover, on their own so a refusal never costs the page.
+    @MainActor
+    private func loadExtras() async {
+        guard let linkedID, linkedID > 0, hardcover.isConnected else { return }
+        let extras = await hardcover.bookExtras(bookID: linkedID)
+        guard !Task.isCancelled, linkedID == self.linkedID else { return }
+        editionsCount = extras.editions
+        hardcoverCharacters = extras.characters
+    }
+
+    /// A label on the left and its value beside it, wrapping under itself.
+    private func detailRow<Value: View>(_ label: String, @ViewBuilder value: () -> Value) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(label)
+                .foregroundStyle(FolioTheme.muted)
+                .frame(width: 104, alignment: .leading)
+            value()
+                .foregroundStyle(FolioTheme.ink)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     @ViewBuilder
@@ -1097,27 +1195,69 @@ struct FolioMobileBookDetail: View {
         VStack(alignment: .leading, spacing: 11) {
             Text("Details").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
             if let originalTitle {
-                LabeledContent("Original title", value: originalTitle)
+                detailRow("Original title") { Text(originalTitle) }
             }
             if let publisher = nonEmpty(edits?.publisher) ?? nonEmpty(edition?.publisher) ?? nonEmpty(local?.publisher) {
-                LabeledContent("Publisher", value: publisher)
+                detailRow("Publisher") { Text(publisher) }
             }
             if let published = publishedText {
-                LabeledContent("Published", value: published)
+                detailRow("Published") { Text(published) }
             }
             if let format = nonEmpty(edition?.format) {
-                LabeledContent("Edition", value: format.capitalized)
-            }
-            if let language = nonEmpty(local?.language) ?? nonEmpty(edition?.language) {
-                LabeledContent("Language", value: language.count <= 3
-                               ? (Locale.current.localizedString(forLanguageCode: language) ?? language) : language)
+                let length = (edition?.pages).map { ", \($0.formatted()) pages" } ?? ""
+                detailRow("Edition") { Text(format.capitalized + length) }
             }
             if let isbn = nonEmpty(local?.isbn) ?? nonEmpty(edition?.isbn13) ?? nonEmpty(edition?.isbn10) {
-                LabeledContent("ISBN") { Text(isbn).textSelection(.enabled).monospacedDigit() }
+                detailRow("ISBN") { Text(isbn).textSelection(.enabled).monospacedDigit() }
+            }
+            if let isbn10 = nonEmpty(edition?.isbn10), local?.isbn == nil, nonEmpty(edition?.isbn13) != nil {
+                detailRow("ISBN-10") { Text(isbn10).textSelection(.enabled).monospacedDigit() }
+            }
+            ForEach(bookSeries.prefix(2), id: \.id) { series in
+                NavigationLink(value: FolioMobileSeriesRoute(id: series.id, name: series.name, currentBookID: linkedID)) {
+                    detailRow("Series") {
+                        HStack(spacing: 6) {
+                            Text(series.position.map { "\(series.name) #\($0.formatted())" } ?? series.name)
+                                .multilineTextAlignment(.leading)
+                            Spacer(minLength: 4)
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            if let count = editionsCount, count > 1 {
+                if let slug = (remote ?? initialRemote)?.slug, let url = URL(string: "https://hardcover.app/books/\(slug)/editions") {
+                    Link(destination: url) {
+                        detailRow("Editions") {
+                            HStack(spacing: 6) {
+                                Text("\(count.formatted()) editions")
+                                Spacer(minLength: 4)
+                                Image(systemName: "arrow.up.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    detailRow("Editions") { Text("\(count.formatted()) editions") }
+                }
+            }
+            if let language = nonEmpty(local?.language) ?? nonEmpty(edition?.language) {
+                detailRow("Language") {
+                    Text(language.count <= 3 ? (Locale.current.localizedString(forLanguageCode: language) ?? language) : language)
+                }
+            }
+            if !characters.isEmpty {
+                detailRow("Characters") { Text(characters.prefix(10).joined(separator: ", ")) }
+            }
+            if !workFacts.awards.isEmpty {
+                detailRow("Awards") { Text(workFacts.awards.prefix(8).joined(separator: ", ")) }
             }
             if let local {
-                LabeledContent("File", value: local.format.label)
-                LabeledContent("Added", value: local.addedAt.formatted(date: .abbreviated, time: .omitted))
+                detailRow("File") { Text(local.format.label) }
+                detailRow("Added") { Text(local.addedAt.formatted(date: .abbreviated, time: .omitted)) }
             }
         }
         .font(.subheadline)

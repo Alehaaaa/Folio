@@ -34,7 +34,13 @@ struct FolioMobileDiscoverView: View {
                     if let message = feed.error, feed.visibleTopics.isEmpty {
                         failureView(message)
                     }
-                    ForEach(feed.visibleTopics) { topic in
+                    ForEach(feed.visibleTopics.prefix(3)) { topic in
+                        row(topic)
+                    }
+                    if hardcover.isConnected {
+                        FolioMobileFeaturedListsRow()
+                    }
+                    ForEach(feed.visibleTopics.dropFirst(3)) { topic in
                         row(topic)
                     }
                     FolioMobileDiscoverIndex(yourGenres: feed.yourGenres)

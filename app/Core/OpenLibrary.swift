@@ -195,8 +195,31 @@ enum FolioOpenLibrary {
 
     // MARK: Discover
 
-    static func trending() async throws -> [HCBook] {
-        let url = URL(string: "https://openlibrary.org/trending/weekly.json?limit=60")!
+    /// New books released this month, from Hardcover (Open Library only knows years).
+    /// Early in a month the last six weeks fill the list.
+    static func newThisMonth(filters: FolioDiscoverFilters, limit: Int, offset: Int) async throws -> [HCBook] {
+        let client = await HardcoverClient.shared
+        guard await client.isConnected else { return [] }
+        let calendar = Calendar.current
+        let today = Date()
+        let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: today)) ?? today
+        let order: HardcoverClient.ReleaseOrder = switch filters.sort {
+        case .rated: .rated
+        case .newest: .newest
+        default: .popular
+        }
+        var books = try await client.releases(from: monthStart, to: today, order: order,
+                                              minimumRating: filters.rating.minimum, limit: limit, offset: offset)
+        if offset == 0, books.count < 8, let wider = calendar.date(byAdding: .day, value: -42, to: today) {
+            books = try await client.releases(from: wider, to: today, order: order,
+                                              minimumRating: filters.rating.minimum, limit: limit, offset: offset)
+        }
+        if filters.sort == .oldest { books.reverse() }
+        return books
+    }
+
+    static func trending(period: String = "weekly") async throws -> [HCBook] {
+        let url = URL(string: "https://openlibrary.org/trending/\(period).json?limit=60")!
         let works = try await FolioOpenData.shared.json(url, fresh: 6 * 60 * 60)["works"].array
         let keys = works.compactMap { $0["key"].string }.prefix(40)
         guard !keys.isEmpty else { return [] }
@@ -229,9 +252,22 @@ enum FolioOpenLibrary {
 
     static func discoverBooks(_ topic: FolioDiscoverTopic, filters: FolioDiscoverFilters = .init(),
                               limit: Int = 24, offset: Int = 0) async throws -> [HCBook] {
-        if case .trending = topic.kind {
+        switch topic.kind {
+        case .trending:
             guard offset == 0 else { return [] }
-            return filters.apply(try await trending())
+            return filters.apply(try await trending(period: "daily"))
+        case .mostReadWeek:
+            guard offset == 0 else { return [] }
+            // What Hardcover readers read this week; Open Library's weekly chart without an account.
+            if await HardcoverClient.shared.isConnected,
+               let week = try? await HardcoverClient.shared.trending(days: 7, limit: 40), week.count >= 6 {
+                return filters.apply(week)
+            }
+            return filters.apply(try await trending(period: "weekly"))
+        case .newThisMonth:
+            return try await newThisMonth(filters: filters, limit: limit, offset: offset)
+        default:
+            break
         }
         let year = Calendar.current.component(.year, from: .now)
         var terms: [String] = []
@@ -241,7 +277,7 @@ enum FolioOpenLibrary {
             terms.append("first_publish_year:[\(from.map(String.init) ?? "*") TO \(to.map { String($0 - 1) } ?? "*")]")
         }
         switch topic.kind {
-        case .trending: break
+        case .trending, .mostReadWeek, .newThisMonth: break
         case .popular: terms.append("ratings_count:[50 TO *]")
         case .newThisYear: years(year, nil)
         case .acclaimed:
@@ -519,5 +555,59 @@ enum FolioWikidataSeries {
             out.append(HCSeriesBook(position: row.position, book: book))
         }
         return out.sorted { ($0.position ?? .infinity, $0.book.year ?? .max) < ($1.position ?? .infinity, $1.book.year ?? .max) }
+    }
+}
+
+// MARK: - Awards and characters from Wikidata
+
+/// What Wikidata records about a book beyond its series: the awards it won
+/// (with the year) and its characters.
+struct FolioWorkFacts: Hashable, Codable {
+    var awards: [String] = []
+    var characters: [String] = []
+    var isEmpty: Bool { awards.isEmpty && characters.isEmpty }
+}
+
+extension FolioWikidataSeries {
+    /// Awards and characters for a book, found by its Open Library work.
+    static func facts(of book: HCBook) async -> FolioWorkFacts {
+        var key = FolioOpenLibrary.workKey(book.id)
+        if key == nil { key = await FolioOpenLibrary.work(title: book.title, author: book.authors).flatMap { FolioOpenLibrary.workKey($0.id) } }
+        guard let bare = key?.replacingOccurrences(of: "/works/", with: ""),
+              !bare.isEmpty, bare.allSatisfy({ $0.isLetter || $0.isNumber }) else { return FolioWorkFacts() }
+        async let awardRows = try? sparql("""
+        SELECT ?award ?awardLabel (MIN(?time) AS ?when) WHERE {
+          ?book wdt:P648 "\(bare)" . ?book p:P166 ?st . ?st ps:P166 ?award .
+          OPTIONAL { ?st pq:P585 ?time }
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "\(label())". ?award rdfs:label ?awardLabel }
+        } GROUP BY ?award ?awardLabel LIMIT 20
+        """, fresh: 14 * FolioOpenLibrary.day)
+        async let characterRows = try? sparql("""
+        SELECT DISTINCT ?character ?characterLabel WHERE {
+          ?book wdt:P648 "\(bare)" . ?book wdt:P674 ?character .
+          SERVICE wikibase:label { bd:serviceParam wikibase:language "\(label())". ?character rdfs:label ?characterLabel }
+        } LIMIT 20
+        """, fresh: 14 * FolioOpenLibrary.day)
+        var facts = FolioWorkFacts()
+        var awards: [(name: String, year: Int?)] = []
+        for row in (await awardRows) ?? [] {
+            guard let name = row["awardLabel"]["value"].string, !isBareID(name),
+                  !awards.contains(where: { $0.name == name }) else { continue }
+            awards.append((name, row["when"]["value"].string.flatMap { Int($0.prefix(4)) }))
+        }
+        // Most recent first; awards without a year last.
+        facts.awards = awards.sorted { ($0.year ?? 0) > ($1.year ?? 0) }
+            .map { award in award.year.map { "\(award.name) (\($0))" } ?? award.name }
+        for row in (await characterRows) ?? [] {
+            guard let name = row["characterLabel"]["value"].string, !isBareID(name),
+                  !name.lowercased().hasPrefix("list of"), !facts.characters.contains(name) else { continue }
+            facts.characters.append(name)
+        }
+        return facts
+    }
+
+    /// A label Wikidata had no name for in this language ("Q12345").
+    private static func isBareID(_ text: String) -> Bool {
+        text.hasPrefix("Q") && text.dropFirst().allSatisfy(\.isNumber)
     }
 }
