@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.134",
+          "buildVersion": "135",
+          "date": "2026-11-27",
+          "localizedDescription": "Organise the code by what runs where, and sync ratings, follows, series and edits",
+          "downloadURL": "https://github.com/Alehaaaa/Folio/releases/download/ios-1.0.134-135/Folio-1.0.134-135.ipa",
+          "size": 6515630,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.133",
           "buildVersion": "134",
           "date": "2026-11-27",
