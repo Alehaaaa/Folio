@@ -57,7 +57,7 @@ final class FolioBecauseYouRead {
         var seen = Set<Int>()
         let picked = similar.filter { book in
             book.id != id && seen.insert(book.id).inserted
-                && library.localCopy(author: book.authors, title: book.title) == nil
+                && FolioBookOverrides.shared.libraryCopy(of: book) == nil
                 && FolioAuthorNames.split(book.authors).allSatisfy { !byline.contains(FolioAuthorNames.key($0)) }
         }
         guard !picked.isEmpty else { return }

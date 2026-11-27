@@ -111,18 +111,14 @@ struct FolioMobileBookDetail: View {
         if let selectedVersionID, let selected = library.book(selectedVersionID) { return selected }
         if let localBookID { return library.book(localBookID) }
         guard let remote = initialRemote else { return nil }
-        return overrides.libraryCopy(of: remote) ?? downloadedCopy(of: remote)
-    }
-
-    /// The library copy a finished download of this book put on the shelf
-    /// ("Crónicas marcianas" for "The Martian Chronicles"), so the page offers Read.
-    private func downloadedCopy(of remote: HCBook) -> LocalBook? {
-        let key = BookMatch.key(author: remote.authors, title: remote.title)
-        return downloads.jobs.lazy.filter { job in
-            job.stage == .completed &&
-            ((remote.id > 0 && job.hardcoverBookID == remote.id) ||
-             BookMatch.key(author: job.author, title: job.title) == key)
-        }.compactMap { job in job.importedBookID.flatMap { library.book($0) } }.first
+        if let copy = overrides.libraryCopy(of: remote) { return copy }
+        // The full record knows more titles (Open Library books opened from
+        // Home are matched to Hardcover once the page loads).
+        if let details = remoteDetails, details.id == remote.id || details.id == resolvedID,
+           let copy = overrides.libraryCopy(of: details) { return copy }
+        if let resolvedID, remoteDetails?.id != resolvedID,
+           let linked = library.books.first(where: { $0.hardcoverBookID == resolvedID }) { return linked }
+        return nil
     }
 
     private var linkedID: Int? {
@@ -223,10 +219,11 @@ struct FolioMobileBookDetail: View {
     private var canSyncHardcover: Bool { linkedID != nil && hardcover.isConnected }
 
     private var matchingDownload: DownloadJob? {
-        let key = BookMatch.key(author: author, title: title)
+        let titles = [title] + (initialRemote.map { overrides.knownTitles(of: $0) } ?? [])
         return downloads.jobs.first(where: {
             (linkedID != nil && $0.hardcoverBookID == linkedID) ||
-            BookMatch.key(author: $0.author, title: $0.title) == key
+            LibraryMatch.same(titles: [$0.title] + ($0.editionTitle.map { [$0] } ?? []), author: $0.author,
+                              as: titles, by: author)
         })
     }
 

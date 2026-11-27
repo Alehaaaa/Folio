@@ -857,7 +857,7 @@ struct FolioMobileAuthorRows: View {
                 books = fetched
             }
             let fresh = books.filter {
-                !knownIDs.contains($0.id) && store.localCopy(author: $0.authors, title: $0.title) == nil
+                !knownIDs.contains($0.id) && FolioBookOverrides.shared.libraryCopy(of: $0) == nil
             }
             groups.append(Array(fresh.prefix(8)))
         }

@@ -13,7 +13,7 @@ These guard each release. A red one stops the IPA from reaching AltStore.
   `test-amazon-metadata.cjs`, `check-extension-versions.py`
 - Core logic: `test-hardcover-rate-gate.sh`, `test-language-sparse-queue.sh`,
   `test-automatic-epub-ranking.swift`, `test-cloud-sync.sh`,
-  `test-localized-edition-title.swift`, `test-html-entities.swift`
+  `test-localized-edition-title.swift`, `test-library-match.swift`, `test-html-entities.swift`
 - App shape: `test-navigation-root-reset.sh`, `check-dns-coverage.py`
 
 ## Live and end-to-end (run by hand on a Mac)

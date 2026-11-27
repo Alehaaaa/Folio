@@ -50,6 +50,8 @@ jobs:
           bash checks/test-cloud-sync.sh
           swiftc -swift-version 5 app/Core/BookAutoMatch.swift app/Core/EditionTitle.swift checks/test-localized-edition-title.swift -o /tmp/folio-localized-edition-title
           /tmp/folio-localized-edition-title
+          swiftc -swift-version 5 app/Core/BookAutoMatch.swift app/Core/EditionTitle.swift app/Core/LibraryMatch.swift checks/test-library-match.swift -o /tmp/folio-library-match
+          /tmp/folio-library-match
           bash checks/test-navigation-root-reset.sh
           python3 checks/check-dns-coverage.py
           swiftc -swift-version 5 app/Core/WebText.swift checks/test-html-entities.swift -o /tmp/folio-html-entities

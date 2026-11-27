@@ -209,8 +209,7 @@ struct FolioMobileSeriesView: View {
     }
 
     private func row(_ entry: HCSeriesBook) -> some View {
-        let owned = library.books.contains { $0.hardcoverBookID == entry.book.id }
-            || library.localCopy(author: entry.book.authors, title: entry.book.title) != nil
+        let owned = FolioBookOverrides.shared.libraryCopy(of: entry.book) != nil
         return HStack(spacing: 14) {
             Text(entry.position.map { $0.formatted(.number.precision(.fractionLength(0...1))) } ?? "–")
                 .font(.system(.title3, design: .serif))

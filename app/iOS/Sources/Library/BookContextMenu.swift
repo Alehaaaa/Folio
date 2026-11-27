@@ -194,7 +194,8 @@ private struct FolioMobileShelfEntryContextMenu<Extra: View>: ViewModifier {
     @Environment(FolioMobileNavigation.self) private var navigation
 
     private var local: LocalBook? {
-        if let id = entry.hardcover?.book.id,
+        if let book = entry.hardcover?.book, let copy = FolioBookOverrides.shared.libraryCopy(of: book) { return copy }
+        if let id = entry.goodreads?.hardcoverBookID,
            let linked = library.books.first(where: { $0.hardcoverBookID == id }) { return linked }
         return library.localCopy(author: entry.author, title: entry.title)
     }
@@ -293,8 +294,7 @@ private struct FolioMobileRemoteBookContextMenu: ViewModifier {
     @State private var nook = FolioNookStore.shared
 
     private var local: LocalBook? {
-        if book.id > 0, let linked = library.books.first(where: { $0.hardcoverBookID == book.id }) { return linked }
-        return library.localCopy(author: book.authors, title: book.title)
+        FolioBookOverrides.shared.libraryCopy(of: book)
     }
 
     func body(content: Content) -> some View {

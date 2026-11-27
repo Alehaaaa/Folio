@@ -149,8 +149,7 @@ final class LibraryStore {
 
     /// Whether a book with this author and title is already in the library (demeter-style match).
     func contains(author: String, title: String) -> Bool {
-        let k = BookMatch.key(author: author, title: title)
-        return data.books.contains { BookMatch.key(author: $0.author, title: $0.title) == k }
+        localCopy(author: author, title: title) != nil
     }
 
     var continueReading: [LocalBook] {
@@ -254,7 +253,7 @@ final class LibraryStore {
         b.publisher = meta.publisher
         b.publishedYear = meta.publishedYear
         // A new file for a book already in the library keeps where the reader is.
-        if let earlier = localCopy(author: b.author, title: b.title), earlier.progress > 0.001 || earlier.status != .none {
+        if let earlier = exactCopy(author: b.author, title: b.title), earlier.progress > 0.001 || earlier.status != .none {
             b.progress = earlier.progress
             b.status = earlier.status
             b.lastOpenedAt = earlier.lastOpenedAt
@@ -456,10 +455,49 @@ final class LibraryStore {
         return true
     }
 
-    /// A book already in the library with this author and title, if any.
+    /// A book already in the library with this author and title, if any: the
+    /// same book under any edition's form of the title ("Balada de pájaros
+    /// cantores y serpientes (Los Juegos del Hambre)") and any form of the
+    /// author's name ("Collins, Suzanne").
     func localCopy(author: String, title: String) -> LocalBook? {
+        ownedCopy(titles: [title], author: author)
+    }
+
+    /// The library copy of a book: the one linked to its Hardcover record, else
+    /// one whose title matches any title the book is known by.
+    func ownedCopy(hardcoverID: Int? = nil, titles: [String], author: String) -> LocalBook? {
+        let books = data.books
+        if let hardcoverID, hardcoverID > 0, let linked = books.first(where: { $0.hardcoverBookID == hardcoverID }) {
+            return linked
+        }
+        let titles = titles.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        guard !titles.isEmpty else { return nil }
+        return matchIndex().matches(titles: titles, author: author).first.map { books[$0] }
+    }
+
+    /// The same author and title, exactly as written (a new file of a book
+    /// already in the library).
+    private func exactCopy(author: String, title: String) -> LocalBook? {
         let k = BookMatch.key(author: author, title: title)
         return data.books.first { BookMatch.key(author: $0.author, title: $0.title) == k }
+    }
+
+    @ObservationIgnored private var cachedIndex: (signature: Int, index: LibraryMatch.Index)?
+
+    /// Rebuilt only when a title or author in the library changes. Lists ask on
+    /// every redraw, so the check is a hash, not a rebuild.
+    private func matchIndex() -> LibraryMatch.Index {
+        var hasher = Hasher()
+        hasher.combine(data.books.count)
+        for book in data.books {
+            hasher.combine(book.title)
+            hasher.combine(book.author)
+        }
+        let signature = hasher.finalize()
+        if let cachedIndex, cachedIndex.signature == signature { return cachedIndex.index }
+        let index = LibraryMatch.Index(data.books.map { (title: $0.title, author: $0.author) })
+        cachedIndex = (signature, index)
+        return index
     }
 
     /// Copies verified Hardcover details into the EPUB archive itself, including its embedded

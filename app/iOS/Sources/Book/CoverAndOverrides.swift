@@ -58,7 +58,6 @@ final class FolioBookOverrides {
     @ObservationIgnored private var inFlightTitleIDs: [String: Set<Int>] = [:]
     @ObservationIgnored private var retryTitlesAfter: [String: [Int: Date]] = [:]
     @ObservationIgnored private var titleFetch: Task<Void, Never>?
-    @ObservationIgnored private var matchKeys: [String: String] = [:]
 
     private init() {
         if let data = UserDefaults.standard.data(forKey: Self.defaultsKey),
@@ -166,37 +165,45 @@ final class FolioBookOverrides {
         }
     }
 
-    /// The library copy that stands for a Hardcover book: one linked to it, else an
-    /// unlinked file with the same title and author (a download not matched yet).
-    /// Matched by any title the book is known by, so the Spanish file
-    /// "Juramentada" stands for "Juramentada / Oathbringer" and "Oathbringer".
-    /// Open Library books (Home's For you) can't be linked to a file, so any copy
-    /// with one of their titles counts.
+    /// The library copy that stands for a book from Hardcover, Open Library or a
+    /// list: one linked to it, else a finished download of it, else any copy
+    /// whose title matches a title the book is known by (its edition titles in
+    /// any language, the parts of a bilingual title, its alternate titles).
+    /// So the Spanish file "Balada de pájaros cantores y serpientes" stands for
+    /// "The Ballad of Songbirds and Snakes", and "Juramentada" for
+    /// "Juramentada / Oathbringer", even when the file is linked to Hardcover's
+    /// separate record of the translation.
     func libraryCopy(of book: HCBook) -> LocalBook? {
         let library = LibraryStore.shared
-        let books = library.books
         if book.id > 0 {
-            if let linked = books.first(where: { $0.hardcoverBookID == book.id }) { return linked }
-            // A finished download of this work, whatever title its file came with.
+            if let linked = library.books.first(where: { $0.hardcoverBookID == book.id }) { return linked }
             if let job = DownloadQueue.shared.jobs.first(where: {
                 $0.stage == .completed && $0.hardcoverBookID == book.id && $0.importedBookID != nil
             }), let copy = job.importedBookID.flatMap({ library.book($0) }) { return copy }
         }
-        var titles = [book.title] + (book.editionTitle.map { [$0] } ?? []) + (book.alternateTitles ?? [])
-        titles += titles.flatMap(EditionTitle.bilingualParts)
-        let wanted = Set(titles.map { matchKey(author: book.authors, title: $0) })
-        let anyCopy = book.id <= 0
-        return books.first {
-            (anyCopy || $0.hardcoverBookID == nil) && wanted.contains(matchKey(author: $0.author, title: $0.title))
+        let titles = knownTitles(of: book)
+        if let copy = library.ownedCopy(titles: titles, author: book.authors) { return copy }
+        // A finished download whose file came with another title ("Crónicas
+        // marcianas" for "The Martian Chronicles").
+        let jobs = DownloadQueue.shared.jobs.filter { $0.stage == .completed && $0.importedBookID != nil }
+        guard !jobs.isEmpty else { return nil }
+        for job in jobs where LibraryMatch.same(titles: [job.title] + (job.editionTitle.map { [$0] } ?? []),
+                                                author: job.author, as: titles, by: book.authors) {
+            if let copy = job.importedBookID.flatMap({ library.book($0) }) { return copy }
         }
+        return nil
     }
 
-    private func matchKey(author: String, title: String) -> String {
-        let raw = author + "\u{1F}" + title
-        if let hit = matchKeys[raw] { return hit }
-        let key = BookMatch.key(author: author, title: title)
-        matchKeys[raw] = key
-        return key
+    /// Every title a book is known by: its own, the edition shown, alternate
+    /// titles and the edition titles already fetched for it in any language.
+    func knownTitles(of book: HCBook) -> [String] {
+        var titles = [book.title] + (book.editionTitle.map { [$0] } ?? []) + (book.alternateTitles ?? [])
+        if book.id > 0 {
+            if let shown = shown[book.id]?.title { titles.append(shown) }
+            for byBook in editionTitles.values { titles += byBook[book.id]?.titles ?? [] }
+        }
+        var seen = Set<String>()
+        return titles.filter { !$0.isEmpty && seen.insert($0).inserted }
     }
 
     func override(for id: Int) -> FolioBookOverride? { items[id] }

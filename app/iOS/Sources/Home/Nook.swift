@@ -122,6 +122,12 @@ enum FolioNookShelf {
         var items: [FolioNookItem] = []
         var byHardcover: [Int: Int] = [:]
         var byKey: [String: Int] = [:]
+        var byLocal: [UUID: Int] = [:]
+        // A shelf book whose library copy carries another edition's title
+        // ("Balada de pájaros cantores y serpientes" for the English record).
+        func ownedIndex(_ book: HCBook?) -> Int? {
+            book.flatMap { FolioBookOverrides.shared.libraryCopy(of: $0) }.flatMap { byLocal[$0.id] }
+        }
 
         for book in library.books where !read.isRead(book) {
             let match = BookMatch.key(author: book.author, title: book.title)
@@ -144,6 +150,7 @@ enum FolioNookShelf {
             }
             if let id = book.hardcoverBookID { byHardcover[id] = items.count }
             byKey[match] = items.count
+            byLocal[book.id] = items.count
             items.append(item)
         }
 
@@ -158,7 +165,8 @@ enum FolioNookShelf {
             let hcPages = synced.read
             let started = date(entry.hardcover?.startedAt) ?? date(entry.goodreads?.dateAdded)
 
-            if let i = hcID.flatMap({ byHardcover[$0] }) ?? byKey[match] {
+            if let i = hcID.flatMap({ byHardcover[$0] }) ?? byKey[match]
+                ?? ownedIndex(entry.hardcover?.book ?? entry.goodreads?.folioBook) {
                 // The library copy stands for the book; the shelf adds its progress.
                 items[i].reading = true
                 items[i].entry = entry
@@ -201,7 +209,7 @@ enum FolioNookShelf {
         // the book, otherwise the Hardcover record does.
         for book in FolioNookStore.shared.pinned {
             let match = BookMatch.key(author: book.authors, title: book.title)
-            if let i = (book.id > 0 ? byHardcover[book.id] : nil) ?? byKey[match] {
+            if let i = (book.id > 0 ? byHardcover[book.id] : nil) ?? byKey[match] ?? ownedIndex(book) {
                 items[i].pinned = true
                 continue
             }

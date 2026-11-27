@@ -87,7 +87,8 @@ final class FolioMobileHomeRecommendations {
 
         func notInLibrary(_ book: HCBook) -> Bool {
             !knownIDs.contains(book.id) &&
-                !knownBooks.contains(BookMatch.key(author: book.authors, title: book.title))
+                !knownBooks.contains(BookMatch.key(author: book.authors, title: book.title)) &&
+                FolioBookOverrides.shared.libraryCopy(of: book) == nil
         }
 
         let authors = preferences.values

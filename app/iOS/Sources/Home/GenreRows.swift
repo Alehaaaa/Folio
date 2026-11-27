@@ -78,7 +78,7 @@ struct FolioMobileHomeGenreRows: View {
     @State private var model = FolioHomeGenreRows.shared
 
     private func fresh(_ books: [HCBook]) -> [HCBook] {
-        FolioReadBooks.shared.unread(books).filter { store.localCopy(author: $0.authors, title: $0.title) == nil }
+        FolioReadBooks.shared.unread(books).filter { FolioBookOverrides.shared.libraryCopy(of: $0) == nil }
     }
 
     var body: some View {
