@@ -45,5 +45,5 @@ python3 -u "$scratch/server.py" "$scratch" > "$scratch/server.log" 2>&1 &
 server=$!
 for i in {1..50}; do [[ -s "$scratch/port" ]] && break; sleep 0.1; done
 [[ -s "$scratch/port" ]] || { print -u2 'FAIL server startup'; exit 1; }
-swiftc -swift-version 5 -parse-as-library app/Sources/Folio/DownloadQueue.swift app/Sources/Folio/EditionTitle.swift checks/test-lectulandia-queue-actions.swift -o "$scratch/actions"
+swiftc -swift-version 5 -parse-as-library app/Core/DownloadQueue.swift app/Core/EditionTitle.swift checks/test-lectulandia-queue-actions.swift -o "$scratch/actions"
 FOLIO_DATA_DIR="$scratch/data" FOLIO_FIXTURE_URL="http://127.0.0.1:$(<"$scratch/port")" "$scratch/actions"

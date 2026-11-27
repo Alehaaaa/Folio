@@ -18,7 +18,7 @@ final class LastPageProbe: NSObject, NSApplicationDelegate, WKScriptMessageHandl
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard CommandLine.arguments.count > 1 else { fatalError("Pass a local EPUB chapter path.") }
         let chapter = URL(fileURLWithPath: CommandLine.arguments[1]).standardizedFileURL
-        let readerScript = try! String(contentsOfFile: "Sources/Folio/ReaderScript.swift", encoding: .utf8)
+        let readerScript = try! String(contentsOfFile: "Core/ReaderScript.swift", encoding: .utf8)
         let start = readerScript.range(of: "#\"\"\"\n")!.upperBound
         let end = readerScript.range(of: "\n\"\"\"#", range: start..<readerScript.endIndex)!.lowerBound
         let controller = WKUserContentController()

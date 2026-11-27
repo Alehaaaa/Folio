@@ -7,7 +7,7 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 cp "$ROOT/checks/test-cloud-sync.swift" "$TMP/main.swift"
-swiftc -O -o "$TMP/merge" "$ROOT/app/Sources/Folio/CloudSyncCore.swift" "$TMP/main.swift"
+swiftc -O -o "$TMP/merge" "$ROOT/app/Core/CloudSyncCore.swift" "$TMP/main.swift"
 "$TMP/merge"
 
 if [ "${LIVE:-0}" = 1 ]; then
@@ -38,7 +38,7 @@ guard Set(try await get().devices.keys) == ["mac", "phone"] else { fatalError("b
 print("ok   live round trip through the store (\(try CloudSyncBox.seal(phone, code: code).count) bytes for 800 books)")
 SWIFT
   cp "$TMP/live.swift" "$TMP/main.swift"
-  swiftc -O -o "$TMP/live" "$ROOT/app/Sources/Folio/CloudSyncCore.swift" "$TMP/main.swift"
+  swiftc -O -o "$TMP/live" "$ROOT/app/Core/CloudSyncCore.swift" "$TMP/main.swift"
   "$TMP/live"
 fi
 echo "All Folio Sync checks passed"

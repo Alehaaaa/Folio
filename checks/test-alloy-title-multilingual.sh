@@ -6,6 +6,6 @@ cd "$here/.."
 scratch=$(mktemp -d "${TMPDIR:-/tmp/}folio-alloy-title.XXXXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 mkdir -p "$scratch/data"
-swiftc -swift-version 5 -parse-as-library app/Sources/Folio/DownloadQueue.swift app/Sources/Folio/EditionTitle.swift checks/test-alloy-title-multilingual.swift -o "$scratch/alloy"
+swiftc -swift-version 5 -parse-as-library app/Core/DownloadQueue.swift app/Core/EditionTitle.swift checks/test-alloy-title-multilingual.swift -o "$scratch/alloy"
 FOLIO_DATA_DIR="$scratch/data" "$scratch/alloy"
 FOLIO_DATA_DIR="$scratch/data-sparse" "$scratch/alloy" --sparse-metadata

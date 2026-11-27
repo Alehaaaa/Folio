@@ -1,6 +1,6 @@
 #!/bin/zsh
 # Encrypted DNS (DNS over HTTPS) for Folio's own requests, for every provider.
-# Compiles the real app/Sources/Folio/EncryptedDNS.swift with a tiny driver and checks:
+# Compiles the real app/Core/EncryptedDNS.swift with a tiny driver and checks:
 #  1. Off: lookups are ordinary system lookups.
 #  2. Each provider (Cloudflare, Google, Quad9, AdGuard, Mullvad, NextDNS, a
 #     custom DoH URL): the provider answers a real DoH query, status is active,
@@ -61,7 +61,7 @@ import Foundation
     }
 }
 SWIFT
-swiftc -swift-version 5 -parse-as-library "$here/../app/Sources/Folio/EncryptedDNS.swift" "$scratch/main.swift" -o "$scratch/folio-dns-check" 2>&1 | grep -E 'error' && exit 1
+swiftc -swift-version 5 -parse-as-library "$here/../app/Core/EncryptedDNS.swift" "$scratch/main.swift" -o "$scratch/folio-dns-check" 2>&1 | grep -E 'error' && exit 1
 cd "$scratch"
 # name provider value expected-status
 cases=(

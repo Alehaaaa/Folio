@@ -87,5 +87,19 @@ check((try? CloudSyncBox.open("", code: code))?.devices.isEmpty == true, "an emp
 check(CloudSyncBox.slot(for: code) == CloudSyncBox.slot(for: code) && CloudSyncBox.slot(for: code) != CloudSyncBox.slot(for: CloudSyncMerge.newCode()), "each code has its own slot")
 check(!CloudSyncBox.slot(for: code).contains(code), "the slot doesn't reveal the code")
 
+// Synced settings: a new, empty device takes another device's copy; a change wins later.
+var phoneState = CloudSyncState()
+var phoneValues = CloudSyncMerge.stampValues(["ratings": "{}"], state: &phoneState, now: later)
+var macState = CloudSyncState()
+let macValues = CloudSyncMerge.stampValues(["ratings": "{\"hc-1\":4.5}"], state: &macState, now: later)
+let macDoc = CloudSyncDeviceDoc(deviceName: "Mac", platform: "mac", savedAt: later, books: [], values: macValues)
+check(CloudSyncMerge.incomingValues(local: phoneValues, peers: [macDoc])["ratings"]?.json == "{\"hc-1\":4.5}", "an empty device takes another device's settings")
+check(CloudSyncMerge.incomingValues(local: macValues, peers: [CloudSyncDeviceDoc(deviceName: "iPhone", platform: "iphone", savedAt: later, books: [], values: phoneValues)]).isEmpty, "an empty copy never replaces a full one")
+phoneValues = CloudSyncMerge.stampValues(["ratings": "{\"hc-2\":3}"], state: &phoneState, now: later.addingTimeInterval(60))
+check(CloudSyncMerge.incomingValues(local: macValues, peers: [CloudSyncDeviceDoc(deviceName: "iPhone", platform: "iphone", savedAt: later, books: [], values: phoneValues)])["ratings"]?.json == "{\"hc-2\":3}", "a later change on another device wins")
+let unchanged = CloudSyncMerge.stampValues(["ratings": "{\"hc-2\":3}"], state: &phoneState, now: later.addingTimeInterval(600))
+check(unchanged["ratings"]?.updatedAt == phoneValues["ratings"]?.updatedAt, "an unchanged setting keeps its stamp")
+check((try? JSONDecoder.folioSync.decode(CloudSyncDeviceDoc.self, from: Data(#"{"deviceName":"Old","platform":"mac","savedAt":0,"books":[]}"#.utf8)))?.values == nil, "documents from older versions still open")
+
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("All merge checks passed")

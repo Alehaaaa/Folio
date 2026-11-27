@@ -2,7 +2,7 @@
 name = "folio"
 version = "1.0.0"
 edition = "2021"
-description = "Builds the native SwiftUI Folio app (Sources/Folio) into Folio.app and starts it."
+description = "Builds the native SwiftUI Folio app (Core, Mac and iOS/Sources) into Folio.app and starts it."
 build = "launcher/build.rs"
 
 [[bin]]

@@ -10,10 +10,10 @@ python3 - "$scratch" <<'PY'
 from pathlib import Path
 import sys
 out = Path(sys.argv[1])
-hc = Path('app/Sources/Folio/Hardcover.swift').read_text()
+hc = Path('app/Core/Hardcover.swift').read_text()
 models = hc[hc.index('// MARK: - Loose JSON'):hc.index('// MARK: - Models')] + hc[hc.index('struct HCBook: '):hc.index('struct HCBookStats')] + hc[hc.index('struct HCBookSeries'):hc.index('struct HCBookPage')] + hc[hc.index('struct HCSeriesRef'):hc.index('struct HCUserBook')]
 error = hc[hc.index('struct HCError'):hc.index('/// Keeps requests under Hardcover')]
-feed = Path('app/iOS/Sources/FolioMobileDiscoverFeed.swift').read_text()
+feed = Path('app/iOS/Sources/Discover/DiscoverFeed.swift').read_text()
 topics = feed[feed.index('// MARK: - Topics'):feed.index('// MARK: - Discover page feed')]
 (out / 'Models.swift').write_text('import Foundation\n' + models + error + topics + '''
 enum BookLanguage { nonisolated(unsafe) static var reading = "en" }
@@ -24,7 +24,7 @@ enum BookAutoMatch {
   }
 }
 ''')
-(out / 'OpenLibrary.swift').write_text(Path('app/Sources/Folio/OpenLibrary.swift').read_text())
+(out / 'OpenLibrary.swift').write_text(Path('app/Core/OpenLibrary.swift').read_text())
 (out / 'main.swift').write_text('''
 import Foundation
 setvbuf(stdout, nil, _IONBF, 0)

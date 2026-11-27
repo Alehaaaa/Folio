@@ -39,6 +39,17 @@ final class FolioMyRatings {
         for k in Self.keys(for: book) { values[k] = nil }
         if let rating { values[Self.key(for: book)] = Self.quarter(rating) }
         UserDefaults.standard.set(values, forKey: Self.key)
+        FolioSyncedValues.changed()
+    }
+
+    /// Folio Sync: every rating as one JSON value.
+    var syncJSON: String? { FolioSyncedJSON.encode(values) }
+
+    /// Takes another device's ratings.
+    func adoptSynced(_ json: String) {
+        guard let theirs: [String: Double] = FolioSyncedJSON.decode(json) else { return }
+        values = theirs
+        UserDefaults.standard.set(values, forKey: Self.key)
     }
 
     nonisolated static func quarter(_ v: Double) -> Double { min(5, max(0.25, (v * 4).rounded() / 4)) }

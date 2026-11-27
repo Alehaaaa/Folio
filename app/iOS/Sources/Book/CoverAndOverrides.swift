@@ -183,6 +183,19 @@ final class FolioBookOverrides {
         if let data = try? JSONEncoder().encode(items) {
             UserDefaults.standard.set(data, forKey: Self.defaultsKey)
         }
+        FolioSyncedValues.changed()
+    }
+
+    /// Folio Sync: your edits to books outside the library, as one JSON value.
+    var syncJSON: String? { FolioSyncedJSON.encode(items) }
+
+    /// Takes another device's edits.
+    func adoptSynced(_ json: String) {
+        guard let theirs: [Int: FolioBookOverride] = FolioSyncedJSON.decode(json) else { return }
+        items = theirs
+        if let data = try? JSONEncoder().encode(items) {
+            UserDefaults.standard.set(data, forKey: Self.defaultsKey)
+        }
     }
 
     /// The book as the reader edited it.

@@ -1,5 +1,5 @@
 // Executes Folio's unmodified SourceRuntime logic, compiled directly from
-// app/Sources/Folio/Extensions.swift, against an installed-style JS extension.
+// app/Core/Extensions.swift, against an installed-style JS extension.
 // Use a public-domain title; never downloads arbitrary copyrighted content.
 import Foundation
 import AppKit

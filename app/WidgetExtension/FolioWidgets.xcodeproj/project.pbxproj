@@ -13,7 +13,7 @@
 
 /* Begin PBXFileReference section */
 		A10000000000000000000003 /* FolioWidgets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolioWidgets.swift; sourceTree = "<group>"; };
-		A10000000000000000000004 /* WidgetShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WidgetShared.swift; path = ../Sources/Folio/WidgetShared.swift; sourceTree = "<group>"; };
+		A10000000000000000000004 /* WidgetShared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WidgetShared.swift; path = ../Core/WidgetShared.swift; sourceTree = "<group>"; };
 		A10000000000000000000005 /* FolioWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FolioWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 

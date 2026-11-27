@@ -8,7 +8,7 @@ trap 'rm -rf "$scratch"' EXIT
 python3 - "$scratch/navigation.swift" <<'PY'
 from pathlib import Path
 import sys
-source = Path('app/iOS/Sources/FolioiOSApp.swift').read_text()
+source = Path('app/iOS/Sources/App/FolioiOSApp.swift').read_text()
 start = source.index('@Observable\n@MainActor\nfinal class FolioMobileNavigation {')
 end = source.index('\n}', start) + 2
 def block(header):

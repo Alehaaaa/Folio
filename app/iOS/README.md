@@ -9,9 +9,9 @@ cd /books/app/iOS
 ./build-simulator.sh
 ```
 
-The native iOS target includes the existing `../Sources/Folio/*.swift`
-business logic by direct Xcode file references. The selected shared source
-list lives in `generate_project.py`. No copies of shared Swift source files
+The native iOS target includes the existing `../Core/*.swift`
+business logic by direct Xcode file references: every file in `app/Core` is
+shared. No copies of shared Swift source files
 are made. Swift files added to `iOS/Sources` are picked up automatically
 whenever the generator is run.
 
@@ -31,7 +31,7 @@ the active navigation tab and reading view. Reader appearance supports both
 horizontal paginated EPUB pages and vertical Scroll mode.
 
 **Reader:** EPUB and HTML books use the shared `ReaderScript.swift` page engine,
-the same one as the macOS reader, hosted by `FolioMobileReaderEngine.swift`.
+the same one as the macOS reader, hosted by `Reader/ReaderEngine.swift`.
 Reading is immersive: tap the middle of the page to show or hide the controls,
 tap or swipe the sides to turn pages. Highlight, Add Note and Save Quote appear
 in the native text-selection menu. PDFs swipe page by page in Pages mode.

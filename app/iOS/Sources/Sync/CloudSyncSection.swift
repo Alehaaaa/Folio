@@ -129,7 +129,10 @@ private struct FolioCloudSyncLifecycle: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .task { FolioCloudSync.shared.start() }
+            .task {
+                FolioSyncedStores.register()
+                FolioCloudSync.shared.start()
+            }
             .onChange(of: phase) { _, phase in
                 switch phase {
                 case .active: FolioCloudSync.shared.requestSync(after: 0)

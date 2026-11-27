@@ -1,6 +1,6 @@
 // Read-only live diagnostic for Anna's Archive free, public-domain book pages.
-// Compile together with app/Sources/Folio/ExtensionBrowser.swift:
-// swiftc -parse-as-library checks/anna-free-webkit-trace.swift app/Sources/Folio/ExtensionBrowser.swift -o checks/anna-free-webkit-trace
+// Compile together with app/Core/ExtensionBrowser.swift:
+// swiftc -parse-as-library checks/anna-free-webkit-trace.swift app/Core/ExtensionBrowser.swift -o checks/anna-free-webkit-trace
 // Run checks/anna-free-webkit-trace [inspect|watch] [serverIndex]
 // This creates no app state, supplies no credentials, and never clicks challenges.
 import AppKit

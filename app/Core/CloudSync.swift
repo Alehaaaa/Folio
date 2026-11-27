@@ -4,6 +4,34 @@ import Observation
 import UIKit
 #endif
 
+// MARK: - Synced settings
+
+/// Settings that travel with Folio Sync as a whole (your ratings, followed
+/// authors, saved series, edits to books). Each store registers how to read
+/// itself as JSON and how to take another device's copy.
+@MainActor
+enum FolioSyncedValues {
+    struct Entry {
+        let read: @MainActor () -> String?
+        let write: @MainActor (String) -> Void
+    }
+
+    private(set) static var entries: [String: Entry] = [:]
+
+    static func register(_ name: String, read: @escaping @MainActor () -> String?, write: @escaping @MainActor (String) -> Void) {
+        entries[name] = Entry(read: read, write: write)
+    }
+
+    /// A store calls this after a change, so it goes out with the next sync.
+    static func changed() {
+        FolioCloudSync.shared.localChanged()
+    }
+
+    static func current() -> [String: String] {
+        entries.compactMapValues { $0.read() }
+    }
+}
+
 // MARK: - Engine
 
 @Observable
@@ -74,7 +102,7 @@ final class FolioCloudSync {
     func start() {
         guard !started else { return }
         started = true
-        LibraryStore.didSave = { [weak self] in self?.libraryChanged() }
+        LibraryStore.didSave = { [weak self] in self?.localChanged() }
         requestSync(after: 0)
         timer = Task { [weak self] in
             while !Task.isCancelled {
@@ -106,7 +134,7 @@ final class FolioCloudSync {
     }
 
     /// Reading saves every page turn: those changes go out at most every 20 seconds.
-    private func libraryChanged() {
+    func localChanged() {
         guard isEnabled, pending == nil else { return }
         let wait = max(2, 20 - Date().timeIntervalSince(lastPushAt))
         requestSync(after: wait)
@@ -155,6 +183,18 @@ final class FolioCloudSync {
                 }
             }
             if !changes.isEmpty { store.save() }
+
+            // Settings: take newer copies from other devices, then stamp what this device holds.
+            var values = CloudSyncMerge.stampValues(FolioSyncedValues.current(), state: &state, now: Date())
+            let newerValues = CloudSyncMerge.incomingValues(local: values, peers: peerDocs)
+            for (name, value) in newerValues {
+                FolioSyncedValues.entries[name]?.write(value.json)
+                values[name] = value
+                var stamps = state.valueStamps ?? [:]
+                stamps[name] = .init(fingerprint: value.json, updatedAt: value.updatedAt)
+                state.valueStamps = stamps
+                applied += 1
+            }
             lastApplied = applied
 
             let mine = CloudSyncDeviceDoc(
@@ -166,7 +206,8 @@ final class FolioCloudSync {
                     var r = Self.record(b, store)
                     r.updatedAt = stamp.updatedAt
                     return r
-                }.sorted { $0.updatedAt > $1.updatedAt }
+                }.sorted { $0.updatedAt > $1.updatedAt },
+                values: values.isEmpty ? nil : values
             )
             // Push when this device's entry on the server differs: after a
             // change here, or when another device's write replaced it.

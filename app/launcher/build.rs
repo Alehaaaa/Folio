@@ -4,7 +4,9 @@ use std::{env, fs, path::PathBuf, process::Command};
 fn main() {
     let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     println!("cargo:rerun-if-changed=Package.swift");
-    println!("cargo:rerun-if-changed=Sources");
+    println!("cargo:rerun-if-changed=Core");
+    println!("cargo:rerun-if-changed=Mac");
+    println!("cargo:rerun-if-changed=iOS/Sources");
     println!("cargo:rerun-if-changed=Support");
     println!("cargo:rerun-if-changed=WidgetExtension");
     println!("cargo:rerun-if-env-changed=FOLIO_SIGN_IDENTITY");

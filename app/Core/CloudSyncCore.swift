@@ -42,15 +42,25 @@ struct CloudSyncRecord: Codable, Equatable {
     }
 }
 
+/// One whole setting kept in step between devices (your ratings, followed
+/// authors...): its JSON and when it last changed. The newest copy wins.
+struct CloudSyncValue: Codable, Equatable {
+    var json: String
+    var updatedAt: Date
+}
+
 struct CloudSyncDeviceDoc: Codable, Equatable {
     var deviceName: String
     var platform: String
     var savedAt: Date
     var books: [CloudSyncRecord]
+    /// Settings by name. Absent in documents from versions before 1.0.134.
+    var values: [String: CloudSyncValue]? = nil
 
     /// Equal apart from when it was saved.
     func sameContent(as other: CloudSyncDeviceDoc) -> Bool {
         deviceName == other.deviceName && platform == other.platform && books == other.books
+            && (values ?? [:]) == (other.values ?? [:])
     }
 }
 
@@ -123,6 +133,8 @@ struct CloudSyncState: Codable {
 
     var deviceID = UUID().uuidString
     var stamps: [UUID: Stamp] = [:]
+    /// The same for synced settings, by name. Optional so older saved states still load.
+    var valueStamps: [String: Stamp]? = nil
 }
 
 // MARK: - Merging (pure, so checks can run it without the app)
@@ -197,6 +209,58 @@ enum CloudSyncMerge {
                 result.lastOpenedAt = opened
             }
             if result != Incoming() { out[id] = result }
+        }
+        return out
+    }
+
+    /// Gives each synced setting the time it last changed. A setting never
+    /// seen before counts as older than any other device's copy when it is
+    /// empty, and only just newer than that when it holds something, so a new
+    /// device takes what the others have.
+    static func stampValues(
+        _ current: [String: String],
+        state: inout CloudSyncState,
+        now: Date
+    ) -> [String: CloudSyncValue] {
+        var stamps = state.valueStamps ?? [:]
+        var out: [String: CloudSyncValue] = [:]
+        for (name, json) in current {
+            if let s = stamps[name], s.fingerprint == json {
+                out[name] = CloudSyncValue(json: json, updatedAt: s.updatedAt)
+                continue
+            }
+            let when: Date
+            if stamps[name] == nil {
+                when = Date(timeIntervalSince1970: isEmpty(json) ? 0 : 1)
+            } else {
+                when = wire(now)
+            }
+            stamps[name] = .init(fingerprint: json, updatedAt: when)
+            out[name] = CloudSyncValue(json: json, updatedAt: when)
+        }
+        state.valueStamps = stamps.filter { current[$0.key] != nil }
+        return out
+    }
+
+    static func isEmpty(_ json: String) -> Bool {
+        ["", "{}", "[]", "null"].contains(json.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// For each local setting, another device's copy when it is newer and different.
+    static func incomingValues(
+        local: [String: CloudSyncValue],
+        peers: [CloudSyncDeviceDoc]
+    ) -> [String: CloudSyncValue] {
+        var newest: [String: CloudSyncValue] = [:]
+        for doc in peers {
+            for (name, value) in doc.values ?? [:] where (newest[name]?.updatedAt ?? .distantPast) < value.updatedAt {
+                newest[name] = value
+            }
+        }
+        var out: [String: CloudSyncValue] = [:]
+        for (name, mine) in local {
+            guard let theirs = newest[name], theirs.updatedAt > mine.updatedAt, theirs.json != mine.json else { continue }
+            out[name] = theirs
         }
         return out
     }

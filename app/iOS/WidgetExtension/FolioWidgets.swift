@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 import WidgetKit
 
-// The widget target compiles Sources/Folio/WidgetShared.swift unchanged.
+// The widget target compiles app/Core/WidgetShared.swift unchanged.
 // FolioWidgetStorage resolves to group.app.folio.reader.ios on this platform,
 // matching the main app and the extension's App Group entitlements.
 

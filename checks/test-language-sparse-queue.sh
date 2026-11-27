@@ -7,6 +7,6 @@ cd "$here/.."
 scratch=$(mktemp -d "${TMPDIR:-/tmp/}folio-language-sparse.XXXXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 mkdir -p "$scratch/data"
-swiftc -swift-version 5 -parse-as-library app/Sources/Folio/DownloadQueue.swift app/Sources/Folio/EditionTitle.swift checks/test-language-sparse-queue.swift -o "$scratch/sparse"
+swiftc -swift-version 5 -parse-as-library app/Core/DownloadQueue.swift app/Core/EditionTitle.swift checks/test-language-sparse-queue.swift -o "$scratch/sparse"
 FOLIO_DATA_DIR="$scratch/data" "$scratch/sparse" --fixture-contract
 FOLIO_DATA_DIR="$scratch/data" "$scratch/sparse"

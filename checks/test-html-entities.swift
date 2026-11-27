@@ -1,4 +1,4 @@
-// swiftc -swift-version 5 app/Sources/Folio/WebText.swift checks/test-html-entities.swift -o /tmp/t && /tmp/t
+// swiftc -swift-version 5 app/Core/WebText.swift checks/test-html-entities.swift -o /tmp/t && /tmp/t
 import Foundation
 
 @main struct HTMLEntitiesCheck {

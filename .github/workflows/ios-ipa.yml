@@ -1,8 +1,9 @@
 name: iOS IPA
 
 # Pushes to main: build the unsigned IPA and publish it to the AltStore
-# Classic feed (altstore/Folio-<version>-<build>.ipa + altstore.json) when
-# that version/build from app/iOS/generate_project.py is not published yet.
+# Classic feed (a GitHub Release "ios-<version>-<build>" holding the IPA, plus
+# an entry in altstore.json) when that version/build from
+# app/iOS/generate_project.py is not published yet.
 on:
   push:
     branches: [main]
@@ -44,14 +45,14 @@ jobs:
           python3 checks/check-extension-versions.py
           zsh checks/test-hardcover-rate-gate.sh
           zsh checks/test-language-sparse-queue.sh
-          swiftc -swift-version 5 app/Sources/Folio/BookAutoMatch.swift app/Sources/Folio/EditionTitle.swift app/Sources/Folio/BookFlow/AutomaticEPUBChoice.swift checks/test-automatic-epub-ranking.swift -o /tmp/folio-automatic-epub-ranking
+          swiftc -swift-version 5 app/Core/BookAutoMatch.swift app/Core/EditionTitle.swift app/Core/AutomaticEPUBChoice.swift checks/test-automatic-epub-ranking.swift -o /tmp/folio-automatic-epub-ranking
           /tmp/folio-automatic-epub-ranking
           bash checks/test-cloud-sync.sh
-          swiftc -swift-version 5 app/Sources/Folio/BookAutoMatch.swift app/Sources/Folio/EditionTitle.swift checks/test-localized-edition-title.swift -o /tmp/folio-localized-edition-title
+          swiftc -swift-version 5 app/Core/BookAutoMatch.swift app/Core/EditionTitle.swift checks/test-localized-edition-title.swift -o /tmp/folio-localized-edition-title
           /tmp/folio-localized-edition-title
           bash checks/test-navigation-root-reset.sh
           python3 checks/check-dns-coverage.py
-          swiftc -swift-version 5 app/Sources/Folio/WebText.swift checks/test-html-entities.swift -o /tmp/folio-html-entities
+          swiftc -swift-version 5 app/Core/WebText.swift checks/test-html-entities.swift -o /tmp/folio-html-entities
           /tmp/folio-html-entities
 
       - name: Build unsigned IPA
@@ -77,17 +78,23 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
           BUILD: ${{ steps.version.outputs.build }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          DEST="altstore/Folio-${VERSION}-${BUILD}.ipa"
-          if [ -f "$DEST" ]; then
-            echo "$DEST is already published; bump APP_VERSION/BUILD_VERSION in app/iOS/generate_project.py to release again."
+          # The IPA goes up as a GitHub Release asset (not into git, which only
+          # keeps the IPAs of 1.0.133 and earlier); altstore.json points at it.
+          TAG="ios-${VERSION}-${BUILD}"
+          NAME="Folio-${VERSION}-${BUILD}.ipa"
+          if gh release view "$TAG" >/dev/null 2>&1 || [ -f "altstore/$NAME" ]; then
+            echo "$TAG is already published; bump APP_VERSION/BUILD_VERSION in app/iOS/generate_project.py to release again."
             exit 0
           fi
-          cp app/iOS/dist/Folio.ipa "$DEST"
-          NOTES="$(git log -1 --format=%s)"
-          python3 - "$VERSION" "$BUILD" "$DEST" "$NOTES" <<'PY'
+          cp app/iOS/dist/Folio.ipa "$RUNNER_TEMP/$NAME"
+          NOTES="$(git log -1 --format=%B | sed '/^Co-Authored-By:/d;/^Claude-Session:/d')"
+          gh release create "$TAG" "$RUNNER_TEMP/$NAME" --title "Folio iOS ${VERSION} (${BUILD})" --notes "$NOTES" --target "$GITHUB_SHA"
+          SUBJECT="$(git log -1 --format=%s)"
+          python3 - "$VERSION" "$BUILD" "$RUNNER_TEMP/$NAME" "$SUBJECT" "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${NAME}" <<'PY'
           import json, os, sys, datetime
-          version, build, dest, notes = sys.argv[1:5]
+          version, build, path, notes, url = sys.argv[1:6]
           feed = json.load(open("altstore.json"))
           app = next(a for a in feed["apps"] if a["bundleIdentifier"] == "app.folio.reader.ios")
           app["versions"] = [v for v in app["versions"]
@@ -97,8 +104,8 @@ jobs:
               "buildVersion": build,
               "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"),
               "localizedDescription": notes,
-              "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/" + dest,
-              "size": os.path.getsize(dest),
+              "downloadURL": url,
+              "size": os.path.getsize(path),
               "minOSVersion": "18.0",
           })
           with open("altstore.json", "w") as f:
@@ -107,6 +114,7 @@ jobs:
           PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f "$DEST" altstore.json
+          git add altstore.json
           git commit -m "Publish Folio iOS ${VERSION} (${BUILD}) to the AltStore feed"
+          git pull --rebase origin main
           git push

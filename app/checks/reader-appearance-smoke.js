@@ -7,7 +7,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const swift = fs.readFileSync(
-  path.join(__dirname, '..', 'Sources', 'Folio', 'ReaderScript.swift'), 'utf8');
+  path.join(__dirname, '..', 'Core', 'ReaderScript.swift'), 'utf8');
 const source = swift.match(/#"""\n([\s\S]*?)\n"""#/);
 assert(source, 'ReaderScript.source was not found');
 

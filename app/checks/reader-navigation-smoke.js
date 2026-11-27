@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 
-const swift = fs.readFileSync(path.join(__dirname, '..', 'Sources', 'Folio', 'ReaderScript.swift'), 'utf8');
+const swift = fs.readFileSync(path.join(__dirname, '..', 'Core', 'ReaderScript.swift'), 'utf8');
 const source = swift.match(/#"""\n([\s\S]*?)\n"""#/);
 assert(source, 'ReaderScript.source must be present');
 

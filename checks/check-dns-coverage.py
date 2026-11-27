@@ -20,11 +20,11 @@ for path in sources:
     if re.search(r"URLSessionConfiguration\.background|\.background\(withIdentifier", text):
         fails.append(f"{rel}: background URLSession runs outside Folio and skips encrypted DNS")
 
-browser = (root / "Sources/Folio/ExtensionBrowser.swift").read_text()
+browser = (root / "Core/ExtensionBrowser.swift").read_text()
 if "FolioEncryptedDNSWebProxy.shared.proxyConfigurations()" not in browser:
     fails.append("ExtensionBrowser.swift: source pages no longer go through the encrypted DNS proxy")
 
-downloads = (root / "Sources/Folio/Extensions.swift").read_text()
+downloads = (root / "Core/Extensions.swift").read_text()
 if "FileTransfer.download(" not in downloads or "URLSession(configuration: configuration, delegate: self" not in downloads:
     fails.append("Extensions.swift: file downloads no longer use Folio's in-app FileTransfer URLSession")
 

@@ -1,4 +1,4 @@
-// Run: swiftc -swift-version 5 -o /tmp/folio-pdf-check checks/pdf-annotations-smoke.swift Sources/Folio/PDFAnnotationSupport.swift && /tmp/folio-pdf-check
+// Run: swiftc -swift-version 5 -o /tmp/folio-pdf-check checks/pdf-annotations-smoke.swift Mac/PDFAnnotationSupport.swift && /tmp/folio-pdf-check
 import AppKit
 import CoreGraphics
 import CoreText

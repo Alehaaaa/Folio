@@ -147,3 +147,13 @@ enum FolioWebText {
         return String(text[range])
     }
 }
+
+extension String {
+    /// Hardcover descriptions sometimes carry simple HTML or Markdown.
+    var plainText: String {
+        replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            .decodingHTMLEntities
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}

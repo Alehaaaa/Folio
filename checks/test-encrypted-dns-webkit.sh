@@ -89,7 +89,7 @@ Task { @MainActor in
 }
 app.run()
 SWIFT
-swiftc -swift-version 5 "$here/../app/Sources/Folio/EncryptedDNS.swift" "$here/../app/Sources/Folio/EncryptedDNSWebProxy.swift" "$scratch/main.swift" -o "$scratch/dnsweb" 2>&1 | grep -E 'error' && exit 1
+swiftc -swift-version 5 "$here/../app/Core/EncryptedDNS.swift" "$here/../app/Core/EncryptedDNSWebProxy.swift" "$scratch/main.swift" -o "$scratch/dnsweb" 2>&1 | grep -E 'error' && exit 1
 cd "$scratch"
 cp dnsweb dnswebproxy
 ./dnswebproxy proxy | tee proxy.txt

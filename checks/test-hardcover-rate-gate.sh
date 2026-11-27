@@ -9,7 +9,7 @@ trap 'rm -rf -- "$scratch"' EXIT
 python3 - "$scratch/fixture.swift" <<'PY'
 from pathlib import Path
 import sys
-source=Path('app/Sources/Folio/Hardcover.swift').read_text()
+source=Path('app/Core/Hardcover.swift').read_text()
 start=source.index('/// Keeps requests under Hardcover')
 end=source.index('\n@Observable',start)
 gate=source[start:end]

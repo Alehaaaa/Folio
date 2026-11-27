@@ -26,7 +26,7 @@ import ImageIO
         let file = URL(fileURLWithPath: CommandLine.arguments[1]).standardizedFileURL
         bookRoot = file.deletingLastPathComponent().deletingLastPathComponent()
         let sourceFile = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("Sources/Folio/ReaderScript.swift")
+            .appendingPathComponent("Core/ReaderScript.swift")
         let contents = try! String(contentsOf: sourceFile, encoding: .utf8)
         let beginning = contents.range(of: "#\"\"\"\n")!.upperBound
         let ending = contents.range(of: "\n\"\"\"#", range: beginning..<contents.endIndex)!.lowerBound

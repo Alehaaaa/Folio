@@ -2,7 +2,7 @@
 """Regenerate the native iOS Xcode project without copying shared Swift sources.
 
 Run from any directory: python3 /books/app/iOS/generate_project.py
-The project always compiles the current ../Sources/Folio files.
+The project always compiles the current ../Core files and every file under Sources/.
 """
 
 from hashlib import sha1
@@ -11,36 +11,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PROJECT = ROOT / "FolioiOS.xcodeproj"
-APP_VERSION = "1.0.133"
-BUILD_VERSION = "134"
-SHARED = [
-    "Models",
-    "LibraryStore",
-    "EPUB",
-    "EPUBHardcoverEnricher",
-    "ReaderPrefs",
-    "ReadingAnnotations",
-    "ReaderScript",
-    "BookAutoMatch",
-    "EditionTitle",
-    "WebText",
-    "DownloadQueue",
-    "Hardcover",
-    "OpenLibrary",
-    "Goodreads",
-    "DefaultSources",
-    "Extensions",
-    "EncryptedDNS",
-    "EncryptedDNSWebProxy",
-    "ExtensionBrowser",
-    "WidgetShared",
-    "WidgetBridge",
-    "ReadingReminders",
-    "CloudSyncCore",
-    "CloudSync",
-]
+APP_VERSION = "1.0.134"
+BUILD_VERSION = "135"
+# Every file in app/Core is shared by the iOS app, the Mac app and (WidgetShared) the widget.
+SHARED = sorted(p.stem for p in (ROOT.parent / "Core").glob("*.swift"))
 
-IOS = sorted(p.stem for p in (ROOT / "Sources").glob("*.swift"))
+# Paths relative to Sources/, feature folders included (App/RootView, Home/Nook...).
+IOS = sorted(str(p.relative_to(ROOT / "Sources").with_suffix("")) for p in (ROOT / "Sources").rglob("*.swift"))
 
 
 def uid(key):
@@ -140,10 +117,11 @@ def create():
     shared_files = []
     shared_refs = {}
     for filename in IOS:
-        name = filename + ".swift"
-        file_key = "ios." + name
+        path = filename + ".swift"
+        name = Path(path).name
+        file_key = "ios." + path
         file_ref = add(file_key, name, "PBXFileReference", [
-            ("lastKnownFileType", "sourcecode.swift"), ("path", name),
+            ("lastKnownFileType", "sourcecode.swift"), ("path", f'"{path}"' if "/" in path else path),
             ("sourceTree", '"<group>"'),
         ])
         ios_files.append(file_ref)
@@ -285,7 +263,7 @@ def create():
     ])
     add(shared_group, "Shared Folio Sources", "PBXGroup", [
         ("children", arr(shared_files)), ("name", '"Shared Folio Sources"'),
-        ("path", "../Sources/Folio"), ("sourceTree", '"<group>"'),
+        ("path", "../Core"), ("sourceTree", '"<group>"'),
     ])
     add(resource_group, "Resources", "PBXGroup", [
         ("children", arr([info_ref, app_entitlements_ref, catalog_ref, icon_ref] + js_refs)),

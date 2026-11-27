@@ -5,201 +5,249 @@
 	objectVersion = 60;
 	objects = {
 /* Begin PBXBuildFile section */
-		81C2CB702F1B591C50BF3F8A /* FolioMobileAnnotationTools.swift in Sources */ = {
+		93D0D14CBA71DD9219E442AE /* Caches.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 314AD9E6A55CFF89BD17383E /* FolioMobileAnnotationTools.swift */;
+			fileRef = E47F1A32DC3E0E0DFD5112FE /* Caches.swift */;
 		};
-		787A8CD5AE003CC71E8F63AF /* FolioMobileAuthors.swift in Sources */ = {
+		61DDFC8DCE0B74114EF23C6B /* DebugLog.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = D2C9C9C7C46CB7183A9743FE /* FolioMobileAuthors.swift */;
+			fileRef = 04D73FAE3817775DE36FCF21 /* DebugLog.swift */;
 		};
-		467FFBBB3B334E09F3688ED2 /* FolioMobileBecauseYouRead.swift in Sources */ = {
+		876F457275378DEEB95381B5 /* FolioiOSApp.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = D99C1CDD0A7B789C18A74B2A /* FolioMobileBecauseYouRead.swift */;
+			fileRef = AC48F6CF7B9146724F2FCDBE /* FolioiOSApp.swift */;
 		};
-		C7B48C23E380D1DA8EAA8116 /* FolioMobileBookContextMenu.swift in Sources */ = {
+		CE2D3FD6BA967757F08240BF /* Onboarding.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 90C032B78495C5C627F39376 /* FolioMobileBookContextMenu.swift */;
+			fileRef = EFB21B86EAF787EA99B13DBB /* Onboarding.swift */;
 		};
-		6EF42DAB9C3E3CF22C3D68B8 /* FolioMobileBookshelf.swift in Sources */ = {
+		D31B94BABBABAD19BFFB95D3 /* RootView.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 23DE7052D2916CBB9F435565 /* FolioMobileBookshelf.swift */;
+			fileRef = F9811D705C8D9658FCBA6E92 /* RootView.swift */;
 		};
-		BA82E0A022359489CB723FB4 /* FolioMobileCaches.swift in Sources */ = {
+		8AF602E8E658FF30F2F40BA4 /* SystemIntegration.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 0712ADBAD71855E3D601349E /* FolioMobileCaches.swift */;
+			fileRef = 66A9D077685D444455116220 /* SystemIntegration.swift */;
 		};
-		C8D8EFA4AF7A9AE28CBE5684 /* FolioMobileCloudSync.swift in Sources */ = {
+		00FE8BF0AB461922F992F05B /* Updates.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = DB51BBC4FE12888675730B35 /* FolioMobileCloudSync.swift */;
+			fileRef = 221079180292496D7A20C361 /* Updates.swift */;
 		};
-		A0DE3D6E7FDB2DD1088D668F /* FolioMobileCoverAndOverrides.swift in Sources */ = {
+		DEA24F2D321893074EAC400F /* XMLCompat.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 68293222789A3EF0A0063650 /* FolioMobileCoverAndOverrides.swift */;
+			fileRef = 7382E2084AEEB2D8DC5A61AB /* XMLCompat.swift */;
 		};
-		D05A249B1756089DE69F9AB0 /* FolioMobileDebugLog.swift in Sources */ = {
+		05F26222AEAFB02EBB71EBD0 /* Authors.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = FDA45FB1BCBE8A6831D6124E /* FolioMobileDebugLog.swift */;
+			fileRef = 5EEAFEB16D96C258A040AD54 /* Authors.swift */;
 		};
-		DBE23ED2BDF10CF4FEDF1EEF /* FolioMobileDetails.swift in Sources */ = {
+		B9B863C8A6624475F111B6B8 /* FollowedAuthors.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 231D3AAF77B346C42F1317CA /* FolioMobileDetails.swift */;
+			fileRef = B2E279C5B1B84BB568D39675 /* FollowedAuthors.swift */;
 		};
-		C796CE30405C580BBECDD613 /* FolioMobileDiscoverFeed.swift in Sources */ = {
+		9EA0915EE786C8A79435BE3A /* Series.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = BCB66813003E9B2B579E739B /* FolioMobileDiscoverFeed.swift */;
+			fileRef = E828556B981395D4CFD58BC3 /* Series.swift */;
 		};
-		B9393346022257D35ED68751 /* FolioMobileDiscoverView.swift in Sources */ = {
+		90496D35FBC5555925488D9C /* BookDetail.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = BF49A093B14A67602587973B /* FolioMobileDiscoverView.swift */;
+			fileRef = 9F2A484D7D80BD91E013D5A5 /* BookDetail.swift */;
 		};
-		B681837F2B1698C48CD368B0 /* FolioMobileDiscoveryComponents.swift in Sources */ = {
+		22976270D8F97E6D251C7C17 /* CoverAndOverrides.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 61D80B4C822625BF26BA1DB5 /* FolioMobileDiscoveryComponents.swift */;
+			fileRef = A224169942C3747EC4A083E3 /* CoverAndOverrides.swift */;
 		};
-		B399D3ADA5D4E0F9F632C2E9 /* FolioMobileDownloadsView.swift in Sources */ = {
+		46E10A07A9B6CECE32C1FC83 /* EditDetails.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = D57C61C533127E6CEFD9EFB5 /* FolioMobileDownloadsView.swift */;
+			fileRef = EA843E93690697BC2D1BA680 /* EditDetails.swift */;
 		};
-		4181EFA54A051F82037A2CCE /* FolioMobileFindSourceView.swift in Sources */ = {
+		14E39ACD921AC559F00112F0 /* HardcoverLinkSheet.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 65F13F86A14420B918CECCA8 /* FolioMobileFindSourceView.swift */;
+			fileRef = 6E2E10D790B97804AFFADF85 /* HardcoverLinkSheet.swift */;
 		};
-		40344095770CA0F964040531 /* FolioMobileGlass.swift in Sources */ = {
+		EBF826F32E17FFF1FDA97B77 /* Rating.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 5D5859F3326BED9EE16653DD /* FolioMobileGlass.swift */;
+			fileRef = A823720F3195D39022925D9B /* Rating.swift */;
 		};
-		93C6FCDBC1BCB77DB2A25469 /* FolioMobileHighlights.swift in Sources */ = {
+		4C597E22C2198008BEAEE88A /* ReadBooks.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 96C610F125513457BFFAA872 /* FolioMobileHighlights.swift */;
+			fileRef = E7E77B7DB0AF00FA5B50D563 /* ReadBooks.swift */;
 		};
-		914598F79F0C5D0D7AB50D51 /* FolioMobileHomeCache.swift in Sources */ = {
+		675C52AE004ECB3CC4975277 /* Reviews.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 88620754C26DB49E275B4F52 /* FolioMobileHomeCache.swift */;
+			fileRef = 9DCEDA8B30C7215711350DC9 /* Reviews.swift */;
 		};
-		280BA04050BCBA7A87CD9E99 /* FolioMobileHomeRecommendations.swift in Sources */ = {
+		6F4281A2FBD6DF9D76C533A7 /* DiscoverFeed.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 99C04386683F6FEEE13F379C /* FolioMobileHomeRecommendations.swift */;
+			fileRef = 7B39FCF7E473931B4BEA3B2D /* DiscoverFeed.swift */;
 		};
-		82AA66CCA90C0BEBA1063EBB /* FolioMobileMetadataFixer.swift in Sources */ = {
+		9AD79D44EDA703B7C09ED3CD /* DiscoverView.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 63672E3CCB68CC64FF242DCB /* FolioMobileMetadataFixer.swift */;
+			fileRef = B2218680A04450EB88030BB3 /* DiscoverView.swift */;
 		};
-		AB6CC2002A763F4AA95EADAB /* FolioMobileMoreSettings.swift in Sources */ = {
+		04002B3DF4C9F411937A169D /* DiscoveryComponents.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 7112FEB1BE412FB85D72ED6F /* FolioMobileMoreSettings.swift */;
+			fileRef = 69C47328B81F37076EF7616D /* DiscoveryComponents.swift */;
 		};
-		D62EF171D0C88B9103697A09 /* FolioMobileNook.swift in Sources */ = {
+		BEFC741FDECEA45A268FFAD9 /* DownloadsView.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 072BDE34DF5929C66301822D /* FolioMobileNook.swift */;
+			fileRef = 7966D6E24918599539953B29 /* DownloadsView.swift */;
 		};
-		2727F1A815B872DCBCE95364 /* FolioMobileOnboardingView.swift in Sources */ = {
+		B20ABE2BFEF5C1035498E6A7 /* FindSourceView.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 7B7E3F0F05F84E631E7ECACD /* FolioMobileOnboardingView.swift */;
+			fileRef = EDD0C77199B7CA8D3C1A3B2B /* FindSourceView.swift */;
 		};
-		369DE02606F78C17FA975DB7 /* FolioMobileRating.swift in Sources */ = {
+		7EC697B1CB6DC9D172FE3BD4 /* SourcesView.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 246CD814CF946824282A8217 /* FolioMobileRating.swift */;
+			fileRef = DE0956DC807679233AE53036 /* SourcesView.swift */;
 		};
-		4174858F88543990ADE55C6D /* FolioMobileReadFilter.swift in Sources */ = {
+		D7449CB1F0414DFA595B625F /* BecauseYouRead.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 06F20DAD75D8785EA8CC6073 /* FolioMobileReadFilter.swift */;
+			fileRef = A7552BA400E557C61C87B64B /* BecauseYouRead.swift */;
 		};
-		DC11F16A3B144DD7C9F94FFB /* FolioMobileReadability.swift in Sources */ = {
+		1D4E097E964270980923DAD1 /* Bookshelf.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 8D86AEED3DC96A1D6EAA7B80 /* FolioMobileReadability.swift */;
+			fileRef = F10FBB9C1BB2A05F7E9E9ED5 /* Bookshelf.swift */;
 		};
-		6623BCCFED98A80D68B2A34F /* FolioMobileReaderEngine.swift in Sources */ = {
+		8D02BA719D50DEE38E6C3354 /* Highlights.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 4F45F8DB926637A3E9053FB7 /* FolioMobileReaderEngine.swift */;
+			fileRef = FB4DE26D36601F2716CDFCD3 /* Highlights.swift */;
 		};
-		60770336358E32A5A1B8A5C2 /* FolioMobileReaderView.swift in Sources */ = {
+		367D027ED367209EA950F1F9 /* HomeCache.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = C49432CE636EEB15E761235F /* FolioMobileReaderView.swift */;
+			fileRef = 28AFFA76A06DE94FC502CED4 /* HomeCache.swift */;
 		};
-		EFBD569131D8EEFD6D65C275 /* FolioMobileReadingActivity.swift in Sources */ = {
+		6D7CE47D1933B4E4702CC89F /* HomeRecommendations.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 3A514A1CA52748E5F2E523C0 /* FolioMobileReadingActivity.swift */;
+			fileRef = 307333EDCE635ADAB3C4A796 /* HomeRecommendations.swift */;
 		};
-		24D9459494EBF2AA91F9D426 /* FolioMobileReadingReferences.swift in Sources */ = {
+		14206A5E954ED11202812C43 /* HomeView.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 7A57C9AB5B50CDE32D7621E6 /* FolioMobileReadingReferences.swift */;
+			fileRef = 637BED08C04560ED389B2655 /* HomeView.swift */;
 		};
-		14786E433FD3CBA25415E66E /* FolioMobileRootView.swift in Sources */ = {
+		E5279A81D69DFB79F8E16F54 /* Nook.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = E81201EED0E7945994DC1404 /* FolioMobileRootView.swift */;
+			fileRef = 1928807845E83BDA959ED613 /* Nook.swift */;
 		};
-		DDF29A3A61658C845AA104B1 /* FolioMobileSettingsView.swift in Sources */ = {
+		5710E9E7804AED5F5DF342B0 /* NookDragDrop.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 98B39FF336D86768902BFBC0 /* FolioMobileSettingsView.swift */;
+			fileRef = F156B5103731B384E49D29EF /* NookDragDrop.swift */;
 		};
-		9927C45B5641C2852D2C5423 /* FolioMobileShelfSyncViews.swift in Sources */ = {
+		08E29240800F31B627A9BB77 /* ReadingActivity.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 4984AA96C461E62B50D86B6C /* FolioMobileShelfSyncViews.swift */;
+			fileRef = 81FAEB01BB3F137D8357E192 /* ReadingActivity.swift */;
 		};
-		2DF704D4566705CB1E6A6315 /* FolioMobileShelvesView.swift in Sources */ = {
+		D86CAA1D3FD18FDAE2C5EFC5 /* Spine.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 6ED2AB23A4B62C198A4F31FB /* FolioMobileShelvesView.swift */;
+			fileRef = 6499A89290D308BE52E3532A /* Spine.swift */;
 		};
-		16F717511D48CC8E1EFA2C18 /* FolioMobileSourcesView.swift in Sources */ = {
+		7BF7F349F35505F5FDEB2107 /* BookContextMenu.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 16C0FF9C31E7D5CE17B286EC /* FolioMobileSourcesView.swift */;
+			fileRef = 300D503FE6842D3E20AC37C9 /* BookContextMenu.swift */;
 		};
-		39E79FF9085A49A434401C72 /* FolioMobileSync.swift in Sources */ = {
+		77F0E1BD69DAF294C918D9B3 /* BookTile.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = F337CDE984ED6B7B2AB7FA59 /* FolioMobileSync.swift */;
+			fileRef = A5359E28E3573EEE706BDC61 /* BookTile.swift */;
 		};
-		BABADBB5CC85C1A2A3ECD081 /* FolioMobileSystemIntegration.swift in Sources */ = {
+		EAD6944EF7517C23E1CD4BC7 /* LibraryView.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 4768B1965D144E71AB86A093 /* FolioMobileSystemIntegration.swift */;
+			fileRef = 1EB99B2A3BF1867B57D74307 /* LibraryView.swift */;
 		};
-		5962DE7B368F589F022FF485 /* FolioMobileTabHeader.swift in Sources */ = {
+		9FF1DDE4D496B264B32F89D2 /* Shelves.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 7776739CF82AB5F0E8FF3712 /* FolioMobileTabHeader.swift */;
+			fileRef = 88FD5B6453D9A7108AB5CC46 /* Shelves.swift */;
 		};
-		A8A67CA844173428AF5C4516 /* FolioMobileTheme.swift in Sources */ = {
+		C60E68396A46E16CF18A173B /* AnnotationTools.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = C4A3A9554D0A95A9AFCDC0AC /* FolioMobileTheme.swift */;
+			fileRef = 70381BE529E6FF6D4A4BDA11 /* AnnotationTools.swift */;
 		};
-		A345950C97E6018CCE2D4B9E /* FolioMobileUpdates.swift in Sources */ = {
+		BEF89D1B6EBA744902460FE9 /* ReaderEngine.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 69F84E8C326D546EEA8A4E33 /* FolioMobileUpdates.swift */;
+			fileRef = E35F4353E707F1DDD6D3959B /* ReaderEngine.swift */;
 		};
-		91C5634FB40969FB78BB5E3F /* FolioShelfSync.swift in Sources */ = {
+		9A0968DCE381E6C13E3F5FD4 /* ReaderView.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 4AEDEE013E23DB853D9D61DA /* FolioShelfSync.swift */;
+			fileRef = 1A3D57DD7DC1A33C07A37B0C /* ReaderView.swift */;
 		};
-		4D9D350C8CD3D61C07431496 /* FolioShelfSyncCore.swift in Sources */ = {
+		D5FE317A0068C762FD5657B3 /* ReadingReferences.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 4085B63F7DACE99FF9C263FC /* FolioShelfSyncCore.swift */;
+			fileRef = F7357FD203DCF6C664AB1B60 /* ReadingReferences.swift */;
 		};
-		FAC923DE549E318D51878226 /* FolioiOSApp.swift in Sources */ = {
+		353668C263F8B73EC5F9B6C6 /* Readability.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 0B4DB22BB7727AA404D430F4 /* FolioiOSApp.swift */;
+			fileRef = 2A504B95AC59B48868132330 /* Readability.swift */;
 		};
-		71A88045D5054AC8C3F62CAC /* MobileAutomaticEPUBChoice.swift in Sources */ = {
+		1A3F1EC4342502EDA3EBAA13 /* SettingsPages.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 0627C605CF6AF4B774FFBCED /* MobileAutomaticEPUBChoice.swift */;
+			fileRef = 9DE35292E737A3199CAEBE32 /* SettingsPages.swift */;
 		};
-		6D6954BA6AE2ACEA3242E39E /* MobileNames.swift in Sources */ = {
+		BB6D8A5B27B4C8BF0F3759CA /* SettingsView.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 3755FD332B3F1640329A99E5 /* MobileNames.swift */;
+			fileRef = 2ADD2C37C94CF5464F2FAD04 /* SettingsView.swift */;
 		};
-		E30D614CBB0BBA9694CC24C3 /* MobileText.swift in Sources */ = {
+		37F4C32A66CBC1ED2DDBD75F /* CloudSyncSection.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 365902EEAEA0A163773BD12C /* MobileText.swift */;
+			fileRef = 9C055ED4A75CF80CC55C842E /* CloudSyncSection.swift */;
 		};
-		3120E86E383C7FFA8C487AEC /* MobileXMLCompat.swift in Sources */ = {
+		76DB917500DA92418E1CAB61 /* HardcoverSync.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 5FA86A72DD1148AFEB62F864 /* MobileXMLCompat.swift */;
+			fileRef = CA2C695E0BA7169E1D878435 /* HardcoverSync.swift */;
 		};
-		EE88EA6A985C9EEFEE8B228D /* Models.swift in Sources */ = {
+		65A548D9F9E570FA1736C96C /* ShelfSync.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = ACA97979836D1FEACFC63AC7 /* Models.swift */;
+			fileRef = DFA716D42BFE53C94BB31AD2 /* ShelfSync.swift */;
 		};
-		7A48D3240FAC029464E4D5A9 /* LibraryStore.swift in Sources */ = {
+		F0E31490FE0B50A6B2B4769C /* ShelfSyncCore.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 5D17CE3AB9A94EC09E4D0258 /* LibraryStore.swift */;
+			fileRef = 59B95E88FA99292F8DC184DE /* ShelfSyncCore.swift */;
+		};
+		C1B93EACA43F349FDED9FE92 /* ShelfSyncViews.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = D4E17D9CFBB9F530F7127B52 /* ShelfSyncViews.swift */;
+		};
+		29FFBAA47AAE26EA1A5EF6E6 /* SyncedStores.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = 49722B50DE9450EC93FEEDCF /* SyncedStores.swift */;
+		};
+		8B4B39C3808D6CBB0A9A214C /* Glass.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = B5932A938A741154E60AA907 /* Glass.swift */;
+		};
+		09B8F2BD1E3ABCB968185D4E /* Rows.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = AFC32C8787423C83888CCD73 /* Rows.swift */;
+		};
+		12860D0B2DE14644F01C19D8 /* TabHeader.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = 97077909ADF8A9809A7F4533 /* TabHeader.swift */;
+		};
+		2AB2E1A54D9E723AAB40D15C /* Theme.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = 434F9249865726C2D5E72951 /* Theme.swift */;
+		};
+		00607702A2A7102871FFCCB6 /* AutomaticEPUBChoice.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = 7DEAC109FE807F9DFAB69282 /* AutomaticEPUBChoice.swift */;
+		};
+		6C774D99808ABAA6FBB4B3ED /* BookAutoMatch.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = F5A1F198ED86A5D653F89D95 /* BookAutoMatch.swift */;
+		};
+		AA94AF26D4841C3B08B0B985 /* CloudSync.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = B27DB99676C96FB882466088 /* CloudSync.swift */;
+		};
+		1AB88F75F3E79FC6D4CE3830 /* CloudSyncCore.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = E3533FEBDCEB1DAA147BC021 /* CloudSyncCore.swift */;
+		};
+		55BC5A180A2A20E2B5846744 /* DefaultSources.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = 998160561DF98DBBCD1DF26D /* DefaultSources.swift */;
+		};
+		F0E131B28914354AA7432AAE /* DownloadQueue.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = FE0F309A0011C9862106D14E /* DownloadQueue.swift */;
 		};
 		8375E7CF9F14758A987DA893 /* EPUB.swift in Sources */ = {
 			isa = PBXBuildFile;
@@ -209,53 +257,9 @@
 			isa = PBXBuildFile;
 			fileRef = A50E221EB3B895D6EE47BF21 /* EPUBHardcoverEnricher.swift */;
 		};
-		CCC9DE81403B4669E2CC014D /* ReaderPrefs.swift in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = DA025035DFBEA50B45EF9A00 /* ReaderPrefs.swift */;
-		};
-		D8F0EAEBB8A1C8D9BE68D84E /* ReadingAnnotations.swift in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = BED126CA6FD726C84FC4B0D9 /* ReadingAnnotations.swift */;
-		};
-		29B6F2DD1DCB21E56CFC79A3 /* ReaderScript.swift in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = 23D1E7212746E2C779306CBC /* ReaderScript.swift */;
-		};
-		6C774D99808ABAA6FBB4B3ED /* BookAutoMatch.swift in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = F5A1F198ED86A5D653F89D95 /* BookAutoMatch.swift */;
-		};
 		B962700D6E2DA1BC5E12CBC4 /* EditionTitle.swift in Sources */ = {
 			isa = PBXBuildFile;
 			fileRef = 7D5C44EA33D4AA1E86D26CB1 /* EditionTitle.swift */;
-		};
-		17C54DB96CCB1BA5F533D7D3 /* WebText.swift in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = 7ED840A9370E7CA3835E82DD /* WebText.swift */;
-		};
-		F0E131B28914354AA7432AAE /* DownloadQueue.swift in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = FE0F309A0011C9862106D14E /* DownloadQueue.swift */;
-		};
-		09E46BA53BE3434E3E179FEA /* Hardcover.swift in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = 6575FC05C1FE452717C48B7C /* Hardcover.swift */;
-		};
-		1955DE0D753BA4A84F5BE7D3 /* OpenLibrary.swift in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = 1A2C4AFA1C95F5C330B71BEB /* OpenLibrary.swift */;
-		};
-		D76EC36F310468065944AB8A /* Goodreads.swift in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = DCF4A23BEA87A5C1970F4534 /* Goodreads.swift */;
-		};
-		55BC5A180A2A20E2B5846744 /* DefaultSources.swift in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = 998160561DF98DBBCD1DF26D /* DefaultSources.swift */;
-		};
-		6F5BE4195371C5A6AC00F906 /* Extensions.swift in Sources */ = {
-			isa = PBXBuildFile;
-			fileRef = 228C52A290B14024D14DA53D /* Extensions.swift */;
 		};
 		0EF51F527695A4C43FF7AFED /* EncryptedDNS.swift in Sources */ = {
 			isa = PBXBuildFile;
@@ -269,25 +273,61 @@
 			isa = PBXBuildFile;
 			fileRef = DAFB596F53CD17AA6A90CC79 /* ExtensionBrowser.swift */;
 		};
-		821DB0CDC55F34BB1823A8F9 /* WidgetShared.swift in Sources */ = {
+		6F5BE4195371C5A6AC00F906 /* Extensions.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = C099E05B735EAF4904DEC64D /* WidgetShared.swift */;
+			fileRef = 228C52A290B14024D14DA53D /* Extensions.swift */;
 		};
-		8266CA00ADEBE392D3F5CE22 /* WidgetBridge.swift in Sources */ = {
+		D76EC36F310468065944AB8A /* Goodreads.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = 0CE89E81DA04C85F16472F9C /* WidgetBridge.swift */;
+			fileRef = DCF4A23BEA87A5C1970F4534 /* Goodreads.swift */;
+		};
+		09E46BA53BE3434E3E179FEA /* Hardcover.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = 6575FC05C1FE452717C48B7C /* Hardcover.swift */;
+		};
+		7A48D3240FAC029464E4D5A9 /* LibraryStore.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = 5D17CE3AB9A94EC09E4D0258 /* LibraryStore.swift */;
+		};
+		EE88EA6A985C9EEFEE8B228D /* Models.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = ACA97979836D1FEACFC63AC7 /* Models.swift */;
+		};
+		680B33B3446E245CB065FCDE /* Names.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = 78D1479071751C234BFBAECC /* Names.swift */;
+		};
+		1955DE0D753BA4A84F5BE7D3 /* OpenLibrary.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = 1A2C4AFA1C95F5C330B71BEB /* OpenLibrary.swift */;
+		};
+		CCC9DE81403B4669E2CC014D /* ReaderPrefs.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = DA025035DFBEA50B45EF9A00 /* ReaderPrefs.swift */;
+		};
+		29B6F2DD1DCB21E56CFC79A3 /* ReaderScript.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = 23D1E7212746E2C779306CBC /* ReaderScript.swift */;
+		};
+		D8F0EAEBB8A1C8D9BE68D84E /* ReadingAnnotations.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = BED126CA6FD726C84FC4B0D9 /* ReadingAnnotations.swift */;
 		};
 		19953FFAA8F4CECE41A64C2F /* ReadingReminders.swift in Sources */ = {
 			isa = PBXBuildFile;
 			fileRef = 8BA16301742508E19E04482D /* ReadingReminders.swift */;
 		};
-		1AB88F75F3E79FC6D4CE3830 /* CloudSyncCore.swift in Sources */ = {
+		17C54DB96CCB1BA5F533D7D3 /* WebText.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = E3533FEBDCEB1DAA147BC021 /* CloudSyncCore.swift */;
+			fileRef = 7ED840A9370E7CA3835E82DD /* WebText.swift */;
 		};
-		AA94AF26D4841C3B08B0B985 /* CloudSync.swift in Sources */ = {
+		8266CA00ADEBE392D3F5CE22 /* WidgetBridge.swift in Sources */ = {
 			isa = PBXBuildFile;
-			fileRef = B27DB99676C96FB882466088 /* CloudSync.swift */;
+			fileRef = 0CE89E81DA04C85F16472F9C /* WidgetBridge.swift */;
+		};
+		821DB0CDC55F34BB1823A8F9 /* WidgetShared.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = C099E05B735EAF4904DEC64D /* WidgetShared.swift */;
 		};
 		53DA4515D517C2F6D84EC2D4 /* annas-archive.js in Resources */ = {
 			isa = PBXBuildFile;
@@ -382,298 +422,370 @@
 		};
 /* End PBXCopyFilesBuildPhase section */
 /* Begin PBXFileReference section */
-		314AD9E6A55CFF89BD17383E /* FolioMobileAnnotationTools.swift */ = {
+		E47F1A32DC3E0E0DFD5112FE /* Caches.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileAnnotationTools.swift;
+			path = "App/Caches.swift";
 			sourceTree = "<group>";
 		};
-		D2C9C9C7C46CB7183A9743FE /* FolioMobileAuthors.swift */ = {
+		04D73FAE3817775DE36FCF21 /* DebugLog.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileAuthors.swift;
+			path = "App/DebugLog.swift";
 			sourceTree = "<group>";
 		};
-		D99C1CDD0A7B789C18A74B2A /* FolioMobileBecauseYouRead.swift */ = {
+		AC48F6CF7B9146724F2FCDBE /* FolioiOSApp.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileBecauseYouRead.swift;
+			path = "App/FolioiOSApp.swift";
 			sourceTree = "<group>";
 		};
-		90C032B78495C5C627F39376 /* FolioMobileBookContextMenu.swift */ = {
+		EFB21B86EAF787EA99B13DBB /* Onboarding.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileBookContextMenu.swift;
+			path = "App/Onboarding.swift";
 			sourceTree = "<group>";
 		};
-		23DE7052D2916CBB9F435565 /* FolioMobileBookshelf.swift */ = {
+		F9811D705C8D9658FCBA6E92 /* RootView.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileBookshelf.swift;
+			path = "App/RootView.swift";
 			sourceTree = "<group>";
 		};
-		0712ADBAD71855E3D601349E /* FolioMobileCaches.swift */ = {
+		66A9D077685D444455116220 /* SystemIntegration.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileCaches.swift;
+			path = "App/SystemIntegration.swift";
 			sourceTree = "<group>";
 		};
-		DB51BBC4FE12888675730B35 /* FolioMobileCloudSync.swift */ = {
+		221079180292496D7A20C361 /* Updates.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileCloudSync.swift;
+			path = "App/Updates.swift";
 			sourceTree = "<group>";
 		};
-		68293222789A3EF0A0063650 /* FolioMobileCoverAndOverrides.swift */ = {
+		7382E2084AEEB2D8DC5A61AB /* XMLCompat.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileCoverAndOverrides.swift;
+			path = "App/XMLCompat.swift";
 			sourceTree = "<group>";
 		};
-		FDA45FB1BCBE8A6831D6124E /* FolioMobileDebugLog.swift */ = {
+		5EEAFEB16D96C258A040AD54 /* Authors.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileDebugLog.swift;
+			path = "Authors/Authors.swift";
 			sourceTree = "<group>";
 		};
-		231D3AAF77B346C42F1317CA /* FolioMobileDetails.swift */ = {
+		B2E279C5B1B84BB568D39675 /* FollowedAuthors.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileDetails.swift;
+			path = "Authors/FollowedAuthors.swift";
 			sourceTree = "<group>";
 		};
-		BCB66813003E9B2B579E739B /* FolioMobileDiscoverFeed.swift */ = {
+		E828556B981395D4CFD58BC3 /* Series.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileDiscoverFeed.swift;
+			path = "Authors/Series.swift";
 			sourceTree = "<group>";
 		};
-		BF49A093B14A67602587973B /* FolioMobileDiscoverView.swift */ = {
+		9F2A484D7D80BD91E013D5A5 /* BookDetail.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileDiscoverView.swift;
+			path = "Book/BookDetail.swift";
 			sourceTree = "<group>";
 		};
-		61D80B4C822625BF26BA1DB5 /* FolioMobileDiscoveryComponents.swift */ = {
+		A224169942C3747EC4A083E3 /* CoverAndOverrides.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileDiscoveryComponents.swift;
+			path = "Book/CoverAndOverrides.swift";
 			sourceTree = "<group>";
 		};
-		D57C61C533127E6CEFD9EFB5 /* FolioMobileDownloadsView.swift */ = {
+		EA843E93690697BC2D1BA680 /* EditDetails.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileDownloadsView.swift;
+			path = "Book/EditDetails.swift";
 			sourceTree = "<group>";
 		};
-		65F13F86A14420B918CECCA8 /* FolioMobileFindSourceView.swift */ = {
+		6E2E10D790B97804AFFADF85 /* HardcoverLinkSheet.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileFindSourceView.swift;
+			path = "Book/HardcoverLinkSheet.swift";
 			sourceTree = "<group>";
 		};
-		5D5859F3326BED9EE16653DD /* FolioMobileGlass.swift */ = {
+		A823720F3195D39022925D9B /* Rating.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileGlass.swift;
+			path = "Book/Rating.swift";
 			sourceTree = "<group>";
 		};
-		96C610F125513457BFFAA872 /* FolioMobileHighlights.swift */ = {
+		E7E77B7DB0AF00FA5B50D563 /* ReadBooks.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileHighlights.swift;
+			path = "Book/ReadBooks.swift";
 			sourceTree = "<group>";
 		};
-		88620754C26DB49E275B4F52 /* FolioMobileHomeCache.swift */ = {
+		9DCEDA8B30C7215711350DC9 /* Reviews.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileHomeCache.swift;
+			path = "Book/Reviews.swift";
 			sourceTree = "<group>";
 		};
-		99C04386683F6FEEE13F379C /* FolioMobileHomeRecommendations.swift */ = {
+		7B39FCF7E473931B4BEA3B2D /* DiscoverFeed.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileHomeRecommendations.swift;
+			path = "Discover/DiscoverFeed.swift";
 			sourceTree = "<group>";
 		};
-		63672E3CCB68CC64FF242DCB /* FolioMobileMetadataFixer.swift */ = {
+		B2218680A04450EB88030BB3 /* DiscoverView.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileMetadataFixer.swift;
+			path = "Discover/DiscoverView.swift";
 			sourceTree = "<group>";
 		};
-		7112FEB1BE412FB85D72ED6F /* FolioMobileMoreSettings.swift */ = {
+		69C47328B81F37076EF7616D /* DiscoveryComponents.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileMoreSettings.swift;
+			path = "Discover/DiscoveryComponents.swift";
 			sourceTree = "<group>";
 		};
-		072BDE34DF5929C66301822D /* FolioMobileNook.swift */ = {
+		7966D6E24918599539953B29 /* DownloadsView.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileNook.swift;
+			path = "Downloads/DownloadsView.swift";
 			sourceTree = "<group>";
 		};
-		7B7E3F0F05F84E631E7ECACD /* FolioMobileOnboardingView.swift */ = {
+		EDD0C77199B7CA8D3C1A3B2B /* FindSourceView.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileOnboardingView.swift;
+			path = "Downloads/FindSourceView.swift";
 			sourceTree = "<group>";
 		};
-		246CD814CF946824282A8217 /* FolioMobileRating.swift */ = {
+		DE0956DC807679233AE53036 /* SourcesView.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileRating.swift;
+			path = "Downloads/SourcesView.swift";
 			sourceTree = "<group>";
 		};
-		06F20DAD75D8785EA8CC6073 /* FolioMobileReadFilter.swift */ = {
+		A7552BA400E557C61C87B64B /* BecauseYouRead.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileReadFilter.swift;
+			path = "Home/BecauseYouRead.swift";
 			sourceTree = "<group>";
 		};
-		8D86AEED3DC96A1D6EAA7B80 /* FolioMobileReadability.swift */ = {
+		F10FBB9C1BB2A05F7E9E9ED5 /* Bookshelf.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileReadability.swift;
+			path = "Home/Bookshelf.swift";
 			sourceTree = "<group>";
 		};
-		4F45F8DB926637A3E9053FB7 /* FolioMobileReaderEngine.swift */ = {
+		FB4DE26D36601F2716CDFCD3 /* Highlights.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileReaderEngine.swift;
+			path = "Home/Highlights.swift";
 			sourceTree = "<group>";
 		};
-		C49432CE636EEB15E761235F /* FolioMobileReaderView.swift */ = {
+		28AFFA76A06DE94FC502CED4 /* HomeCache.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileReaderView.swift;
+			path = "Home/HomeCache.swift";
 			sourceTree = "<group>";
 		};
-		3A514A1CA52748E5F2E523C0 /* FolioMobileReadingActivity.swift */ = {
+		307333EDCE635ADAB3C4A796 /* HomeRecommendations.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileReadingActivity.swift;
+			path = "Home/HomeRecommendations.swift";
 			sourceTree = "<group>";
 		};
-		7A57C9AB5B50CDE32D7621E6 /* FolioMobileReadingReferences.swift */ = {
+		637BED08C04560ED389B2655 /* HomeView.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileReadingReferences.swift;
+			path = "Home/HomeView.swift";
 			sourceTree = "<group>";
 		};
-		E81201EED0E7945994DC1404 /* FolioMobileRootView.swift */ = {
+		1928807845E83BDA959ED613 /* Nook.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileRootView.swift;
+			path = "Home/Nook.swift";
 			sourceTree = "<group>";
 		};
-		98B39FF336D86768902BFBC0 /* FolioMobileSettingsView.swift */ = {
+		F156B5103731B384E49D29EF /* NookDragDrop.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileSettingsView.swift;
+			path = "Home/NookDragDrop.swift";
 			sourceTree = "<group>";
 		};
-		4984AA96C461E62B50D86B6C /* FolioMobileShelfSyncViews.swift */ = {
+		81FAEB01BB3F137D8357E192 /* ReadingActivity.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileShelfSyncViews.swift;
+			path = "Home/ReadingActivity.swift";
 			sourceTree = "<group>";
 		};
-		6ED2AB23A4B62C198A4F31FB /* FolioMobileShelvesView.swift */ = {
+		6499A89290D308BE52E3532A /* Spine.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileShelvesView.swift;
+			path = "Home/Spine.swift";
 			sourceTree = "<group>";
 		};
-		16C0FF9C31E7D5CE17B286EC /* FolioMobileSourcesView.swift */ = {
+		300D503FE6842D3E20AC37C9 /* BookContextMenu.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileSourcesView.swift;
+			path = "Library/BookContextMenu.swift";
 			sourceTree = "<group>";
 		};
-		F337CDE984ED6B7B2AB7FA59 /* FolioMobileSync.swift */ = {
+		A5359E28E3573EEE706BDC61 /* BookTile.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileSync.swift;
+			path = "Library/BookTile.swift";
 			sourceTree = "<group>";
 		};
-		4768B1965D144E71AB86A093 /* FolioMobileSystemIntegration.swift */ = {
+		1EB99B2A3BF1867B57D74307 /* LibraryView.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileSystemIntegration.swift;
+			path = "Library/LibraryView.swift";
 			sourceTree = "<group>";
 		};
-		7776739CF82AB5F0E8FF3712 /* FolioMobileTabHeader.swift */ = {
+		88FD5B6453D9A7108AB5CC46 /* Shelves.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileTabHeader.swift;
+			path = "Library/Shelves.swift";
 			sourceTree = "<group>";
 		};
-		C4A3A9554D0A95A9AFCDC0AC /* FolioMobileTheme.swift */ = {
+		70381BE529E6FF6D4A4BDA11 /* AnnotationTools.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileTheme.swift;
+			path = "Reader/AnnotationTools.swift";
 			sourceTree = "<group>";
 		};
-		69F84E8C326D546EEA8A4E33 /* FolioMobileUpdates.swift */ = {
+		E35F4353E707F1DDD6D3959B /* ReaderEngine.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioMobileUpdates.swift;
+			path = "Reader/ReaderEngine.swift";
 			sourceTree = "<group>";
 		};
-		4AEDEE013E23DB853D9D61DA /* FolioShelfSync.swift */ = {
+		1A3D57DD7DC1A33C07A37B0C /* ReaderView.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioShelfSync.swift;
+			path = "Reader/ReaderView.swift";
 			sourceTree = "<group>";
 		};
-		4085B63F7DACE99FF9C263FC /* FolioShelfSyncCore.swift */ = {
+		F7357FD203DCF6C664AB1B60 /* ReadingReferences.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioShelfSyncCore.swift;
+			path = "Reader/ReadingReferences.swift";
 			sourceTree = "<group>";
 		};
-		0B4DB22BB7727AA404D430F4 /* FolioiOSApp.swift */ = {
+		2A504B95AC59B48868132330 /* Readability.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = FolioiOSApp.swift;
+			path = "Settings/Readability.swift";
 			sourceTree = "<group>";
 		};
-		0627C605CF6AF4B774FFBCED /* MobileAutomaticEPUBChoice.swift */ = {
+		9DE35292E737A3199CAEBE32 /* SettingsPages.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = MobileAutomaticEPUBChoice.swift;
+			path = "Settings/SettingsPages.swift";
 			sourceTree = "<group>";
 		};
-		3755FD332B3F1640329A99E5 /* MobileNames.swift */ = {
+		2ADD2C37C94CF5464F2FAD04 /* SettingsView.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = MobileNames.swift;
+			path = "Settings/SettingsView.swift";
 			sourceTree = "<group>";
 		};
-		365902EEAEA0A163773BD12C /* MobileText.swift */ = {
+		9C055ED4A75CF80CC55C842E /* CloudSyncSection.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = MobileText.swift;
+			path = "Sync/CloudSyncSection.swift";
 			sourceTree = "<group>";
 		};
-		5FA86A72DD1148AFEB62F864 /* MobileXMLCompat.swift */ = {
+		CA2C695E0BA7169E1D878435 /* HardcoverSync.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = MobileXMLCompat.swift;
+			path = "Sync/HardcoverSync.swift";
 			sourceTree = "<group>";
 		};
-		ACA97979836D1FEACFC63AC7 /* Models.swift */ = {
+		DFA716D42BFE53C94BB31AD2 /* ShelfSync.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = Models.swift;
+			path = "Sync/ShelfSync.swift";
 			sourceTree = "<group>";
 		};
-		5D17CE3AB9A94EC09E4D0258 /* LibraryStore.swift */ = {
+		59B95E88FA99292F8DC184DE /* ShelfSyncCore.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = LibraryStore.swift;
+			path = "Sync/ShelfSyncCore.swift";
+			sourceTree = "<group>";
+		};
+		D4E17D9CFBB9F530F7127B52 /* ShelfSyncViews.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = "Sync/ShelfSyncViews.swift";
+			sourceTree = "<group>";
+		};
+		49722B50DE9450EC93FEEDCF /* SyncedStores.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = "Sync/SyncedStores.swift";
+			sourceTree = "<group>";
+		};
+		B5932A938A741154E60AA907 /* Glass.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = "Theme/Glass.swift";
+			sourceTree = "<group>";
+		};
+		AFC32C8787423C83888CCD73 /* Rows.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = "Theme/Rows.swift";
+			sourceTree = "<group>";
+		};
+		97077909ADF8A9809A7F4533 /* TabHeader.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = "Theme/TabHeader.swift";
+			sourceTree = "<group>";
+		};
+		434F9249865726C2D5E72951 /* Theme.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = "Theme/Theme.swift";
+			sourceTree = "<group>";
+		};
+		7DEAC109FE807F9DFAB69282 /* AutomaticEPUBChoice.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = AutomaticEPUBChoice.swift;
+			sourceTree = "<group>";
+		};
+		F5A1F198ED86A5D653F89D95 /* BookAutoMatch.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = BookAutoMatch.swift;
+			sourceTree = "<group>";
+		};
+		B27DB99676C96FB882466088 /* CloudSync.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = CloudSync.swift;
+			sourceTree = "<group>";
+		};
+		E3533FEBDCEB1DAA147BC021 /* CloudSyncCore.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = CloudSyncCore.swift;
+			sourceTree = "<group>";
+		};
+		998160561DF98DBBCD1DF26D /* DefaultSources.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = DefaultSources.swift;
+			sourceTree = "<group>";
+		};
+		FE0F309A0011C9862106D14E /* DownloadQueue.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = DownloadQueue.swift;
 			sourceTree = "<group>";
 		};
 		2B4DDA3FAF413C20C729945B /* EPUB.swift */ = {
@@ -688,76 +800,10 @@
 			path = EPUBHardcoverEnricher.swift;
 			sourceTree = "<group>";
 		};
-		DA025035DFBEA50B45EF9A00 /* ReaderPrefs.swift */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.swift;
-			path = ReaderPrefs.swift;
-			sourceTree = "<group>";
-		};
-		BED126CA6FD726C84FC4B0D9 /* ReadingAnnotations.swift */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.swift;
-			path = ReadingAnnotations.swift;
-			sourceTree = "<group>";
-		};
-		23D1E7212746E2C779306CBC /* ReaderScript.swift */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.swift;
-			path = ReaderScript.swift;
-			sourceTree = "<group>";
-		};
-		F5A1F198ED86A5D653F89D95 /* BookAutoMatch.swift */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.swift;
-			path = BookAutoMatch.swift;
-			sourceTree = "<group>";
-		};
 		7D5C44EA33D4AA1E86D26CB1 /* EditionTitle.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
 			path = EditionTitle.swift;
-			sourceTree = "<group>";
-		};
-		7ED840A9370E7CA3835E82DD /* WebText.swift */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.swift;
-			path = WebText.swift;
-			sourceTree = "<group>";
-		};
-		FE0F309A0011C9862106D14E /* DownloadQueue.swift */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.swift;
-			path = DownloadQueue.swift;
-			sourceTree = "<group>";
-		};
-		6575FC05C1FE452717C48B7C /* Hardcover.swift */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.swift;
-			path = Hardcover.swift;
-			sourceTree = "<group>";
-		};
-		1A2C4AFA1C95F5C330B71BEB /* OpenLibrary.swift */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.swift;
-			path = OpenLibrary.swift;
-			sourceTree = "<group>";
-		};
-		DCF4A23BEA87A5C1970F4534 /* Goodreads.swift */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.swift;
-			path = Goodreads.swift;
-			sourceTree = "<group>";
-		};
-		998160561DF98DBBCD1DF26D /* DefaultSources.swift */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.swift;
-			path = DefaultSources.swift;
-			sourceTree = "<group>";
-		};
-		228C52A290B14024D14DA53D /* Extensions.swift */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.swift;
-			path = Extensions.swift;
 			sourceTree = "<group>";
 		};
 		6C364E55B789C95F2CCD8EB7 /* EncryptedDNS.swift */ = {
@@ -778,16 +824,64 @@
 			path = ExtensionBrowser.swift;
 			sourceTree = "<group>";
 		};
-		C099E05B735EAF4904DEC64D /* WidgetShared.swift */ = {
+		228C52A290B14024D14DA53D /* Extensions.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = WidgetShared.swift;
+			path = Extensions.swift;
 			sourceTree = "<group>";
 		};
-		0CE89E81DA04C85F16472F9C /* WidgetBridge.swift */ = {
+		DCF4A23BEA87A5C1970F4534 /* Goodreads.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = WidgetBridge.swift;
+			path = Goodreads.swift;
+			sourceTree = "<group>";
+		};
+		6575FC05C1FE452717C48B7C /* Hardcover.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = Hardcover.swift;
+			sourceTree = "<group>";
+		};
+		5D17CE3AB9A94EC09E4D0258 /* LibraryStore.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = LibraryStore.swift;
+			sourceTree = "<group>";
+		};
+		ACA97979836D1FEACFC63AC7 /* Models.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = Models.swift;
+			sourceTree = "<group>";
+		};
+		78D1479071751C234BFBAECC /* Names.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = Names.swift;
+			sourceTree = "<group>";
+		};
+		1A2C4AFA1C95F5C330B71BEB /* OpenLibrary.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = OpenLibrary.swift;
+			sourceTree = "<group>";
+		};
+		DA025035DFBEA50B45EF9A00 /* ReaderPrefs.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = ReaderPrefs.swift;
+			sourceTree = "<group>";
+		};
+		23D1E7212746E2C779306CBC /* ReaderScript.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = ReaderScript.swift;
+			sourceTree = "<group>";
+		};
+		BED126CA6FD726C84FC4B0D9 /* ReadingAnnotations.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = ReadingAnnotations.swift;
 			sourceTree = "<group>";
 		};
 		8BA16301742508E19E04482D /* ReadingReminders.swift */ = {
@@ -796,16 +890,22 @@
 			path = ReadingReminders.swift;
 			sourceTree = "<group>";
 		};
-		E3533FEBDCEB1DAA147BC021 /* CloudSyncCore.swift */ = {
+		7ED840A9370E7CA3835E82DD /* WebText.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = CloudSyncCore.swift;
+			path = WebText.swift;
 			sourceTree = "<group>";
 		};
-		B27DB99676C96FB882466088 /* CloudSync.swift */ = {
+		0CE89E81DA04C85F16472F9C /* WidgetBridge.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
-			path = CloudSync.swift;
+			path = WidgetBridge.swift;
+			sourceTree = "<group>";
+		};
+		C099E05B735EAF4904DEC64D /* WidgetShared.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = WidgetShared.swift;
 			sourceTree = "<group>";
 		};
 		B8EFBDBDBB9EC0C1E407D3C7 /* Assets.xcassets */ = {
@@ -962,53 +1062,61 @@
 		1074A84015813A10140BAA57 /* iOS Sources */ = {
 			isa = PBXGroup;
 			children = (
-				314AD9E6A55CFF89BD17383E /* FolioMobileAnnotationTools.swift */,
-				D2C9C9C7C46CB7183A9743FE /* FolioMobileAuthors.swift */,
-				D99C1CDD0A7B789C18A74B2A /* FolioMobileBecauseYouRead.swift */,
-				90C032B78495C5C627F39376 /* FolioMobileBookContextMenu.swift */,
-				23DE7052D2916CBB9F435565 /* FolioMobileBookshelf.swift */,
-				0712ADBAD71855E3D601349E /* FolioMobileCaches.swift */,
-				DB51BBC4FE12888675730B35 /* FolioMobileCloudSync.swift */,
-				68293222789A3EF0A0063650 /* FolioMobileCoverAndOverrides.swift */,
-				FDA45FB1BCBE8A6831D6124E /* FolioMobileDebugLog.swift */,
-				231D3AAF77B346C42F1317CA /* FolioMobileDetails.swift */,
-				BCB66813003E9B2B579E739B /* FolioMobileDiscoverFeed.swift */,
-				BF49A093B14A67602587973B /* FolioMobileDiscoverView.swift */,
-				61D80B4C822625BF26BA1DB5 /* FolioMobileDiscoveryComponents.swift */,
-				D57C61C533127E6CEFD9EFB5 /* FolioMobileDownloadsView.swift */,
-				65F13F86A14420B918CECCA8 /* FolioMobileFindSourceView.swift */,
-				5D5859F3326BED9EE16653DD /* FolioMobileGlass.swift */,
-				96C610F125513457BFFAA872 /* FolioMobileHighlights.swift */,
-				88620754C26DB49E275B4F52 /* FolioMobileHomeCache.swift */,
-				99C04386683F6FEEE13F379C /* FolioMobileHomeRecommendations.swift */,
-				63672E3CCB68CC64FF242DCB /* FolioMobileMetadataFixer.swift */,
-				7112FEB1BE412FB85D72ED6F /* FolioMobileMoreSettings.swift */,
-				072BDE34DF5929C66301822D /* FolioMobileNook.swift */,
-				7B7E3F0F05F84E631E7ECACD /* FolioMobileOnboardingView.swift */,
-				246CD814CF946824282A8217 /* FolioMobileRating.swift */,
-				06F20DAD75D8785EA8CC6073 /* FolioMobileReadFilter.swift */,
-				8D86AEED3DC96A1D6EAA7B80 /* FolioMobileReadability.swift */,
-				4F45F8DB926637A3E9053FB7 /* FolioMobileReaderEngine.swift */,
-				C49432CE636EEB15E761235F /* FolioMobileReaderView.swift */,
-				3A514A1CA52748E5F2E523C0 /* FolioMobileReadingActivity.swift */,
-				7A57C9AB5B50CDE32D7621E6 /* FolioMobileReadingReferences.swift */,
-				E81201EED0E7945994DC1404 /* FolioMobileRootView.swift */,
-				98B39FF336D86768902BFBC0 /* FolioMobileSettingsView.swift */,
-				4984AA96C461E62B50D86B6C /* FolioMobileShelfSyncViews.swift */,
-				6ED2AB23A4B62C198A4F31FB /* FolioMobileShelvesView.swift */,
-				16C0FF9C31E7D5CE17B286EC /* FolioMobileSourcesView.swift */,
-				F337CDE984ED6B7B2AB7FA59 /* FolioMobileSync.swift */,
-				4768B1965D144E71AB86A093 /* FolioMobileSystemIntegration.swift */,
-				7776739CF82AB5F0E8FF3712 /* FolioMobileTabHeader.swift */,
-				C4A3A9554D0A95A9AFCDC0AC /* FolioMobileTheme.swift */,
-				69F84E8C326D546EEA8A4E33 /* FolioMobileUpdates.swift */,
-				4AEDEE013E23DB853D9D61DA /* FolioShelfSync.swift */,
-				4085B63F7DACE99FF9C263FC /* FolioShelfSyncCore.swift */,
-				0B4DB22BB7727AA404D430F4 /* FolioiOSApp.swift */,
-				0627C605CF6AF4B774FFBCED /* MobileAutomaticEPUBChoice.swift */,
-				3755FD332B3F1640329A99E5 /* MobileNames.swift */,
-				365902EEAEA0A163773BD12C /* MobileText.swift */,
-				5FA86A72DD1148AFEB62F864 /* MobileXMLCompat.swift */,
+				E47F1A32DC3E0E0DFD5112FE /* Caches.swift */,
+				04D73FAE3817775DE36FCF21 /* DebugLog.swift */,
+				AC48F6CF7B9146724F2FCDBE /* FolioiOSApp.swift */,
+				EFB21B86EAF787EA99B13DBB /* Onboarding.swift */,
+				F9811D705C8D9658FCBA6E92 /* RootView.swift */,
+				66A9D077685D444455116220 /* SystemIntegration.swift */,
+				221079180292496D7A20C361 /* Updates.swift */,
+				7382E2084AEEB2D8DC5A61AB /* XMLCompat.swift */,
+				5EEAFEB16D96C258A040AD54 /* Authors.swift */,
+				B2E279C5B1B84BB568D39675 /* FollowedAuthors.swift */,
+				E828556B981395D4CFD58BC3 /* Series.swift */,
+				9F2A484D7D80BD91E013D5A5 /* BookDetail.swift */,
+				A224169942C3747EC4A083E3 /* CoverAndOverrides.swift */,
+				EA843E93690697BC2D1BA680 /* EditDetails.swift */,
+				6E2E10D790B97804AFFADF85 /* HardcoverLinkSheet.swift */,
+				A823720F3195D39022925D9B /* Rating.swift */,
+				E7E77B7DB0AF00FA5B50D563 /* ReadBooks.swift */,
+				9DCEDA8B30C7215711350DC9 /* Reviews.swift */,
+				7B39FCF7E473931B4BEA3B2D /* DiscoverFeed.swift */,
+				B2218680A04450EB88030BB3 /* DiscoverView.swift */,
+				69C47328B81F37076EF7616D /* DiscoveryComponents.swift */,
+				7966D6E24918599539953B29 /* DownloadsView.swift */,
+				EDD0C77199B7CA8D3C1A3B2B /* FindSourceView.swift */,
+				DE0956DC807679233AE53036 /* SourcesView.swift */,
+				A7552BA400E557C61C87B64B /* BecauseYouRead.swift */,
+				F10FBB9C1BB2A05F7E9E9ED5 /* Bookshelf.swift */,
+				FB4DE26D36601F2716CDFCD3 /* Highlights.swift */,
+				28AFFA76A06DE94FC502CED4 /* HomeCache.swift */,
+				307333EDCE635ADAB3C4A796 /* HomeRecommendations.swift */,
+				637BED08C04560ED389B2655 /* HomeView.swift */,
+				1928807845E83BDA959ED613 /* Nook.swift */,
+				F156B5103731B384E49D29EF /* NookDragDrop.swift */,
+				81FAEB01BB3F137D8357E192 /* ReadingActivity.swift */,
+				6499A89290D308BE52E3532A /* Spine.swift */,
+				300D503FE6842D3E20AC37C9 /* BookContextMenu.swift */,
+				A5359E28E3573EEE706BDC61 /* BookTile.swift */,
+				1EB99B2A3BF1867B57D74307 /* LibraryView.swift */,
+				88FD5B6453D9A7108AB5CC46 /* Shelves.swift */,
+				70381BE529E6FF6D4A4BDA11 /* AnnotationTools.swift */,
+				E35F4353E707F1DDD6D3959B /* ReaderEngine.swift */,
+				1A3D57DD7DC1A33C07A37B0C /* ReaderView.swift */,
+				F7357FD203DCF6C664AB1B60 /* ReadingReferences.swift */,
+				2A504B95AC59B48868132330 /* Readability.swift */,
+				9DE35292E737A3199CAEBE32 /* SettingsPages.swift */,
+				2ADD2C37C94CF5464F2FAD04 /* SettingsView.swift */,
+				9C055ED4A75CF80CC55C842E /* CloudSyncSection.swift */,
+				CA2C695E0BA7169E1D878435 /* HardcoverSync.swift */,
+				DFA716D42BFE53C94BB31AD2 /* ShelfSync.swift */,
+				59B95E88FA99292F8DC184DE /* ShelfSyncCore.swift */,
+				D4E17D9CFBB9F530F7127B52 /* ShelfSyncViews.swift */,
+				49722B50DE9450EC93FEEDCF /* SyncedStores.swift */,
+				B5932A938A741154E60AA907 /* Glass.swift */,
+				AFC32C8787423C83888CCD73 /* Rows.swift */,
+				97077909ADF8A9809A7F4533 /* TabHeader.swift */,
+				434F9249865726C2D5E72951 /* Theme.swift */,
 			);
 			name = "iOS Sources";
 			path = Sources;
@@ -1017,33 +1125,35 @@
 		738C5241DC783C5527E231BF /* Shared Folio Sources */ = {
 			isa = PBXGroup;
 			children = (
-				ACA97979836D1FEACFC63AC7 /* Models.swift */,
-				5D17CE3AB9A94EC09E4D0258 /* LibraryStore.swift */,
+				7DEAC109FE807F9DFAB69282 /* AutomaticEPUBChoice.swift */,
+				F5A1F198ED86A5D653F89D95 /* BookAutoMatch.swift */,
+				B27DB99676C96FB882466088 /* CloudSync.swift */,
+				E3533FEBDCEB1DAA147BC021 /* CloudSyncCore.swift */,
+				998160561DF98DBBCD1DF26D /* DefaultSources.swift */,
+				FE0F309A0011C9862106D14E /* DownloadQueue.swift */,
 				2B4DDA3FAF413C20C729945B /* EPUB.swift */,
 				A50E221EB3B895D6EE47BF21 /* EPUBHardcoverEnricher.swift */,
-				DA025035DFBEA50B45EF9A00 /* ReaderPrefs.swift */,
-				BED126CA6FD726C84FC4B0D9 /* ReadingAnnotations.swift */,
-				23D1E7212746E2C779306CBC /* ReaderScript.swift */,
-				F5A1F198ED86A5D653F89D95 /* BookAutoMatch.swift */,
 				7D5C44EA33D4AA1E86D26CB1 /* EditionTitle.swift */,
-				7ED840A9370E7CA3835E82DD /* WebText.swift */,
-				FE0F309A0011C9862106D14E /* DownloadQueue.swift */,
-				6575FC05C1FE452717C48B7C /* Hardcover.swift */,
-				1A2C4AFA1C95F5C330B71BEB /* OpenLibrary.swift */,
-				DCF4A23BEA87A5C1970F4534 /* Goodreads.swift */,
-				998160561DF98DBBCD1DF26D /* DefaultSources.swift */,
-				228C52A290B14024D14DA53D /* Extensions.swift */,
 				6C364E55B789C95F2CCD8EB7 /* EncryptedDNS.swift */,
 				BA3F62615A8AFC306527C7AB /* EncryptedDNSWebProxy.swift */,
 				DAFB596F53CD17AA6A90CC79 /* ExtensionBrowser.swift */,
-				C099E05B735EAF4904DEC64D /* WidgetShared.swift */,
-				0CE89E81DA04C85F16472F9C /* WidgetBridge.swift */,
+				228C52A290B14024D14DA53D /* Extensions.swift */,
+				DCF4A23BEA87A5C1970F4534 /* Goodreads.swift */,
+				6575FC05C1FE452717C48B7C /* Hardcover.swift */,
+				5D17CE3AB9A94EC09E4D0258 /* LibraryStore.swift */,
+				ACA97979836D1FEACFC63AC7 /* Models.swift */,
+				78D1479071751C234BFBAECC /* Names.swift */,
+				1A2C4AFA1C95F5C330B71BEB /* OpenLibrary.swift */,
+				DA025035DFBEA50B45EF9A00 /* ReaderPrefs.swift */,
+				23D1E7212746E2C779306CBC /* ReaderScript.swift */,
+				BED126CA6FD726C84FC4B0D9 /* ReadingAnnotations.swift */,
 				8BA16301742508E19E04482D /* ReadingReminders.swift */,
-				E3533FEBDCEB1DAA147BC021 /* CloudSyncCore.swift */,
-				B27DB99676C96FB882466088 /* CloudSync.swift */,
+				7ED840A9370E7CA3835E82DD /* WebText.swift */,
+				0CE89E81DA04C85F16472F9C /* WidgetBridge.swift */,
+				C099E05B735EAF4904DEC64D /* WidgetShared.swift */,
 			);
 			name = "Shared Folio Sources";
-			path = ../Sources/Folio;
+			path = ../Core;
 			sourceTree = "<group>";
 		};
 		5380B91D982392B4A89B5568 /* Resources */ = {
@@ -1185,77 +1295,87 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				81C2CB702F1B591C50BF3F8A /* FolioMobileAnnotationTools.swift in Sources */,
-				787A8CD5AE003CC71E8F63AF /* FolioMobileAuthors.swift in Sources */,
-				467FFBBB3B334E09F3688ED2 /* FolioMobileBecauseYouRead.swift in Sources */,
-				C7B48C23E380D1DA8EAA8116 /* FolioMobileBookContextMenu.swift in Sources */,
-				6EF42DAB9C3E3CF22C3D68B8 /* FolioMobileBookshelf.swift in Sources */,
-				BA82E0A022359489CB723FB4 /* FolioMobileCaches.swift in Sources */,
-				C8D8EFA4AF7A9AE28CBE5684 /* FolioMobileCloudSync.swift in Sources */,
-				A0DE3D6E7FDB2DD1088D668F /* FolioMobileCoverAndOverrides.swift in Sources */,
-				D05A249B1756089DE69F9AB0 /* FolioMobileDebugLog.swift in Sources */,
-				DBE23ED2BDF10CF4FEDF1EEF /* FolioMobileDetails.swift in Sources */,
-				C796CE30405C580BBECDD613 /* FolioMobileDiscoverFeed.swift in Sources */,
-				B9393346022257D35ED68751 /* FolioMobileDiscoverView.swift in Sources */,
-				B681837F2B1698C48CD368B0 /* FolioMobileDiscoveryComponents.swift in Sources */,
-				B399D3ADA5D4E0F9F632C2E9 /* FolioMobileDownloadsView.swift in Sources */,
-				4181EFA54A051F82037A2CCE /* FolioMobileFindSourceView.swift in Sources */,
-				40344095770CA0F964040531 /* FolioMobileGlass.swift in Sources */,
-				93C6FCDBC1BCB77DB2A25469 /* FolioMobileHighlights.swift in Sources */,
-				914598F79F0C5D0D7AB50D51 /* FolioMobileHomeCache.swift in Sources */,
-				280BA04050BCBA7A87CD9E99 /* FolioMobileHomeRecommendations.swift in Sources */,
-				82AA66CCA90C0BEBA1063EBB /* FolioMobileMetadataFixer.swift in Sources */,
-				AB6CC2002A763F4AA95EADAB /* FolioMobileMoreSettings.swift in Sources */,
-				D62EF171D0C88B9103697A09 /* FolioMobileNook.swift in Sources */,
-				2727F1A815B872DCBCE95364 /* FolioMobileOnboardingView.swift in Sources */,
-				369DE02606F78C17FA975DB7 /* FolioMobileRating.swift in Sources */,
-				4174858F88543990ADE55C6D /* FolioMobileReadFilter.swift in Sources */,
-				DC11F16A3B144DD7C9F94FFB /* FolioMobileReadability.swift in Sources */,
-				6623BCCFED98A80D68B2A34F /* FolioMobileReaderEngine.swift in Sources */,
-				60770336358E32A5A1B8A5C2 /* FolioMobileReaderView.swift in Sources */,
-				EFBD569131D8EEFD6D65C275 /* FolioMobileReadingActivity.swift in Sources */,
-				24D9459494EBF2AA91F9D426 /* FolioMobileReadingReferences.swift in Sources */,
-				14786E433FD3CBA25415E66E /* FolioMobileRootView.swift in Sources */,
-				DDF29A3A61658C845AA104B1 /* FolioMobileSettingsView.swift in Sources */,
-				9927C45B5641C2852D2C5423 /* FolioMobileShelfSyncViews.swift in Sources */,
-				2DF704D4566705CB1E6A6315 /* FolioMobileShelvesView.swift in Sources */,
-				16F717511D48CC8E1EFA2C18 /* FolioMobileSourcesView.swift in Sources */,
-				39E79FF9085A49A434401C72 /* FolioMobileSync.swift in Sources */,
-				BABADBB5CC85C1A2A3ECD081 /* FolioMobileSystemIntegration.swift in Sources */,
-				5962DE7B368F589F022FF485 /* FolioMobileTabHeader.swift in Sources */,
-				A8A67CA844173428AF5C4516 /* FolioMobileTheme.swift in Sources */,
-				A345950C97E6018CCE2D4B9E /* FolioMobileUpdates.swift in Sources */,
-				91C5634FB40969FB78BB5E3F /* FolioShelfSync.swift in Sources */,
-				4D9D350C8CD3D61C07431496 /* FolioShelfSyncCore.swift in Sources */,
-				FAC923DE549E318D51878226 /* FolioiOSApp.swift in Sources */,
-				71A88045D5054AC8C3F62CAC /* MobileAutomaticEPUBChoice.swift in Sources */,
-				6D6954BA6AE2ACEA3242E39E /* MobileNames.swift in Sources */,
-				E30D614CBB0BBA9694CC24C3 /* MobileText.swift in Sources */,
-				3120E86E383C7FFA8C487AEC /* MobileXMLCompat.swift in Sources */,
-				EE88EA6A985C9EEFEE8B228D /* Models.swift in Sources */,
-				7A48D3240FAC029464E4D5A9 /* LibraryStore.swift in Sources */,
+				93D0D14CBA71DD9219E442AE /* Caches.swift in Sources */,
+				61DDFC8DCE0B74114EF23C6B /* DebugLog.swift in Sources */,
+				876F457275378DEEB95381B5 /* FolioiOSApp.swift in Sources */,
+				CE2D3FD6BA967757F08240BF /* Onboarding.swift in Sources */,
+				D31B94BABBABAD19BFFB95D3 /* RootView.swift in Sources */,
+				8AF602E8E658FF30F2F40BA4 /* SystemIntegration.swift in Sources */,
+				00FE8BF0AB461922F992F05B /* Updates.swift in Sources */,
+				DEA24F2D321893074EAC400F /* XMLCompat.swift in Sources */,
+				05F26222AEAFB02EBB71EBD0 /* Authors.swift in Sources */,
+				B9B863C8A6624475F111B6B8 /* FollowedAuthors.swift in Sources */,
+				9EA0915EE786C8A79435BE3A /* Series.swift in Sources */,
+				90496D35FBC5555925488D9C /* BookDetail.swift in Sources */,
+				22976270D8F97E6D251C7C17 /* CoverAndOverrides.swift in Sources */,
+				46E10A07A9B6CECE32C1FC83 /* EditDetails.swift in Sources */,
+				14E39ACD921AC559F00112F0 /* HardcoverLinkSheet.swift in Sources */,
+				EBF826F32E17FFF1FDA97B77 /* Rating.swift in Sources */,
+				4C597E22C2198008BEAEE88A /* ReadBooks.swift in Sources */,
+				675C52AE004ECB3CC4975277 /* Reviews.swift in Sources */,
+				6F4281A2FBD6DF9D76C533A7 /* DiscoverFeed.swift in Sources */,
+				9AD79D44EDA703B7C09ED3CD /* DiscoverView.swift in Sources */,
+				04002B3DF4C9F411937A169D /* DiscoveryComponents.swift in Sources */,
+				BEFC741FDECEA45A268FFAD9 /* DownloadsView.swift in Sources */,
+				B20ABE2BFEF5C1035498E6A7 /* FindSourceView.swift in Sources */,
+				7EC697B1CB6DC9D172FE3BD4 /* SourcesView.swift in Sources */,
+				D7449CB1F0414DFA595B625F /* BecauseYouRead.swift in Sources */,
+				1D4E097E964270980923DAD1 /* Bookshelf.swift in Sources */,
+				8D02BA719D50DEE38E6C3354 /* Highlights.swift in Sources */,
+				367D027ED367209EA950F1F9 /* HomeCache.swift in Sources */,
+				6D7CE47D1933B4E4702CC89F /* HomeRecommendations.swift in Sources */,
+				14206A5E954ED11202812C43 /* HomeView.swift in Sources */,
+				E5279A81D69DFB79F8E16F54 /* Nook.swift in Sources */,
+				5710E9E7804AED5F5DF342B0 /* NookDragDrop.swift in Sources */,
+				08E29240800F31B627A9BB77 /* ReadingActivity.swift in Sources */,
+				D86CAA1D3FD18FDAE2C5EFC5 /* Spine.swift in Sources */,
+				7BF7F349F35505F5FDEB2107 /* BookContextMenu.swift in Sources */,
+				77F0E1BD69DAF294C918D9B3 /* BookTile.swift in Sources */,
+				EAD6944EF7517C23E1CD4BC7 /* LibraryView.swift in Sources */,
+				9FF1DDE4D496B264B32F89D2 /* Shelves.swift in Sources */,
+				C60E68396A46E16CF18A173B /* AnnotationTools.swift in Sources */,
+				BEF89D1B6EBA744902460FE9 /* ReaderEngine.swift in Sources */,
+				9A0968DCE381E6C13E3F5FD4 /* ReaderView.swift in Sources */,
+				D5FE317A0068C762FD5657B3 /* ReadingReferences.swift in Sources */,
+				353668C263F8B73EC5F9B6C6 /* Readability.swift in Sources */,
+				1A3F1EC4342502EDA3EBAA13 /* SettingsPages.swift in Sources */,
+				BB6D8A5B27B4C8BF0F3759CA /* SettingsView.swift in Sources */,
+				37F4C32A66CBC1ED2DDBD75F /* CloudSyncSection.swift in Sources */,
+				76DB917500DA92418E1CAB61 /* HardcoverSync.swift in Sources */,
+				65A548D9F9E570FA1736C96C /* ShelfSync.swift in Sources */,
+				F0E31490FE0B50A6B2B4769C /* ShelfSyncCore.swift in Sources */,
+				C1B93EACA43F349FDED9FE92 /* ShelfSyncViews.swift in Sources */,
+				29FFBAA47AAE26EA1A5EF6E6 /* SyncedStores.swift in Sources */,
+				8B4B39C3808D6CBB0A9A214C /* Glass.swift in Sources */,
+				09B8F2BD1E3ABCB968185D4E /* Rows.swift in Sources */,
+				12860D0B2DE14644F01C19D8 /* TabHeader.swift in Sources */,
+				2AB2E1A54D9E723AAB40D15C /* Theme.swift in Sources */,
+				00607702A2A7102871FFCCB6 /* AutomaticEPUBChoice.swift in Sources */,
+				6C774D99808ABAA6FBB4B3ED /* BookAutoMatch.swift in Sources */,
+				AA94AF26D4841C3B08B0B985 /* CloudSync.swift in Sources */,
+				1AB88F75F3E79FC6D4CE3830 /* CloudSyncCore.swift in Sources */,
+				55BC5A180A2A20E2B5846744 /* DefaultSources.swift in Sources */,
+				F0E131B28914354AA7432AAE /* DownloadQueue.swift in Sources */,
 				8375E7CF9F14758A987DA893 /* EPUB.swift in Sources */,
 				D8E1BA06E56D4950A30EDC1A /* EPUBHardcoverEnricher.swift in Sources */,
-				CCC9DE81403B4669E2CC014D /* ReaderPrefs.swift in Sources */,
-				D8F0EAEBB8A1C8D9BE68D84E /* ReadingAnnotations.swift in Sources */,
-				29B6F2DD1DCB21E56CFC79A3 /* ReaderScript.swift in Sources */,
-				6C774D99808ABAA6FBB4B3ED /* BookAutoMatch.swift in Sources */,
 				B962700D6E2DA1BC5E12CBC4 /* EditionTitle.swift in Sources */,
-				17C54DB96CCB1BA5F533D7D3 /* WebText.swift in Sources */,
-				F0E131B28914354AA7432AAE /* DownloadQueue.swift in Sources */,
-				09E46BA53BE3434E3E179FEA /* Hardcover.swift in Sources */,
-				1955DE0D753BA4A84F5BE7D3 /* OpenLibrary.swift in Sources */,
-				D76EC36F310468065944AB8A /* Goodreads.swift in Sources */,
-				55BC5A180A2A20E2B5846744 /* DefaultSources.swift in Sources */,
-				6F5BE4195371C5A6AC00F906 /* Extensions.swift in Sources */,
 				0EF51F527695A4C43FF7AFED /* EncryptedDNS.swift in Sources */,
 				517488666F650E485B5CA1B4 /* EncryptedDNSWebProxy.swift in Sources */,
 				EF7E6E65F3D6AA83F567873B /* ExtensionBrowser.swift in Sources */,
-				821DB0CDC55F34BB1823A8F9 /* WidgetShared.swift in Sources */,
-				8266CA00ADEBE392D3F5CE22 /* WidgetBridge.swift in Sources */,
+				6F5BE4195371C5A6AC00F906 /* Extensions.swift in Sources */,
+				D76EC36F310468065944AB8A /* Goodreads.swift in Sources */,
+				09E46BA53BE3434E3E179FEA /* Hardcover.swift in Sources */,
+				7A48D3240FAC029464E4D5A9 /* LibraryStore.swift in Sources */,
+				EE88EA6A985C9EEFEE8B228D /* Models.swift in Sources */,
+				680B33B3446E245CB065FCDE /* Names.swift in Sources */,
+				1955DE0D753BA4A84F5BE7D3 /* OpenLibrary.swift in Sources */,
+				CCC9DE81403B4669E2CC014D /* ReaderPrefs.swift in Sources */,
+				29B6F2DD1DCB21E56CFC79A3 /* ReaderScript.swift in Sources */,
+				D8F0EAEBB8A1C8D9BE68D84E /* ReadingAnnotations.swift in Sources */,
 				19953FFAA8F4CECE41A64C2F /* ReadingReminders.swift in Sources */,
-				1AB88F75F3E79FC6D4CE3830 /* CloudSyncCore.swift in Sources */,
-				AA94AF26D4841C3B08B0B985 /* CloudSync.swift in Sources */,
+				17C54DB96CCB1BA5F533D7D3 /* WebText.swift in Sources */,
+				8266CA00ADEBE392D3F5CE22 /* WidgetBridge.swift in Sources */,
+				821DB0CDC55F34BB1823A8F9 /* WidgetShared.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1292,12 +1412,12 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Resources/Folio.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 134;
+				CURRENT_PROJECT_VERSION = 135;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
-				MARKETING_VERSION = 1.0.133;
+				MARKETING_VERSION = 1.0.134;
 				PRODUCT_BUNDLE_IDENTIFIER = app.folio.reader.ios;
 				PRODUCT_NAME = Folio;
 				SUPPORTS_MACCATALYST = NO;
@@ -1324,12 +1444,12 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Resources/Folio.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 134;
+				CURRENT_PROJECT_VERSION = 135;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
-				MARKETING_VERSION = 1.0.133;
+				MARKETING_VERSION = 1.0.134;
 				PRODUCT_BUNDLE_IDENTIFIER = app.folio.reader.ios;
 				PRODUCT_NAME = Folio;
 				SUPPORTS_MACCATALYST = NO;
@@ -1396,11 +1516,11 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = WidgetExtension/FolioWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 134;
+				CURRENT_PROJECT_VERSION = 135;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = WidgetExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks");
-				MARKETING_VERSION = 1.0.133;
+				MARKETING_VERSION = 1.0.134;
 				PRODUCT_BUNDLE_IDENTIFIER = app.folio.reader.ios.widgets;
 				PRODUCT_MODULE_NAME = FolioWidgets;
 				PRODUCT_NAME = FolioWidgets;
@@ -1429,11 +1549,11 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = WidgetExtension/FolioWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 134;
+				CURRENT_PROJECT_VERSION = 135;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = WidgetExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks");
-				MARKETING_VERSION = 1.0.133;
+				MARKETING_VERSION = 1.0.134;
 				PRODUCT_BUNDLE_IDENTIFIER = app.folio.reader.ios.widgets;
 				PRODUCT_MODULE_NAME = FolioWidgets;
 				PRODUCT_NAME = FolioWidgets;

@@ -2,7 +2,7 @@
 // EPUB.swift + BookAutoMatch.swift without building or launching Folio.
 //
 // From /books:
-//   swiftc app/Sources/Folio/EPUB.swift app/Sources/Folio/BookAutoMatch.swift \
+//   swiftc app/Core/EPUB.swift app/Core/BookAutoMatch.swift \
 //     checks/test-epub-language.swift -o /tmp/folio-language-probe
 //   /tmp/folio-language-probe
 //

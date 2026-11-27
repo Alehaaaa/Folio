@@ -6,8 +6,8 @@ cd "$(dirname "$0")/.."
 scratch=$(mktemp -d /tmp/folio-lectulandia-native.XXXXXX)
 trap 'rm -rf "$scratch"' EXIT HUP INT TERM
 swiftc -swift-version 5 -parse-as-library \
-    app/Sources/Folio/Extensions.swift app/Sources/Folio/ExtensionBrowser.swift \
-    app/Sources/Folio/EncryptedDNS.swift app/Sources/Folio/EncryptedDNSWebProxy.swift app/Sources/Folio/WebText.swift \
+    app/Core/Extensions.swift app/Core/ExtensionBrowser.swift \
+    app/Core/EncryptedDNS.swift app/Core/EncryptedDNSWebProxy.swift app/Core/WebText.swift \
     checks/test-lectulandia-source-native.swift \
     -o "$scratch/test-lectulandia-native"
 "$scratch/test-lectulandia-native" "$PWD/extensions/lectulandia.js"
