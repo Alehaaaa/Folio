@@ -163,16 +163,30 @@ final class FolioImageCache: @unchecked Sendable {
         if url.pathExtension.lowercased() == "svg" { return nil }
         if inflightLock.withLock({ failed.contains(url) }) { return nil }
         let started = Date()
-        guard let (data, response) = try? await fetch(url, urgent: urgent) else { return nil }
-        let took = Date().timeIntervalSince(started)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 200
-        if took > 2 {
-            FolioLog.log("\(url.host ?? "?") \(url.lastPathComponent): HTTP \(status) in "
-                         + took.formatted(.number.precision(.fractionLength(1))) + " s, \(data.count / 1024) KB", "images")
+        var data = Data()
+        var status = 0
+        // Open Library's covers come from archive.org, which often answers a moment of
+        // load with a 5xx or a timeout: try twice before showing the placeholder.
+        for attempt in 0..<2 {
+            if attempt > 0 {
+                try? await Task.sleep(for: .seconds(1.5))
+                if Task.isCancelled { return nil }
+            }
+            let answer = try? await fetch(url, urgent: urgent)
+            data = answer?.0 ?? Data()
+            status = answer.map { ($0.1 as? HTTPURLResponse)?.statusCode ?? 200 } ?? 0
+            let took = Date().timeIntervalSince(started)
+            if took > 2 || !(200..<300).contains(status) {
+                FolioLog.log("\(url.host ?? "?") \(url.lastPathComponent): HTTP \(status) in "
+                             + took.formatted(.number.precision(.fractionLength(1))) + " s, \(data.count / 1024) KB", "images")
+            }
+            if status == 0 || status == 429 || status >= 500 { continue }
+            break
         }
         // A missing photo (Open Library answers 404 with default=false): the placeholder stays.
+        // Busy or unreachable is not remembered, so the next time the cover shows it tries again.
         guard (200..<300).contains(status) else {
-            _ = inflightLock.withLock { failed.insert(url) }
+            if (400..<500).contains(status), status != 429 { _ = inflightLock.withLock { failed.insert(url) } }
             return nil
         }
         // ImageIO decodes straight to the drawn size: decoding a full 3000-pixel cover

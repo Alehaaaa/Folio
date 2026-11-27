@@ -331,7 +331,6 @@ struct FolioMobileDiscoverTopicPage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                filterBar
                 if let error, shown.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         Label(error, systemImage: "wifi.exclamationmark")
@@ -364,6 +363,15 @@ struct FolioMobileDiscoverTopicPage: View {
             .padding(.bottom, 30)
             .frame(maxWidth: 1120)
             .frame(maxWidth: .infinity)
+        }
+        // Pinned under the title rather than scrolled with the grid: as the first row of
+        // the scroll content it ended up behind the page header.
+        .safeAreaInset(edge: .top, spacing: 0) {
+            filterBar
+                .padding(.top, 4)
+                .padding(.bottom, 10)
+                .frame(maxWidth: .infinity)
+                .background(FolioTheme.paper)
         }
         .navigationTitle(topic.title)
         .folioPageHeader(topic.title)
@@ -403,7 +411,6 @@ struct FolioMobileDiscoverTopicPage: View {
             .padding(.vertical, 2)
         }
         .contentMargins(.horizontal, 20)
-        .padding(.horizontal, -20)
     }
 
     private func filterMenu<Option: Hashable & Identifiable & RawRepresentable>(
