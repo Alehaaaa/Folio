@@ -109,7 +109,7 @@ struct FolioMobileFindSourceView: View {
                             Label("Anna's Archive is disabled. Enable it under Sources before searching.",
                                   systemImage: "exclamationmark.triangle")
                                 .font(.footnote)
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(FolioTheme.caution)
                         }
                         FolioGlassButton(title: "Search Sources", systemImage: "magnifyingglass", prominent: true, fullWidth: true) {
                             Task { await search() }
@@ -132,7 +132,7 @@ struct FolioMobileFindSourceView: View {
                     if let id = library.localCopy(author: queryAuthor, title: queryTitle)?.id {
                         VStack(alignment: .leading, spacing: 10) {
                             Label("This book is already in your library.", systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(FolioTheme.success)
                             FolioGlassButton(title: "Read", systemImage: "book.fill", prominent: true, fullWidth: true) {
                                 openReader(id)
                             }
@@ -168,7 +168,7 @@ struct FolioMobileFindSourceView: View {
                             Label("\(problems.count) source\(problems.count == 1 ? "" : "s") could not complete the search. See the source errors below.",
                                   systemImage: "network.slash")
                                 .font(.subheadline)
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(FolioTheme.caution)
                         }
                         DisclosureGroup("Source Errors (\(problems.count))") {
                             ForEach(problems, id: \.self) { problem in
@@ -262,7 +262,7 @@ struct FolioMobileFindSourceView: View {
                     }
                     if copy.exact {
                         Label("Exact", systemImage: "checkmark.seal.fill")
-                            .foregroundStyle(.green)
+                            .foregroundStyle(FolioTheme.success)
                     }
                 }
                 .font(.caption2)
@@ -279,7 +279,7 @@ struct FolioMobileFindSourceView: View {
                     if !selectedLanguage.isEmpty,
                        BookLanguage.matches(copy.result.language, expected: selectedLanguage) == false {
                         Text("· different from \(languageName(selectedLanguage))")
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(FolioTheme.caution)
                     }
                 }
                 .font(.footnote)
@@ -380,26 +380,5 @@ struct FolioMobileFindSourceView: View {
             "Activity:"
         ] + messages).joined(separator: "\n")
         UIPasteboard.general.string = report
-    }
-}
-
-/// Use NSError's stable domain/code and underlying network cause rather than
-/// only a generic localizedDescription. Never copy full URLs (which may contain
-/// private query parameters) or credentials into diagnostic strings.
-enum FolioMobileSourceDiagnostics {
-    static func describe(_ error: Error, source: String? = nil) -> String {
-        let ns = error as NSError
-        var lines: [String] = []
-        if let source { lines.append("Source: \(source)") }
-        lines.append("\(error.localizedDescription) [\(ns.domain) \(ns.code)]")
-        if let reason = ns.localizedFailureReason, !reason.isEmpty,
-           reason != error.localizedDescription { lines.append("Reason: \(reason)") }
-        if let url = (ns.userInfo[NSURLErrorFailingURLErrorKey] as? URL)
-            ?? (ns.userInfo[NSURLErrorFailingURLStringErrorKey] as? String).flatMap(URL.init(string:)),
-           let host = url.host { lines.append("Network host: \(host)") }
-        if let underlying = ns.userInfo[NSUnderlyingErrorKey] as? NSError {
-            lines.append("Underlying: \(underlying.localizedDescription) [\(underlying.domain) \(underlying.code)]")
-        }
-        return lines.joined(separator: " · ")
     }
 }

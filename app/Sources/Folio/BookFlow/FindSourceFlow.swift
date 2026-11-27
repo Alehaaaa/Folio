@@ -3,34 +3,6 @@ import UniformTypeIdentifiers
 
 // MARK: - Getting a copy of a book from the sources
 
-/// The "Find Source" action queues the work without navigating away. A brief
-/// in-app confirmation is shown by ContentView, while this detail stays open.
-struct FindCopyView: View {
-    let title: String
-    let author: String
-    var hardcoverBookID: Int? = nil
-    var hardcoverPages: Int? = nil
-    var cover: URL? = nil
-
-    @State private var didEnqueue = false
-    @State private var alreadyRunning = false
-
-    var body: some View {
-        Label(didEnqueue
-              ? (alreadyRunning ? "Already in Downloads · running in background" : "Added to Downloads · running in background")
-              : "Adding to Downloads…", systemImage: "arrow.down.circle")
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .task {
-                guard !didEnqueue else { return }
-                alreadyRunning = enqueueSourceDownload(title: title, author: author,
-                                                       hardcoverBookID: hardcoverBookID,
-                                                       hardcoverPages: hardcoverPages, cover: cover)
-                didEnqueue = true
-            }
-    }
-}
-
 /// Explicit fallback for someone who wants to choose a particular source or format after a
 /// background attempt failed. Only manual clicks download here; the queue owns automatic tries.
 struct ManualCopyPicker: View {

@@ -192,7 +192,7 @@ struct FolioShelfWebSignIn: View {
                 if let webError {
                     Text(webError)
                         .font(.footnote)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(FolioTheme.danger)
                         .padding(8)
                 }
                 FolioShelfWebView(service: service, done: done,

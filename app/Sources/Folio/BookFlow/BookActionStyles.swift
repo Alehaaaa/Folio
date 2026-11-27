@@ -29,31 +29,3 @@ struct BookSecondaryActionStyle: PrimitiveButtonStyle {
         .foregroundStyle(Color(nsColor: .labelColor))
     }
 }
-
-struct BookShelfStatusStyle: PrimitiveButtonStyle {
-    let selected: Bool
-
-    @ViewBuilder
-    func makeBody(configuration: Configuration) -> some View {
-        if selected {
-            Button(action: { configuration.trigger() }) {
-                configuration.label
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-            }
-            .buttonStyle(.glassProminent)
-            .buttonBorderShape(.capsule)
-            .tint(.indigo)
-            .foregroundStyle(.white)
-        } else {
-            Button(action: { configuration.trigger() }) {
-                configuration.label
-                    .foregroundStyle(Color(nsColor: .labelColor))
-                    .padding(.horizontal, 6)
-            }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.capsule)
-            .foregroundStyle(Color(nsColor: .labelColor))
-        }
-    }
-}

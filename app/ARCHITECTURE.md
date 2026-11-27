@@ -47,7 +47,7 @@ starting to read moves an unstarted/wishlisted local book to Reading Now.
   **Ready to Read** action appears.
 - `BookFlow/AutomaticEPUBChoice.swift` owns conservative edition ranking.
   Downloads are checked against the requested title, author and language before
-  being accepted as library files. `shots/check-auto-epub-selection.sh` exercises
+  being accepted as library files. `checks/test-automatic-epub-ranking.swift` exercises
   this actual selector.
 - `Hardcover.swift` and `Goodreads.swift` own remote books/shelves. The unified
   My Shelves UI combines local and remote records but must preserve each source's
