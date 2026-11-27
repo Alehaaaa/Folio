@@ -272,6 +272,8 @@ struct FolioAuthorPortrait: View {
     let name: String
     let url: URL?
     var size: CGFloat = 76
+    /// Ahead of the covers loading at the same time, for the author page's own portrait.
+    var urgent = false
 
     private var initials: String {
         FolioAuthorNames.split(name).first.map { full in
@@ -280,7 +282,8 @@ struct FolioAuthorPortrait: View {
     }
 
     var body: some View {
-        FolioCachedImage(url: url) {
+        // Kept at the size it draws (3x), not the 600 pixels a cover keeps.
+        FolioCachedImage(url: url, maxPixels: Int(size * 3), urgent: urgent) {
             ZStack {
                 FolioTheme.spine(for: name)
                 Text(initials)
@@ -363,6 +366,8 @@ struct FolioMobileAuthorView: View {
     @State private var books: [HCBook] = []
     @State private var newest: [HCBook] = []
     @State private var series: [HCSeriesRef] = []
+    /// The photo, known from the first quick request, before the full record arrives.
+    @State private var earlyPortrait: URL?
     @State private var loading = false
     @State private var failure: String?
     @State private var bioExpanded = false
@@ -383,7 +388,7 @@ struct FolioMobileAuthorView: View {
     }
 
     private var portraitURL: URL? {
-        author?.imageURL ?? FolioAuthorCache.author(route.name)?.imageURL
+        author?.imageURL ?? earlyPortrait ?? FolioAuthorCache.author(route.name)?.imageURL
     }
 
     /// Newest first: the dedicated list when there is one, else the known books by year.
@@ -497,17 +502,14 @@ struct FolioMobileAuthorView: View {
     }
 
     /// Book-shaped placeholders while the first list loads.
+    /// Laid out like the real row: four fixed-width tiles in a plain HStack are wider
+    /// than a phone, and that widened the whole page and pushed it off the left edge.
     private var skeletonRow: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Popular")
-                .font(.folioDisplay(.title2))
-                .foregroundStyle(FolioTheme.ink)
-            HStack(alignment: .top, spacing: 14) {
-                ForEach(0..<4, id: \.self) { _ in FolioMobileBookSkeleton(width: 118) }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .clipped()
+        FolioMobileRow(title: "Popular") {
+            ForEach(0..<4, id: \.self) { _ in FolioMobileBookSkeleton(width: 118) }
         }
+        .scrollDisabled(true)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("Loading books")
     }
 
@@ -544,7 +546,7 @@ struct FolioMobileAuthorView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 16) {
-            FolioAuthorPortrait(name: name, url: portraitURL, size: 92)
+            FolioAuthorPortrait(name: name, url: portraitURL, size: 92, urgent: true)
             VStack(alignment: .leading, spacing: 8) {
                 Text(name)
                     .font(.system(size: 28, weight: .regular, design: .serif))
@@ -641,6 +643,7 @@ struct FolioMobileAuthorView: View {
         case newest([HCBook]?)
         case profile(HCAuthor?, wikidata: String?)
         case series([HCSeriesRef]?)
+        case portrait(URL?)
     }
 
     /// Open Library and Wikidata: no account needed, and no Hardcover requests.
@@ -665,6 +668,10 @@ struct FolioMobileAuthorView: View {
         var latest: [HCBook]?
         var foundSeries: [HCSeriesRef]?
         await withTaskGroup(of: Piece.self) { group in
+            // First, so the photo starts downloading after one small request.
+            if portraitURL == nil {
+                group.addTask { .portrait(await FolioOpenLibrary.authorPhoto(name: name)) }
+            }
             group.addTask { .popular(try? await FolioOpenLibrary.booksBy(author: name, limit: FolioOpenLibrary.authorPageLimit)) }
             group.addTask { .newest(try? await FolioOpenLibrary.newestBooks(author: name)) }
             group.addTask {
@@ -694,6 +701,8 @@ struct FolioMobileAuthorView: View {
                 case .series(let list):
                     foundSeries = list
                     if let list { series = list }
+                case .portrait(let url):
+                    if author?.imageURL == nil, let url { earlyPortrait = url }
                 }
             }
         }

@@ -35,8 +35,32 @@ final class FolioImageCache: @unchecked Sendable {
         localMemory.countLimit = 120
         localMemory.totalCostLimit = 32 * 1_048_576
         let config = URLSessionConfiguration.default
-        config.requestCachePolicy = .returnCacheDataElseLoad
+        // The downsized copy in `directory` is the cache. URLCache kept every full-size
+        // original a second time (a 3000-pixel cover can be over 1 MB).
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.httpMaximumConnectionsPerHost = 8
+        config.timeoutIntervalForRequest = 20
         session = URLSession(configuration: config)
+        let dir = directory
+        Task.detached(priority: .background) { Self.trim(dir) }
+    }
+
+    /// Keeps the saved images under `limit`, dropping the least recently used.
+    private static func trim(_ dir: URL, limit: Int = 150 * 1_048_576, target: Int = 100 * 1_048_576) {
+        let keys: [URLResourceKey] = [.fileSizeKey, .contentAccessDateKey, .contentModificationDateKey]
+        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: keys) else { return }
+        var entries = files.compactMap { url -> (url: URL, size: Int, used: Date)? in
+            guard let values = try? url.resourceValues(forKeys: Set(keys)) else { return nil }
+            return (url, values.fileSize ?? 0, values.contentAccessDate ?? values.contentModificationDate ?? .distantPast)
+        }
+        var total = entries.reduce(0) { $0 + $1.size }
+        guard total > limit else { return }
+        entries.sort { $0.used < $1.used }
+        for entry in entries where total > target {
+            try? FileManager.default.removeItem(at: entry.url)
+            total -= entry.size
+        }
     }
 
     private func file(for url: URL) -> URL {
@@ -53,10 +77,10 @@ final class FolioImageCache: @unchecked Sendable {
     /// Memory, then disk. The disk copy is decoded here, so call it off the main
     /// thread: a lazily decoded JPEG would otherwise decode on the main thread
     /// in the middle of a scroll.
-    func cached(_ url: URL) -> UIImage? {
+    func cached(_ url: URL, maxPixels: Int = FolioImageCache.coverPixels) -> UIImage? {
         if let image = memory.object(forKey: url as NSURL) { return image }
         guard let data = try? Data(contentsOf: file(for: url)),
-              let image = Self.thumbnail(data, maxPixels: 600) else { return nil }
+              let image = Self.thumbnail(data, maxPixels: maxPixels) else { return nil }
         memory.setObject(image, forKey: url as NSURL, cost: Self.cost(of: image))
         return image
     }
@@ -73,7 +97,7 @@ final class FolioImageCache: @unchecked Sendable {
         let key = file.path as NSString
         let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
         if let entry = localMemory.object(forKey: key), entry.modified == modified { return entry.image }
-        guard let data = try? Data(contentsOf: file), let image = Self.thumbnail(data, maxPixels: 600) else { return nil }
+        guard let data = try? Data(contentsOf: file), let image = Self.thumbnail(data, maxPixels: Self.coverPixels) else { return nil }
         localMemory.setObject(LocalCover(image: image, modified: modified), forKey: key, cost: Self.cost(of: image))
         return image
     }
@@ -86,15 +110,22 @@ final class FolioImageCache: @unchecked Sendable {
     private let inflightLock = NSLock()
     private var inflight: [URL: Task<UIImage?, Never>] = [:]
 
+    /// Covers never draw larger than about 300 points, so keep at most 600 pixels.
+    static let coverPixels = 600
+
     /// Memory, disk, then the network. Tiles asking for the same cover at once share one download.
-    func load(_ url: URL) async -> UIImage? {
+    /// `maxPixels` is the longest side kept; `urgent` puts the download ahead of
+    /// the covers loading at the same time (an author's portrait over a row of 15 covers).
+    func load(_ url: URL, maxPixels: Int = FolioImageCache.coverPixels, urgent: Bool = false) async -> UIImage? {
         if let image = memoryHit(url) { return image }
-        if let image = await Task.detached(priority: .userInitiated, operation: { self.cached(url) }).value {
+        if let image = await Task.detached(priority: .userInitiated, operation: { self.cached(url, maxPixels: maxPixels) }).value {
             return image
         }
         let task: Task<UIImage?, Never> = inflightLock.withLock {
             if let running = inflight[url] { return running }
-            let started = Task.detached(priority: .userInitiated) { await self.download(url) }
+            let started = Task.detached(priority: urgent ? .high : .userInitiated) {
+                await self.download(url, maxPixels: maxPixels, urgent: urgent)
+            }
             inflight[url] = started
             return started
         }
@@ -127,24 +158,55 @@ final class FolioImageCache: @unchecked Sendable {
     /// Images that couldn't be read (SVG avatars, broken links), not asked for again this session.
     private var failed = Set<URL>()
 
-    private func download(_ url: URL) async -> UIImage? {
+    private func download(_ url: URL, maxPixels: Int, urgent: Bool) async -> UIImage? {
         // ImageIO can't draw SVG (Hardcover's default avatars): show the placeholder instead.
         if url.pathExtension.lowercased() == "svg" { return nil }
         if inflightLock.withLock({ failed.contains(url) }) { return nil }
-        guard let (data, _) = try? await session.data(from: url) else { return nil }
-        // Covers never draw larger than about 300 points, so keep at most 600 pixels.
-        // ImageIO decodes straight to that size: decoding a full 3000-pixel cover
+        let started = Date()
+        guard let (data, response) = try? await fetch(url, urgent: urgent) else { return nil }
+        let took = Date().timeIntervalSince(started)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 200
+        if took > 2 {
+            FolioLog.log("\(url.host ?? "?") \(url.lastPathComponent): HTTP \(status) in "
+                         + took.formatted(.number.precision(.fractionLength(1))) + " s, \(data.count / 1024) KB", "images")
+        }
+        // A missing photo (Open Library answers 404 with default=false): the placeholder stays.
+        guard (200..<300).contains(status) else {
+            _ = inflightLock.withLock { failed.insert(url) }
+            return nil
+        }
+        // ImageIO decodes straight to the drawn size: decoding a full 3000-pixel cover
         // first takes tens of MB each, and a screen of them can exceed the memory limit.
-        guard let image = Self.thumbnail(data, maxPixels: 600) else {
+        guard let image = Self.thumbnail(data, maxPixels: maxPixels) else {
             FolioLog.log("Unreadable image (\(data.count) bytes) at \(url.lastPathComponent)", "images")
             _ = inflightLock.withLock { failed.insert(url) }
             return nil
         }
         memory.setObject(image, forKey: url as NSURL, cost: Self.cost(of: image))
-        if let jpeg = image.jpegData(compressionQuality: 0.85) {
+        if let jpeg = image.jpegData(compressionQuality: 0.8) {
             try? jpeg.write(to: file(for: url), options: .atomic)
         }
         return image
+    }
+
+    /// One download; an urgent one is marked high priority so URLSession sends it
+    /// before the covers already queued for the same host.
+    private func fetch(_ url: URL, urgent: Bool) async throws -> (Data, URLResponse) {
+        guard urgent else { return try await session.data(from: url) }
+        let box = FolioImageTaskBox()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let task = session.dataTask(with: url) { data, response, error in
+                    if let data, let response { continuation.resume(returning: (data, response)) }
+                    else { continuation.resume(throwing: error ?? URLError(.badServerResponse)) }
+                }
+                task.priority = URLSessionTask.highPriority
+                box.task = task
+                task.resume()
+            }
+        } onCancel: {
+            box.task?.cancel()
+        }
     }
 
     private static func thumbnail(_ data: Data, maxPixels: Int) -> UIImage? {
@@ -165,15 +227,25 @@ final class FolioImageCache: @unchecked Sendable {
     }
 }
 
+/// Holds the URLSession task of an urgent download, so cancelling the Swift task cancels it.
+private final class FolioImageTaskBox: @unchecked Sendable {
+    var task: URLSessionDataTask?
+}
+
 /// An image view that shows a cached image immediately, otherwise the
 /// placeholder until the download finishes.
 struct FolioCachedImage<Placeholder: View>: View {
     let url: URL?
+    var maxPixels = FolioImageCache.coverPixels
+    var urgent = false
     let placeholder: () -> Placeholder
     @State private var image: UIImage?
 
-    init(url: URL?, @ViewBuilder placeholder: @escaping () -> Placeholder) {
+    init(url: URL?, maxPixels: Int = FolioImageCache.coverPixels, urgent: Bool = false,
+         @ViewBuilder placeholder: @escaping () -> Placeholder) {
         self.url = url
+        self.maxPixels = maxPixels
+        self.urgent = urgent
         self.placeholder = placeholder
         // Memory only: this runs every time the parent redraws, so it must never touch the disk.
         _image = State(initialValue: url.flatMap { FolioImageCache.shared.memoryHit($0) })
@@ -196,7 +268,7 @@ struct FolioCachedImage<Placeholder: View>: View {
                 if image !== hit { image = hit }
                 return
             }
-            if let loaded = await FolioImageCache.shared.load(url) {
+            if let loaded = await FolioImageCache.shared.load(url, maxPixels: maxPixels, urgent: urgent) {
                 withAnimation(.easeInOut(duration: 0.15)) { image = loaded }
             }
         }

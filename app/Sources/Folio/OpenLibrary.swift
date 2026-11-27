@@ -87,10 +87,14 @@ actor FolioOpenData {
         request.timeoutInterval = 30
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue(accept, forHTTPHeaderField: "Accept")
+        let asked = Date()
         for attempt in 0..<3 {
             try await turn(host)
+            let started = Date()
             let (data, response) = try await URLSession.shared.data(for: request)
             let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            Self.logTiming(url, status: status, waited: started.timeIntervalSince(asked),
+                           took: Date().timeIntervalSince(started), bytes: data.count)
             if status == 429 || status == 503 || status == 502 || status == 504 {
                 // Busy: back off for what the server asks (or a growing pause), then try again.
                 let asked = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init)
@@ -109,6 +113,18 @@ actor FolioOpenData {
             return json
         }
         throw HCError(message: "\(host) is busy right now. Try again shortly.", rateLimited: true)
+    }
+}
+
+extension FolioOpenData {
+    /// Logs slow or failed requests, so a slow page can be traced to the request behind it.
+    nonisolated static func logTiming(_ url: URL, status: Int, waited: TimeInterval, took: TimeInterval, bytes: Int) {
+        #if os(iOS)
+        guard !(200..<300).contains(status) || took > 1.5 || waited > 1 else { return }
+        func seconds(_ t: TimeInterval) -> String { t.formatted(.number.precision(.fractionLength(1))) + " s" }
+        let what = url.host == "query.wikidata.org" ? "sparql" : url.path
+        FolioLog.log("\(what): HTTP \(status) in \(seconds(took)) after \(seconds(waited)) waiting, \(bytes / 1024) KB", "open-data")
+        #endif
     }
 }
 
@@ -319,14 +335,7 @@ extension FolioOpenLibrary {
     /// The author as Open Library knows them (bio, photo, dates) and their Wikidata
     /// id, for the series. Author ids are negative (-N for OLnA).
     static func authorProfile(name: String) async throws -> (author: HCAuthor, wikidata: String?)? {
-        var parts = URLComponents(string: "https://openlibrary.org/search/authors.json")!
-        parts.queryItems = [URLQueryItem(name: "q", value: name), URLQueryItem(name: "limit", value: "5"),
-                            URLQueryItem(name: "fields", value: "key,name,work_count")]
-        let docs = try await FolioOpenData.shared.json(parts.url!, fresh: 7 * day)["docs"].array
-        // The same name can have several records: the one with the most works is the author.
-        let named = docs.filter { BookAutoMatch.sameAuthor($0["name"].string ?? "", name) }
-        guard let doc = (named.isEmpty ? docs : named).max(by: { ($0["work_count"].int ?? 0) < ($1["work_count"].int ?? 0) }),
-              let key = doc["key"].string, key.hasPrefix("OL"), key.hasSuffix("A"),
+        guard let doc = try await authorRecord(name: name), let key = doc["key"].string,
               let number = Int(key.dropFirst(2).dropLast()) else { return nil }
         let record = (try? await FolioOpenData.shared.json(URL(string: "https://openlibrary.org/authors/\(key).json")!, fresh: 7 * day)) ?? .null
         let bio = (record["bio"]["value"].string ?? record["bio"].string)?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -336,10 +345,35 @@ extension FolioOpenLibrary {
         }
         let author = HCAuthor(id: -number, name: record["name"].string ?? doc["name"].string ?? name, slug: nil,
                               bio: bio?.isEmpty == false ? bio : nil,
-                              imageURL: photo.flatMap { URL(string: "https://covers.openlibrary.org/a/id/\($0)-L.jpg") },
+                              imageURL: photo == nil ? nil : authorPhotoURL(key: key),
                               bornYear: year(record["birth_date"].string), deathYear: year(record["death_date"].string),
                               booksCount: doc["work_count"].int, followers: nil)
         return (author, record["remote_ids"]["wikidata"].string)
+    }
+
+    /// The author's search record ("key", "name", "work_count"): one quick request.
+    /// The same name can have several records: the one with the most works is the author.
+    static func authorRecord(name: String) async throws -> JSON? {
+        var parts = URLComponents(string: "https://openlibrary.org/search/authors.json")!
+        parts.queryItems = [URLQueryItem(name: "q", value: name), URLQueryItem(name: "limit", value: "5"),
+                            URLQueryItem(name: "fields", value: "key,name,work_count")]
+        let docs = try await FolioOpenData.shared.json(parts.url!, fresh: 7 * day)["docs"].array
+        let named = docs.filter { BookAutoMatch.sameAuthor($0["name"].string ?? "", name) }
+        guard let doc = (named.isEmpty ? docs : named).max(by: { ($0["work_count"].int ?? 0) < ($1["work_count"].int ?? 0) }),
+              let key = doc["key"].string, key.hasPrefix("OL"), key.hasSuffix("A") else { return nil }
+        return doc
+    }
+
+    /// The author's photo by record key, so it can load as soon as the search
+    /// answers instead of after the full record. Without a photo it is a 404.
+    static func authorPhotoURL(key: String) -> URL? {
+        URL(string: "https://covers.openlibrary.org/a/olid/\(key)-L.jpg?default=false")
+    }
+
+    /// The photo for an author's name, after the one search request.
+    static func authorPhoto(name: String) async -> URL? {
+        guard let key = (try? await authorRecord(name: name))?["key"].string else { return nil }
+        return authorPhotoURL(key: key)
     }
 
     /// The author's newest books, most recent first, without announced titles far ahead.
