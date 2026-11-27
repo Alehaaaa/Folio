@@ -5,6 +5,7 @@ import Darwin
 
 func report(_ value: String) { print(value); fflush(stdout) }
 
+enum FolioLog { static func log(_ message: String, _ category: String = "app") {} }
 enum SourceEvent { case status(String), log(String), transfer(received: Int64, expected: Int64) }
 
 // Register a deterministic URL loading protocol for the *actual* Open Library
@@ -187,10 +188,10 @@ struct EPUBPackage {
         func findCopies(title: String, author: String, expectedLanguage: String? = nil,
                         progress: @escaping (String) -> Void = { _ in },
                         onEvent: @escaping (String, SourceEvent) -> Void = { _,_ in }) async
-                        -> (copies: [Copy], problems: [String]) {
+                        -> (copies: [Copy], problems: [String], searched: [String]) {
             progress("Metadata-only multilingual catalogue fixture")
             owner.searched.append(title)
-            guard title.localizedCaseInsensitiveCompare(owner.translatedTitle) == .orderedSame else { return ([], []) }
+            guard title.localizedCaseInsensitiveCompare(owner.translatedTitle) == .orderedSame else { return ([], [], ["Local catalogue metadata"]) }
             let names = [owner.translatedTitle + " (Omnibus)", owner.translatedTitle]
             let entries = names.enumerated().map { index, name in
                 Copy(sourceID: "catalogue", sourceName: "Local catalogue metadata", result: SourceResult(
@@ -198,7 +199,7 @@ struct EPUBPackage {
                     language: owner.language, downloadCount: nil,
                     preferred: SourceDownload(format: "epub", url: URL(string: "https://example.invalid/metadata-only")!)))
             }
-            return (entries, [])
+            return (entries, [], ["Local catalogue metadata"])
         }
         func download(_ result: SourceResult, from id: String, into library: LibraryStore,
                       onEvent: @escaping (SourceEvent) -> Void = { _ in }) async throws -> UUID {
