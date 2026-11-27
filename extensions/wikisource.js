@@ -5,7 +5,7 @@ var source = {
   id: "wikisource",
   name: "Wikisource",
   description: "Public-domain classics and source texts from Wikisource, in many languages, as EPUBs built by Wikisource's own export tool.",
-  version: "1.0.0",
+  version: "1.0.1",
   languages: ["*"],
   // One Wikisource per language. Folio only searches the edition in the
   // language the book is wanted in; languages not listed here are skipped.
@@ -70,12 +70,30 @@ var source = {
       .map(function (a) { return a.trim(); }).filter(Boolean);
   },
 
+  // Lowercase words without accents, for a rough "is this page about that title" check.
+  words: function (text) {
+    return String(text || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .split(/[^a-z0-9]+/).filter(function (w) { return w.length > 2; });
+  },
+
+  // A page worth reading the header of shares most of the title's words. Wikisource's
+  // search also returns any page mentioning them, and each header costs a request.
+  relevant: function (pageTitle, term) {
+    var wanted = this.words(term);
+    if (!wanted.length) return true;
+    var have = this.words(pageTitle);
+    var hits = wanted.filter(function (w) { return have.indexOf(w) >= 0; }).length;
+    return hits >= Math.ceil(wanted.length / 2);
+  },
+
   details: function (lang, title) {
     try {
       var r = folio.fetchJSON(this.api(lang, { action: "parse", page: title, prop: "text", section: 0, redirects: 1, disablelimitreport: 1 }));
       var html = (r && r.parse && r.parse.text) || "";
       return { author: this.field(html, "author"), title: this.field(html, "title"), year: parseInt(this.field(html, "year"), 10) };
     } catch (e) {
+      // Busy: stop asking for headers in this search rather than piling on.
+      if (/\b429\b/.test(String(e))) return { busy: true };
       this.log("could not read the header of " + title + ": " + e);
       return null;
     }
@@ -108,8 +126,13 @@ var source = {
       // Chapters live on subpages ("Title/Chapter 1"); the export of the
       // top page already includes them. Disambiguation pages hold no text.
       if (!p.title || p.title.indexOf("/") >= 0 || (p.pageprops && "disambiguation" in p.pageprops)) continue;
+      if (!this.relevant(p.title, term)) continue;
       looked++;
       var info = this.details(lang, p.title);
+      if (info && info.busy) {
+        this.log(lang + ".wikisource.org is busy (429); kept " + results.length + " result(s).");
+        break;
+      }
       if (!info || !info.author) continue;
       results.push({
         id: lang + ":" + p.title,

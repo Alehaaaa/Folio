@@ -47,6 +47,24 @@ function load(file, fetchText) {
   console.log("PASS Wikisource search, header metadata, language edition and EPUB export link");
 }
 
+// Wikisource: unrelated pages are not opened, and a 429 stops the header reads.
+{
+  const { source, requests } = load("wikisource.js", (url) => {
+    if (url.includes("action=query")) return JSON.stringify({ query: { pages: [
+      { title: "A Dios (Derzhavin)", index: 1 },
+      { title: "Las mil y una noches:600", index: 2 },
+      { title: "Tinta invisible (cuento)", index: 3 },
+      { title: "La tinta invisible", index: 4 }
+    ] } });
+    throw new Error("es.wikisource.org answered 429");
+  });
+  const results = source.search("Tinta invisible peña", 0, "es", "Tinta invisible: Sobre la pérdida", "Javier Peña");
+  assert.equal(results.length, 0);
+  assert.equal(requests.length, 2, "one search, one header, then stop on 429: " + requests.join("\n"));
+  assert.match(requests[1], /Tinta%20invisible%20\(cuento\)/);
+  console.log("PASS Wikisource skips unrelated pages and backs off on 429");
+}
+
 // Internet Archive
 {
   const { source, requests } = load("internet-archive.js", (url) => {

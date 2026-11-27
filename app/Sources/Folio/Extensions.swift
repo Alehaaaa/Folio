@@ -1201,8 +1201,8 @@ final class ExtensionStore {
                         expectedLanguage: String? = nil,
                         progress: @escaping (String) -> Void = { _ in },
                         onEvent: @escaping (String, SourceEvent) -> Void = { _, _ in }) async
-            -> (copies: [Copy], problems: [String]) {
-            guard !closed else { return ([], ["This download job's source session has already closed."]) }
+            -> (copies: [Copy], problems: [String], searched: [String]) {
+            guard !closed else { return ([], ["This download job's source session has already closed."], []) }
             return await store.findCopies(title: title, author: author, expectedLanguage: expectedLanguage,
                                           using: self, progress: progress, onEvent: onEvent)
         }
@@ -1248,9 +1248,11 @@ final class ExtensionStore {
                     expectedLanguage: String? = nil,
                     using jobSession: JobSession? = nil,
                     progress: @escaping (String) -> Void = { _ in },
-                    onEvent: @escaping (String, SourceEvent) -> Void = { _, _ in }) async -> (copies: [Copy], problems: [String]) {
+                    onEvent: @escaping (String, SourceEvent) -> Void = { _, _ in }) async -> (copies: [Copy], problems: [String], searched: [String]) {
         var copies: [Copy] = []
         var problems: [String] = []
+        /// Sources that finished their search, whether or not they had the book.
+        var searched: [String] = []
         let wanted = BookMatch.key(author: author, title: title)
         let wantedTitle = Self.simpleTitle(title)
         let lastName = Names.split(author).first?.split(separator: " ").last.map { String($0).lowercased() } ?? ""
@@ -1334,6 +1336,13 @@ final class ExtensionStore {
                 onEvent(batch.sourceName, .log("Search failed: \(failure)"))
                 continue
             }
+            searched.append(batch.sourceName)
+            let before = copies.count
+            defer {
+                let kept = copies.count - before
+                onEvent(batch.sourceName, .log(kept > 0 ? "\(kept) matching listing(s)"
+                    : "Not found (\(batch.results.count) unrelated result(s))"))
+            }
             for r in batch.results where r.preferred != nil {
                 let exact = BookMatch.key(author: r.author, title: r.title) == wanted
                 let close = Self.simpleTitle(r.title).hasPrefix(wantedTitle) || wantedTitle.hasPrefix(Self.simpleTitle(r.title))
@@ -1362,7 +1371,7 @@ final class ExtensionStore {
             }
             return a.result.id < b.result.id
         }
-        return (copies, problems)
+        return (copies, problems, searched)
     }
 
     /// How long other sources may still answer once one has an exact EPUB.

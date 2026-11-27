@@ -156,7 +156,25 @@ final class FolioMobileDiscoverFeed {
         }
     }
 
+    /// One feed for the app: the Discover page is rebuilt each time its tab opens,
+    /// and a new feed would start every load over.
+    static let shared = FolioMobileDiscoverFeed()
+    private var running: Task<Void, Never>?
+
+    /// Loads the rows. The load belongs to the feed, not the page, so switching
+    /// tabs mid-load no longer cancels it and starts it over on the next visit.
     func load(force: Bool = false) async {
+        if let running {
+            await running.value
+            if !force { return }
+        }
+        let task = Task { await self.reload(force: force) }
+        running = task
+        await task.value
+        if running == task { running = nil }
+    }
+
+    private func reload(force: Bool) async {
         if !force, let lastRefresh, Date().timeIntervalSince(lastRefresh) < Self.freshFor, !books.isEmpty { return }
         guard !loading else { return }
         loading = true

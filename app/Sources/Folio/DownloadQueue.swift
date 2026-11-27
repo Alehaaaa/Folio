@@ -498,6 +498,12 @@ final class DownloadQueue {
         }
     }
 
+    /// "A, B and C".
+    static func list(_ names: [String]) -> String {
+        guard names.count > 1 else { return names.first ?? "" }
+        return names.dropLast().joined(separator: ", ") + " and " + names.last!
+    }
+
     /// Sources often name themselves in their own messages; the log already
     /// prefixes the name, so "Lectulandia: Lectulandia: …" reads once.
     nonisolated static func withoutSourceName(_ message: String, _ source: String) -> String {
@@ -669,7 +675,7 @@ final class DownloadQueue {
         }
 
         state(id, .searching, "Searching enabled sources…")
-        var names: (copies: [ExtensionStore.Copy], problems: [String]) = ([], [])
+        var names: (copies: [ExtensionStore.Copy], problems: [String], searched: [String]) = ([], [], [])
         for title in titles {
             let found = await sourceSession.findCopies(title: title, author: author,
                 expectedLanguage: language,
@@ -682,6 +688,7 @@ final class DownloadQueue {
             let seen = Set(names.copies.map(\.id))
             names.copies += found.copies.filter { !seen.contains($0.id) }
             names.problems += found.problems.filter { !names.problems.contains($0) }
+            names.searched += found.searched.filter { !names.searched.contains($0) }
             // An exact EPUB under the requested edition's own language is
             // sufficient. Do not run another potentially 30-second catalogue
             // search using the unrelated English work title. Fall back to the
@@ -750,6 +757,18 @@ final class DownloadQueue {
             }
             if connectionFailure {
                 append(id, "Source network failure: DNS, TLS, lost connection or timeout occurred before an EPUB edition could be verified. Check the source in Safari on this device; review network and DNS/VPN settings if it fails there too.")
+            }
+            // Some sources searched and simply don't have it: say so plainly,
+            // rather than blaming the network for the ones that failed.
+            let unreachable = Set(names.problems.compactMap { $0.components(separatedBy: ":").first })
+                .subtracting(names.searched).sorted()
+            if names.copies.isEmpty, !names.searched.isEmpty, !inaccessible {
+                var reason = "Not found on \(Self.list(names.searched))."
+                if !unreachable.isEmpty {
+                    reason += " \(Self.list(unreachable)) couldn't be reached from this network."
+                }
+                fail(id, reason: reason)
+                return
             }
             fail(id, reason: noLanguage
                 ? "No EPUB confirmed in \(language) was found. Other-language editions will not be imported automatically; select a different language and retry if desired."

@@ -63,9 +63,9 @@
     },
     {
       "id": "wikisource",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "url": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/extensions/wikisource.js",
-      "sha256": "d37579c5e443853e2564c486ec6f0a032918db065e0415b59f05b543d754055d"
+      "sha256": "5cec52f5553f5cfb66ccea169767db8606a45b3987c77674b366214646908fad"
     }
   ]
 }

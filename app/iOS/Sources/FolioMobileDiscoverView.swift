@@ -7,7 +7,7 @@ struct FolioMobileDiscoverView: View {
     @Environment(FolioMobileNavigation.self) private var navigation
 
     @State private var query = ""
-    @State private var feed = FolioMobileDiscoverFeed()
+    @State private var feed = FolioMobileDiscoverFeed.shared
     @State private var searchHits: [HCBook] = []
     @State private var completedSearch: String?
     @State private var loading = false
