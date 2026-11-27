@@ -185,7 +185,8 @@ struct FolioMobileBookDetail: View {
         if let edited = edits?.title { return edited }
         let shown = shownEdition?.title.flatMap { $0.isEmpty ? nil : $0 }
             ?? requestedEditionTitle ?? remote?.title ?? initialRemote?.title ?? "Book"
-        return overrides.bestTitle(shown, for: linkedID ?? 0)
+        let best = overrides.bestTitle(shown, for: linkedID ?? 0)
+        return overrides.singleLanguage(overrides.singleLanguage(best, of: remote), of: initialRemote)
     }
     private var author: String { local?.author ?? edits?.authors ?? remote?.authors ?? initialRemote?.authors ?? "" }
     private var pages: Int? {

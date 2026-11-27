@@ -89,6 +89,13 @@ final class FolioBookOverrides {
         return EditionTitle.languageTitle(title, among: titles(for: id, language: language))
     }
 
+    /// Never a bilingual title ("Divergente / Divergent") for a book you don't
+    /// own: the work's own title shows instead.
+    func singleLanguage(_ title: String, of book: HCBook?) -> String {
+        guard let book else { return title }
+        return EditionTitle.singleLanguage(title, among: [book.title] + (book.alternateTitles ?? []))
+    }
+
     func downloadedTitle(_ book: LocalBook) -> String {
         let hint = DownloadQueue.shared.jobs.first {
             $0.importedBookID == book.id && $0.editionTitle != nil
@@ -161,11 +168,27 @@ final class FolioBookOverrides {
 
     /// The library copy that stands for a Hardcover book: one linked to it, else an
     /// unlinked file with the same title and author (a download not matched yet).
+    /// Matched by any title the book is known by, so the Spanish file
+    /// "Juramentada" stands for "Juramentada / Oathbringer" and "Oathbringer".
+    /// Open Library books (Home's For you) can't be linked to a file, so any copy
+    /// with one of their titles counts.
     func libraryCopy(of book: HCBook) -> LocalBook? {
-        let books = LibraryStore.shared.books
-        if book.id > 0, let linked = books.first(where: { $0.hardcoverBookID == book.id }) { return linked }
-        let wanted = matchKey(author: book.authors, title: book.title)
-        return books.first { $0.hardcoverBookID == nil && matchKey(author: $0.author, title: $0.title) == wanted }
+        let library = LibraryStore.shared
+        let books = library.books
+        if book.id > 0 {
+            if let linked = books.first(where: { $0.hardcoverBookID == book.id }) { return linked }
+            // A finished download of this work, whatever title its file came with.
+            if let job = DownloadQueue.shared.jobs.first(where: {
+                $0.stage == .completed && $0.hardcoverBookID == book.id && $0.importedBookID != nil
+            }), let copy = job.importedBookID.flatMap({ library.book($0) }) { return copy }
+        }
+        var titles = [book.title] + (book.editionTitle.map { [$0] } ?? []) + (book.alternateTitles ?? [])
+        titles += titles.flatMap(EditionTitle.bilingualParts)
+        let wanted = Set(titles.map { matchKey(author: book.authors, title: $0) })
+        let anyCopy = book.id <= 0
+        return books.first {
+            (anyCopy || $0.hardcoverBookID == nil) && wanted.contains(matchKey(author: $0.author, title: $0.title))
+        }
     }
 
     private func matchKey(author: String, title: String) -> String {
@@ -228,7 +251,7 @@ final class FolioBookOverrides {
         // Your own file keeps its title (it may be another language's
         // edition); every other book shows its reading-language edition title.
         if owned == nil {
-            out.title = bestTitle(out.title, for: book.id)
+            out.title = singleLanguage(bestTitle(out.title, for: book.id), of: book)
         }
         guard let o = items[book.id] else { return out }
         if let title = o.title { out.title = title }

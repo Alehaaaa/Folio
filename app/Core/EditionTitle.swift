@@ -116,6 +116,32 @@ enum EditionTitle {
         return best
     }
 
+    /// The parts of a bilingual catalogue title ("Divergente / Divergent"), as
+    /// written; empty for a title in one language.
+    static func bilingualParts(_ title: String) -> [String] {
+        for separator in [" / ", " = ", " | "] where title.contains(separator) {
+            let parts = title.components(separatedBy: separator)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !BookAutoMatch.words($0).isEmpty }
+            if parts.count > 1 { return parts }
+        }
+        return []
+    }
+
+    /// A bilingual title is never shown: the book's own real title that names
+    /// one of its parts takes its place ("Divergente / Divergent" shows as the
+    /// work's "Divergent"). Titles are picked, never cut, so without such a
+    /// title `title` stays.
+    static func singleLanguage(_ title: String, among titles: [String]) -> String {
+        let parts = bilingualParts(title)
+        guard !parts.isEmpty else { return title }
+        let pick = titles.first { candidate in
+            bilingualParts(candidate).isEmpty && penalty(candidate) < penalty(title)
+                && parts.contains { BookAutoMatch.sameTitle($0, candidate) }
+        }
+        return pick?.trimmingCharacters(in: .whitespacesAndNewlines) ?? title
+    }
+
     /// The title to show for a book in the reading language, picked among its
     /// real edition titles in that language (most-read first). A title already
     /// in that language keeps its form unless a sibling edition is better

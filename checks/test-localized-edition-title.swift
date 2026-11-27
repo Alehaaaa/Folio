@@ -46,6 +46,14 @@ import Foundation
             print(got == want ? "PASS" : "FAIL", "language \(current) -> \(got)")
             if got != want { failed = true }
         }
+        for (title, among, want) in [("Divergente / Divergent", ["Divergente / Divergent", "Divergent"], "Divergent"),
+                                     ("Juramentada / Oathbringer", ["Oathbringer"], "Oathbringer"),
+                                     ("Casa capitular / Chapterhouse Dune", ["Dune"], "Casa capitular / Chapterhouse Dune"),
+                                     ("El Dador", ["The Giver"], "El Dador")] {
+            let got = EditionTitle.singleLanguage(title, among: among)
+            print(got == want ? "PASS" : "FAIL", "single language \(title) -> \(got)")
+            if got != want { failed = true }
+        }
         let matches: [(String, String, Bool)] = [
             ("Camino de los reyes", "El camino de los reyes (El Archivo de las Tormentas 1)", true),
             ("El camino de los reyes", "El camino de los reyes (El Archivo de las Tormentas 1)", true),
