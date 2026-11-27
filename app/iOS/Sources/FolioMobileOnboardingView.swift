@@ -31,7 +31,7 @@ struct FolioMobileOnboardingView: View {
                         description: "Bring your books, highlights, reading goals and discovery sources together in Folio."
                     ) {
                         Label("EPUB • PDF • Comics • Documents", systemImage: "checkmark.seal")
-                            .font(.subheadline).foregroundStyle(.secondary)
+                            .font(.subheadline).foregroundStyle(FolioTheme.muted)
                     }
                     .tag(0)
 
@@ -57,7 +57,7 @@ struct FolioMobileOnboardingView: View {
                             )
                         }
                         .padding(18)
-                        .folioCard(cornerRadius: 18)
+                        .folioCard(cornerRadius: FolioTheme.panelRadius)
                     }
                     .tag(1)
 
@@ -88,7 +88,7 @@ struct FolioMobileOnboardingView: View {
                             }
                         }
                         .padding(18)
-                        .folioCard(cornerRadius: 18)
+                        .folioCard(cornerRadius: FolioTheme.panelRadius)
                     }
                     .tag(2)
 

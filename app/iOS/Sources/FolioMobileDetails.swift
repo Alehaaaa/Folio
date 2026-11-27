@@ -390,7 +390,7 @@ struct FolioMobileBookDetail: View {
                         if let count = stats?.ratingsCount ?? remote?.ratingsCount, count > 0 {
                             Text("(\(count.formatted(.number.notation(.compactName))))")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(FolioTheme.muted)
                         }
                     }
                     .monospacedDigit()
@@ -414,14 +414,14 @@ struct FolioMobileBookDetail: View {
             } else if let local, let series = nonEmpty(local.series) {
                 Label(local.seriesIndex.map { "Book \($0.formatted()) of \(series)" } ?? series, systemImage: "books.vertical")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(FolioTheme.muted)
             }
             let facts = [pages.map { "\($0.formatted()) pages" }, (local?.publishedYear ?? edits?.year ?? remote?.year).map { String($0) }]
                 .compactMap { $0 }
             if !facts.isEmpty {
                 Text(facts.joined(separator: " · "))
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(FolioTheme.muted)
             }
         }
         .padding(.top, 2)
@@ -432,7 +432,7 @@ struct FolioMobileBookDetail: View {
     private var byline: some View {
         let routes = Array(authorRoutes.prefix(3))
         if routes.isEmpty {
-            Text("Unknown Author").font(.subheadline).foregroundStyle(.secondary)
+            Text("Unknown Author").font(.subheadline).foregroundStyle(FolioTheme.muted)
         } else {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 10) { authorLinks(routes) }
@@ -525,7 +525,7 @@ struct FolioMobileBookDetail: View {
                                             .font(.subheadline.weight(.semibold))
                                         Text(versionDescription(version))
                                             .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(FolioTheme.muted)
                                     }
                                     Spacer()
                                     if version.id == current.id {
@@ -653,7 +653,7 @@ struct FolioMobileBookDetail: View {
                             .folioGlassPill()
                     }
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(FolioTheme.muted)
                 }
             }
         }
@@ -725,7 +725,7 @@ struct FolioMobileBookDetail: View {
         if local == nil && !hardcover.isConnected {
             HStack(spacing: 12) {
                 Text("Connect Hardcover to track this book.")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(.subheadline).foregroundStyle(FolioTheme.muted)
                 Spacer(minLength: 8)
                 Button("Connect") { navigation.openSettings() }
                     .folioGlassPill()
@@ -742,7 +742,7 @@ struct FolioMobileBookDetail: View {
                 if currentStatus != nil {
                     Divider()
                     HStack {
-                        Text("Your rating").font(.subheadline).foregroundStyle(.secondary)
+                        Text("Your rating").font(.subheadline).foregroundStyle(FolioTheme.muted)
                         Spacer()
                         FolioRatingControl(rating: myRating) { rate($0) }
                     }
@@ -826,12 +826,12 @@ struct FolioMobileBookDetail: View {
         if let local {
             Text(localProgressText(local))
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(FolioTheme.muted)
                 .monospacedDigit()
         } else if let total = remotePagesTotal {
             Text("p. \(Int((remoteProgress * Double(total)).rounded())) of \(total)")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(FolioTheme.muted)
                 .monospacedDigit()
         }
     }
@@ -1020,7 +1020,7 @@ struct FolioMobileBookDetail: View {
                     NavigationLink(value: FolioMobileSeriesRoute(id: first.id, name: first.name, currentBookID: linkedID)) {
                         Text(first.position.map { "Book \($0.formatted())" } ?? "Explore the series")
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(FolioTheme.muted)
                     }
                     .buttonStyle(.plain)
                 } else {
@@ -1074,7 +1074,7 @@ struct FolioMobileBookDetail: View {
                     }
                 Text(entry.position.map { "Book \($0.formatted())" } ?? shown.title)
                     .font(.caption.weight(isCurrent ? .semibold : .regular))
-                    .foregroundStyle(isCurrent ? FolioTheme.olive : .secondary)
+                    .foregroundStyle(isCurrent ? FolioTheme.olive : FolioTheme.muted)
                     .lineLimit(1)
             }
             .frame(width: 92, alignment: .leading)
@@ -1603,7 +1603,7 @@ private struct FolioMobileDetailPanel: ViewModifier {
         content
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .folioCard(cornerRadius: 18)
+            .folioCard(cornerRadius: FolioTheme.panelRadius)
     }
 }
 
@@ -1658,9 +1658,9 @@ struct FolioMobileHardcoverLinkSheet: View {
                                         .frame(width: 48, height: 69)
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(book.title).font(.headline)
-                                        Text(book.authors).font(.caption).foregroundStyle(.secondary)
+                                        Text(book.authors).font(.caption).foregroundStyle(FolioTheme.muted)
                                         if let year = book.year {
-                                            Text(String(year)).font(.caption2).foregroundStyle(.secondary)
+                                            Text(String(year)).font(.caption2).foregroundStyle(FolioTheme.muted)
                                         }
                                     }
                                     .foregroundStyle(.primary)

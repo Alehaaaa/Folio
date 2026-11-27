@@ -80,7 +80,7 @@ struct FolioMobileDownloadsView: View {
                     if active.isEmpty && failed.isEmpty {
                         Label("No active downloads", systemImage: "checkmark.circle")
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(FolioTheme.muted)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     if !history.isEmpty {
@@ -172,7 +172,7 @@ struct FolioMobileDownloadsView: View {
                 Spacer()
                 Text("\(jobs.count)")
                     .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(FolioTheme.muted)
             }
             LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 12) {
                 ForEach(jobs) { job in
@@ -193,11 +193,11 @@ struct FolioMobileDownloadsView: View {
                         .foregroundStyle(FolioTheme.ink)
                     Text("\(history.count)")
                         .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(FolioTheme.muted)
                     Spacer()
                     Image(systemName: historyExpanded ? "chevron.up" : "chevron.down")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(FolioTheme.muted)
                 }
                 .contentShape(Rectangle())
             }
@@ -291,7 +291,7 @@ struct FolioMobileDownloadsView: View {
 
             Text(job.author.isEmpty ? "Unknown Author" : job.author)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(FolioTheme.muted)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -318,7 +318,7 @@ struct FolioMobileDownloadsView: View {
         }
         .frame(maxWidth: .infinity, minHeight: 264, alignment: .topLeading)
         .padding(12)
-        .folioCard(cornerRadius: 18)
+        .folioCard(cornerRadius: FolioTheme.panelRadius)
         .accessibilityIdentifier("folio.downloads.job.\(job.id.uuidString)")
     }
 
@@ -354,7 +354,7 @@ struct FolioMobileDownloadsView: View {
                         .lineLimit(3)
                     Text(job.author.isEmpty ? "Unknown Author" : job.author)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(FolioTheme.muted)
                         .lineLimit(1)
                 }
             }
@@ -517,7 +517,7 @@ struct FolioMobileDownloadsView: View {
                     Spacer()
                     Image(systemName: "chevron.down")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(FolioTheme.muted)
                         .rotationEffect(.degrees(open ? 180 : 0))
                 }
                 .contentShape(Rectangle())
@@ -612,7 +612,7 @@ struct FolioMobileDownloadsView: View {
         case .queued, .searching, .choosing, .downloading, .importing: FolioTheme.progress
         case .completed: FolioTheme.success
         case .failed: FolioTheme.danger
-        case .cancelled: .secondary
+        case .cancelled: FolioTheme.muted
         }
     }
 

@@ -145,7 +145,7 @@ struct FolioMobileDiscoverView: View {
         VStack(alignment: .leading, spacing: 12) {
             Label(message, systemImage: "wifi.exclamationmark")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(FolioTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
             Button("Retry") {
                 Task {
@@ -252,7 +252,7 @@ struct FolioMobileDiscoverIndex: View {
                                 }
                                 .padding(.horizontal, 14)
                                 .frame(minHeight: 48)
-                                .folioCard(cornerRadius: 14)
+                                .folioCard(cornerRadius: FolioTheme.tileRadius)
                             }
                             .buttonStyle(.plain)
                         }
@@ -286,7 +286,7 @@ struct FolioMobileDiscoverIndex: View {
                         }
                         .padding(.horizontal, 14)
                         .frame(minHeight: 48)
-                        .folioCard(cornerRadius: 14)
+                        .folioCard(cornerRadius: FolioTheme.tileRadius)
                     }
                     .buttonStyle(.plain)
                 }
@@ -335,7 +335,7 @@ struct FolioMobileDiscoverTopicPage: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Label(error, systemImage: "wifi.exclamationmark")
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(FolioTheme.muted)
                         Button("Retry") { Task { await reload() } }
                             .folioGlassPill(prominent: true)
                     }

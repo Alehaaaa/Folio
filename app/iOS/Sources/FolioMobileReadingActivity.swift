@@ -214,7 +214,7 @@ struct FolioMobileReadingActivity: View {
             .frame(maxWidth: 700, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
-        .navigationTitle("Reading")
+        .navigationTitle("Activity")
         .navigationBarTitleDisplayMode(.inline)
         .folioScreen()
     }
@@ -367,7 +367,7 @@ struct FolioMobileReadingActivity: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
             .contentShape(Rectangle())
-            .folioCard(cornerRadius: 18)
+            .folioCard(cornerRadius: FolioTheme.panelRadius)
         }
         .buttonStyle(.plain)
     }
@@ -389,7 +389,7 @@ struct FolioMobileReadingActivity: View {
                 .padding(.vertical, 10)
             }
             .padding(.horizontal, 16)
-            .folioCard(cornerRadius: 18)
+            .folioCard(cornerRadius: FolioTheme.panelRadius)
         }
     }
 

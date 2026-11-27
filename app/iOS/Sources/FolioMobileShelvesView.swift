@@ -173,7 +173,7 @@ struct FolioMobileShelvesView: View {
             if hardcover.isConnected || goodreads.isLinked || !library.data.tracked.isEmpty {
                 HStack(spacing: 10) {
                     Text("\(visible.count) books")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(FolioTheme.muted)
                     Spacer()
                     if loading { ProgressView() }
                     Button {
@@ -216,7 +216,7 @@ struct FolioMobileShelvesView: View {
                                     Text(entry.title).font(.folioDisplay(.headline)).foregroundStyle(FolioTheme.ink)
                                         .lineLimit(2).multilineTextAlignment(.leading)
                                     Text(entry.author).font(.subheadline)
-                                        .foregroundStyle(.secondary).lineLimit(2)
+                                        .foregroundStyle(FolioTheme.muted).lineLimit(2)
                                     HStack(spacing: 8) {
                                         if entry.hardcover != nil {
                                             Label("Hardcover", systemImage: "book")
@@ -225,7 +225,7 @@ struct FolioMobileShelvesView: View {
                                             Label("Goodreads", systemImage: "bookmark")
                                         }
                                     }
-                                    .font(.caption2).foregroundStyle(.secondary)
+                                    .font(.caption2).foregroundStyle(FolioTheme.muted)
                                     if let ub = entry.hardcover, let pages = ub.book.pages,
                                        let read = ub.progressPages, pages > 0 {
                                         ProgressView(value: Double(read), total: Double(pages))
@@ -250,7 +250,7 @@ struct FolioMobileShelvesView: View {
                 .padding(.horizontal, 16)
             }
             if let notice {
-                Text(notice).font(.footnote).foregroundStyle(.secondary)
+                Text(notice).font(.footnote).foregroundStyle(FolioTheme.muted)
                     .padding(.horizontal, 16)
             }
         }

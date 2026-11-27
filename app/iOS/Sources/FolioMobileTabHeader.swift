@@ -67,7 +67,7 @@ struct FolioSearchField: View {
         HStack(spacing: 7) {
             Image(systemName: "magnifyingglass")
                 .font(.body.weight(.medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(FolioTheme.muted)
             TextField(prompt, text: $text)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()

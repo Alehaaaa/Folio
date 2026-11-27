@@ -273,7 +273,7 @@ struct FolioMobileBookshelf: View {
                 .frame(minHeight: 32, alignment: .bottom)
                 Text("\(pile.count) more")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(FolioTheme.muted)
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.down")
                     .font(.caption2.weight(.semibold))
@@ -300,7 +300,7 @@ struct FolioMobileBookshelf: View {
                 Image(systemName: "chevron.up")
                     .font(.footnote.weight(.semibold))
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(FolioTheme.muted)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
             .background(shelfBack)

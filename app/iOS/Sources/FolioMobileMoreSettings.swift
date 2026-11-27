@@ -29,7 +29,7 @@ struct FolioMobileCollectionsSettings: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(collection.name).font(.headline)
                             Text("\(library.books(in: collection.id).count) books")
-                                .font(.caption).foregroundStyle(.secondary)
+                                .font(.caption).foregroundStyle(FolioTheme.muted)
                         }
                         Spacer()
                         Button("Rename", systemImage: "pencil") {
@@ -65,11 +65,12 @@ struct FolioMobileCollectionsSettings: View {
     }
 }
 
-struct FolioMobileReminderSettings: View {
+/// The reading reminder's sections, shown under Settings › Goals & Reminders.
+struct FolioMobileReminderSections: View {
     @State private var reminders = ReadingReminders.shared
 
     var body: some View {
-        Form {
+        Group {
             Section {
                 Toggle("Remind me to read", isOn: Binding(
                     get: { reminders.enabled },
@@ -90,7 +91,7 @@ struct FolioMobileReminderSettings: View {
                     get: { reminders.showWhileOpen }, set: { reminders.setShowWhileOpen($0) }
                 ))
             } header: {
-                Text("Daily Reading")
+                Text("Reminders")
             } footer: {
                 Text("Notifications are requested only when you enable reminders.")
             }
@@ -105,7 +106,7 @@ struct FolioMobileReminderSettings: View {
                     Label("Next reminder: \(next.formatted(date: .abbreviated, time: .shortened))",
                           systemImage: "checkmark.circle")
                 } else {
-                    Text("Reminders are off").foregroundStyle(.secondary)
+                    Text("Reminders are off").foregroundStyle(FolioTheme.muted)
                 }
                 if let error = reminders.errorMessage {
                     Text(error).font(.footnote).foregroundStyle(FolioTheme.danger)
@@ -113,9 +114,6 @@ struct FolioMobileReminderSettings: View {
             }
             .folioRow()
         }
-        .navigationTitle("Reading Reminders")
-        .folioPageHeader("Reading Reminders")
-        .folioScreen()
         .task { await reminders.refreshAuthorization() }
     }
 }
@@ -251,7 +249,7 @@ struct FolioMobileExtensionSettings: View {
                                 Text(ext.manifest.name).font(.headline)
                                 // One caption line: the languages follow the version, no icon column.
                                 Text("Version \(ext.manifest.version) · \(ext.manifest.languageLabel)")
-                                    .font(.caption).foregroundStyle(.secondary)
+                                    .font(.caption).foregroundStyle(FolioTheme.muted)
                             }
                             Spacer()
                             Toggle("Enabled", isOn: Binding(
@@ -260,7 +258,7 @@ struct FolioMobileExtensionSettings: View {
                             )).labelsHidden()
                         }
                         Text(ext.manifest.description)
-                            .font(.footnote).foregroundStyle(.secondary)
+                            .font(.footnote).foregroundStyle(FolioTheme.muted)
                         ForEach(ext.manifest.settings.filter { $0.kind == "list" }, id: \.key) { setting in
                             hostEditor(ext, setting: setting)
                         }
@@ -364,7 +362,7 @@ struct FolioMobileNookSettings: View {
             Section("Hidden from Nook") {
                 if nook.hidden.isEmpty {
                     Text("Books you hide from the nook appear here.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(FolioTheme.muted)
                 } else {
                     ForEach(nook.hidden.sorted { $0.value < $1.value }, id: \.key) { entry in
                         HStack {

@@ -138,7 +138,7 @@ struct FolioMobileRootView: View {
                                 .font(.subheadline.weight(.semibold))
                             Text(downloadToast.title)
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(FolioTheme.muted)
                                 .lineLimit(1)
                         }
                         Spacer(minLength: 4)
@@ -171,7 +171,7 @@ struct FolioMobileRootView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
-                .folioCreamGlass(in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .folioCreamGlass(in: RoundedRectangle(cornerRadius: FolioTheme.panelRadius, style: .continuous))
                 .padding(.horizontal, 14)
                 .padding(.top, 6)
                 .accessibilityIdentifier("folio.downloadToast")
@@ -919,7 +919,7 @@ struct FolioMobileBookTile: View {
                     .lineLimit(2)
                 Text(caption)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(FolioTheme.muted)
                     .lineLimit(1)
             }
             // Marking a book read collapses its bar toward the start and hides it; the

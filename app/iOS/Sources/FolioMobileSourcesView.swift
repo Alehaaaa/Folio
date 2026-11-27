@@ -341,12 +341,12 @@ struct FolioMobileSourceBookDetail: View {
                         image.resizable().scaledToFit()
                     } placeholder: {
                         Image(systemName: "book.closed.fill")
-                            .font(.system(size: 70)).foregroundStyle(.secondary)
+                            .font(.system(size: 70)).foregroundStyle(FolioTheme.muted)
                     }
                     .frame(width: 170, height: 240)
                     Text(result.title).font(.folioDisplay(.title)).multilineTextAlignment(.center)
-                    Text(result.author).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    if let year = result.year { Text(String(year)).foregroundStyle(.secondary) }
+                    Text(result.author).foregroundStyle(FolioTheme.muted).multilineTextAlignment(.center)
+                    if let year = result.year { Text(String(year)).foregroundStyle(FolioTheme.muted) }
                     if let count = result.downloadCount {
                         LabeledContent("Source Downloads", value: count.formatted())
                     }

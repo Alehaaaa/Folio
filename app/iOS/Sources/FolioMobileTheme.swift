@@ -15,20 +15,20 @@ enum FolioTheme {
     /// Warm paper page background.
     static let paper = dynamic(light: 0xF5F2E9, dark: 0x151A15)
     /// Cream card surface that sits on paper.
-    static let surface = dynamic(light: 0xFDFBF4, dark: 0x1E241E)
+    static let surface = Color(uiColor: .folioSurface)
     /// Soft sage panel, for featured or grouped blocks.
     static let sage = dynamic(light: 0xE6EADC, dark: 0x232B22)
     /// Primary ink for headings and prominent controls.
-    static let ink = dynamic(light: 0x29352B, dark: 0xE9E6D9)
+    static let ink = Color(uiColor: .folioInk)
     /// App tint: deep forest ink in light mode, a brighter fern in dark mode
     /// so white labels on prominent buttons keep their contrast.
     static let accent = dynamic(light: 0x29352B, dark: 0x6F8660)
     /// Olive accent: links and tinted icons.
-    static let olive = dynamic(light: 0x566447, dark: 0xB4C39C)
+    static let olive = Color(uiColor: .folioOlive)
     /// Secondary text.
-    static let muted = dynamic(light: 0x596356, dark: 0xA0A897)
+    static let muted = Color(uiColor: .folioMuted)
     /// Hairline separators and card borders.
-    static let line = dynamic(light: 0xD7D9CC, dark: 0x343C32)
+    static let line = Color(uiColor: .folioLine)
     /// Cream glass tint for floating notices.
     static let cream = dynamic(light: 0xFBF3DE, dark: 0x2A3128)
     /// Warm wood used by shelf frames.
@@ -58,7 +58,12 @@ enum FolioTheme {
 
     // MARK: Shape
 
+    /// Large cards and sheets of content.
     static let cardRadius: CGFloat = 24
+    /// Panels inside a page: stats, notices, onboarding steps.
+    static let panelRadius: CGFloat = 18
+    /// Small tiles such as Discover topics.
+    static let tileRadius: CGFloat = 14
 
     // MARK: UIKit chrome
 
@@ -123,6 +128,8 @@ enum FolioTheme {
     }
 }
 
+/// The palette colors UIKit chrome needs too. FolioTheme's matching colors are
+/// built from these, so each value is written once.
 extension UIColor {
     static let folioSurface = FolioTheme.dynamicUI(light: 0xFDFBF4, dark: 0x1E241E)
     static let folioInk = FolioTheme.dynamicUI(light: 0x29352B, dark: 0xE9E6D9)

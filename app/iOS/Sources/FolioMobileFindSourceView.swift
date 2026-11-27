@@ -70,10 +70,10 @@ struct FolioMobileFindSourceView: View {
                             Text(title).font(.headline)
                             Text(author.isEmpty ? "Unknown Author" : author)
                                 .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(FolioTheme.muted)
                             Text("Choose a specific book edition or format to import and read.")
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(FolioTheme.muted)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -98,11 +98,11 @@ struct FolioMobileFindSourceView: View {
                              ? "Showing editions in any language. Check the edition before importing."
                              : "Prioritizing \(languageName(selectedLanguage)) editions; unverified editions are labeled below.")
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(FolioTheme.muted)
                         if !extensions.enabled.isEmpty {
                             Text("Enabled sources: \(extensions.enabled.map { $0.manifest.nameWithLanguages }.joined(separator: ", "))")
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(FolioTheme.muted)
                         }
                         if let anna = extensions.installed.first(where: { $0.id == "annas-archive-free" }),
                            !anna.saved.enabled {
@@ -123,7 +123,7 @@ struct FolioMobileFindSourceView: View {
                         HStack(spacing: 10) {
                             ProgressView()
                             Text(asking.isEmpty ? "Searching enabled sources…" : "Asking \(asking)…")
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(FolioTheme.muted)
                         }
                         .font(.subheadline)
                         .accessibilityIdentifier("folio.findSource.searching")
@@ -155,7 +155,7 @@ struct FolioMobileFindSourceView: View {
                                 .font(.folioDisplay(.title2))
                             Text("Exact title and author matches appear first. Review the edition before downloading.")
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(FolioTheme.muted)
                             ForEach(copies) { copy in
                                 copyRow(copy)
                             }
@@ -174,7 +174,7 @@ struct FolioMobileFindSourceView: View {
                             ForEach(problems, id: \.self) { problem in
                                 Text(problem)
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(FolioTheme.muted)
                                     .textSelection(.enabled)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
@@ -184,7 +184,7 @@ struct FolioMobileFindSourceView: View {
                         if let latest = messages.last, searching {
                             Text(latest)
                                 .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(FolioTheme.muted)
                                 .lineLimit(4)
                                 .accessibilityLabel("Latest source activity: \(latest)")
                         }
@@ -193,7 +193,7 @@ struct FolioMobileFindSourceView: View {
                                 ForEach(Array(messages.enumerated()), id: \.offset) { _, line in
                                     Text(line)
                                         .font(.caption.monospaced())
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(FolioTheme.muted)
                                         .textSelection(.enabled)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }
@@ -252,7 +252,7 @@ struct FolioMobileFindSourceView: View {
                     .lineLimit(2)
                 Text(copy.result.author.isEmpty ? "Unknown Author" : copy.result.author)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(FolioTheme.muted)
                 HStack(spacing: 8) {
                     Label(extensions.installed.first { $0.id == copy.sourceID }?.manifest.nameWithLanguages
                           ?? copy.sourceName, systemImage: "square.stack.3d.up")
@@ -266,12 +266,12 @@ struct FolioMobileFindSourceView: View {
                     }
                 }
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(FolioTheme.muted)
                 .lineLimit(1)
                 if let count = copy.result.downloadCount {
                     Text("\(count.formatted()) provider-reported downloads")
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(FolioTheme.muted)
                 }
                 HStack(spacing: 5) {
                     Image(systemName: "globe")
@@ -283,7 +283,7 @@ struct FolioMobileFindSourceView: View {
                     }
                 }
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(FolioTheme.muted)
                 FolioGlassButton(
                     title: "Get \((copy.result.preferred?.format ?? "book").uppercased())",
                     systemImage: "arrow.down.circle", prominent: copy.exact
@@ -296,7 +296,7 @@ struct FolioMobileFindSourceView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(13)
-        .folioCard(cornerRadius: 18)
+        .folioCard(cornerRadius: FolioTheme.panelRadius)
         .accessibilityIdentifier("folio.findSource.copy.\(copy.id)")
     }
 

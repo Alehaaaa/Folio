@@ -502,7 +502,7 @@ struct FolioMobileAuthorView: View {
                 } else if loading {
                     skeletonRow
                 } else if let failure {
-                    Text(failure).font(.subheadline).foregroundStyle(.secondary)
+                    Text(failure).font(.subheadline).foregroundStyle(FolioTheme.muted)
                 }
                 if newestBooks.count >= 3 {
                     FolioMobileRow(title: "Newest", seeAll: allRoute(sort: .newest, initial: newestBooks)) {
@@ -718,7 +718,7 @@ struct FolioMobileAuthorView: View {
                                 .multilineTextAlignment(.leading)
                             Spacer(minLength: 6)
                             if let count = FolioSeriesCache.load(item.id)?.mainCount ?? item.booksCount, count > 0 {
-                                Text("\(count)").font(.subheadline).foregroundStyle(.secondary).monospacedDigit()
+                                Text("\(count)").font(.subheadline).foregroundStyle(FolioTheme.muted).monospacedDigit()
                             }
                             Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                         }
@@ -729,7 +729,7 @@ struct FolioMobileAuthorView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .folioCard(cornerRadius: 18)
+            .folioCard(cornerRadius: FolioTheme.panelRadius)
         }
     }
 
@@ -980,7 +980,7 @@ struct FolioMobileSeriesView: View {
                 if loading {
                     ProgressView().frame(maxWidth: .infinity).folioRow()
                 } else if let failure {
-                    Text(failure).foregroundStyle(.secondary).folioRow()
+                    Text(failure).foregroundStyle(FolioTheme.muted).folioRow()
                 }
             }
             if !main.isEmpty {
@@ -1068,7 +1068,7 @@ struct FolioMobileSeriesView: View {
                     if owned { Label("In library", systemImage: "checkmark.circle.fill").foregroundStyle(FolioTheme.success) }
                 }
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(FolioTheme.muted)
                 .labelStyle(.titleAndIcon)
             }
         }
@@ -1098,7 +1098,7 @@ struct FolioMobileSavedSeriesRow: View {
                                 if let count = FolioSeriesCache.load(item.id)?.mainCount ?? item.count {
                                     Text(count == 1 ? "1 book" : "\(count) books")
                                         .font(.caption2)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(FolioTheme.muted)
                                 }
                             }
                         }
@@ -1130,7 +1130,7 @@ struct FolioMobileRatingsSummary: View {
                     FolioStars(rating: stats.rating ?? 0, size: 16)
                     Text(countsLine)
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(FolioTheme.muted)
                 }
             }
             if stats.distribution.count == 5 || barsLoading {
@@ -1142,7 +1142,7 @@ struct FolioMobileRatingsSummary: View {
                         HStack(spacing: 10) {
                             Text("\(5 - index)")
                                 .font(.caption.weight(.medium))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(FolioTheme.muted)
                                 .frame(width: 12)
                             GeometryReader { geo in
                                 ZStack(alignment: .leading) {
@@ -1154,7 +1154,7 @@ struct FolioMobileRatingsSummary: View {
                             .frame(height: 8)
                             Text("\(Int((share * 100).rounded()))%")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(FolioTheme.muted)
                                 .monospacedDigit()
                                 .frame(width: 38, alignment: .trailing)
                         }
@@ -1232,7 +1232,7 @@ struct FolioMobileReviewRow: View {
                 if review.likes > 0 { Label("\(review.likes)", systemImage: "heart") }
             }
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(FolioTheme.muted)
         }
     }
 }
@@ -1252,7 +1252,7 @@ struct FolioMobileRatingsView: View {
                 if let stats {
                     FolioMobileRatingsSummary(stats: stats)
                         .padding(18)
-                        .folioCard(cornerRadius: 18)
+                        .folioCard(cornerRadius: FolioTheme.panelRadius)
                     if let readers = stats.readersCount, readers > 0 {
                         HStack(spacing: 0) {
                             stat(readers, "readers")
@@ -1264,7 +1264,7 @@ struct FolioMobileRatingsView: View {
                     FolioMobileRatingsSummary(stats: .placeholder, barsLoading: true)
                         .redacted(reason: .placeholder)
                         .padding(18)
-                        .folioCard(cornerRadius: 18)
+                        .folioCard(cornerRadius: FolioTheme.panelRadius)
                         .accessibilityHidden(true)
                 }
                 if reviews.isEmpty && loading {
@@ -1279,7 +1279,7 @@ struct FolioMobileRatingsView: View {
                         }
                     }
                     .padding(18)
-                    .folioCard(cornerRadius: 18)
+                    .folioCard(cornerRadius: FolioTheme.panelRadius)
                 } else if !reviews.isEmpty {
                     Text("Reviews")
                         .font(.folioDisplay(.title2))
@@ -1292,13 +1292,13 @@ struct FolioMobileRatingsView: View {
                         }
                     }
                     .padding(18)
-                    .folioCard(cornerRadius: 18)
+                    .folioCard(cornerRadius: FolioTheme.panelRadius)
                 } else if reviewsFailed {
                     Text("Reviews could not be loaded from Hardcover.")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(FolioTheme.muted)
                 } else if !loading {
                     Text("No written reviews yet.")
-                        .font(.subheadline).foregroundStyle(.secondary)
+                        .font(.subheadline).foregroundStyle(FolioTheme.muted)
                 }
             }
             .padding(20)
@@ -1342,7 +1342,7 @@ struct FolioMobileRatingsView: View {
             Text(value.formatted(.number.notation(.compactName)))
                 .font(.system(.title3, design: .serif))
                 .foregroundStyle(FolioTheme.ink)
-            Text(label).font(.caption).foregroundStyle(.secondary)
+            Text(label).font(.caption).foregroundStyle(FolioTheme.muted)
         }
         .frame(maxWidth: .infinity)
     }

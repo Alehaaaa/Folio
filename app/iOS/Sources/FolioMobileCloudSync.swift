@@ -24,7 +24,7 @@ struct FolioCloudSyncSection: View {
                     LabeledContent("Sync Code") {
                         Text(copied ? "Copied" : CloudSyncMerge.display(sync.code))
                             .font(copied ? .body : .body.monospaced())
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(FolioTheme.muted)
                     }
                 }
                 .tint(.primary)
@@ -36,7 +36,7 @@ struct FolioCloudSyncSection: View {
                 Button { Task { await sync.syncNow() } } label: {
                     LabeledContent("Status") {
                         Text(status)
-                            .foregroundStyle(sync.lastError == nil ? Color.secondary : FolioTheme.caution)
+                            .foregroundStyle(sync.lastError == nil ? FolioTheme.muted : FolioTheme.caution)
                             .multilineTextAlignment(.trailing)
                     }
                 }

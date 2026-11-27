@@ -51,7 +51,7 @@ struct FolioMobileRemoteBookTile: View {
 
                     Text(book.authors.isEmpty ? "Unknown author" : book.authors)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(FolioTheme.muted)
                         .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
                         .multilineTextAlignment(.leading)
                 }

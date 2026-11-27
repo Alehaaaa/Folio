@@ -365,11 +365,11 @@ struct FolioMobileEditDetails: View {
             if loading && candidates.isEmpty {
                 HStack(spacing: 10) {
                     ProgressView()
-                    Text("Searching \(enabledNames)").font(.footnote).foregroundStyle(.secondary)
+                    Text("Searching \(enabledNames)").font(.footnote).foregroundStyle(FolioTheme.muted)
                 }
             } else if candidates.filter({ !$0.isNeutral }).isEmpty {
                 Text(enabledNames.isEmpty ? "No metadata sources are turned on." : "No matches in this book's language.")
-                    .font(.footnote).foregroundStyle(.secondary)
+                    .font(.footnote).foregroundStyle(FolioTheme.muted)
             }
             ForEach(candidates.filter { !$0.isNeutral }) { candidate in
                 Button { fill(from: candidate) } label: { suggestionRow(candidate) }
@@ -399,11 +399,11 @@ struct FolioMobileEditDetails: View {
                     .font(.system(.subheadline, design: .serif).weight(.semibold))
                     .foregroundStyle(FolioTheme.ink)
                     .lineLimit(2)
-                if let author = c.author { Text(author).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                if let author = c.author { Text(author).font(.caption).foregroundStyle(FolioTheme.muted).lineLimit(1) }
                 let facts = [c.publisher, c.year.map(String.init), c.pages.map { "\($0) pages" },
                              c.language.map(BookLanguage.displayName)].compactMap { $0 }
                 if !facts.isEmpty {
-                    Text(facts.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                    Text(facts.joined(separator: " · ")).font(.caption2).foregroundStyle(FolioTheme.muted).lineLimit(2)
                 }
                 Text(c.source).font(.caption2.weight(.semibold)).foregroundStyle(FolioTheme.olive)
             }
@@ -578,7 +578,7 @@ struct FolioMetadataSourcesEditor: View {
                             )) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(source.manifest.name)
-                                    Text(source.manifest.description).font(.caption).foregroundStyle(.secondary)
+                                    Text(source.manifest.description).font(.caption).foregroundStyle(FolioTheme.muted)
                                 }
                             }
                         }

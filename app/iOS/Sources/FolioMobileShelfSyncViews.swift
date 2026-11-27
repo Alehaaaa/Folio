@@ -2,7 +2,7 @@ import SwiftUI
 import WebKit
 
 /// Settings › Sync: this device's other devices first, then every reading
-/// service Folio keeps in step, Hardcover first.
+/// service Folio keeps in step, Hardcover first, then encrypted DNS.
 struct FolioMobileSyncServicesView: View {
     @Environment(HardcoverClient.self) private var hardcover
     @State private var sync = FolioShelfSync.shared
@@ -47,6 +47,8 @@ struct FolioMobileSyncServicesView: View {
                 Text("Each book's status and reading progress go to every service that's on.")
             }
             .folioRow()
+
+            FolioEncryptedDNSSection()
         }
         .navigationTitle("Sync")
         .folioPageHeader("Sync")

@@ -23,9 +23,6 @@ struct FolioMobileSettingsView: View {
                 NavigationLink { FolioMobileGoalsSettings() } label: {
                     Label("Goals & Reminders", systemImage: "target")
                 }
-                NavigationLink { FolioMobileNetworkSettings() } label: {
-                    Label("Network", systemImage: "network")
-                }
             }
             .folioRow()
 
@@ -134,7 +131,7 @@ struct FolioMobileLibrarySettings: View {
     }
 }
 
-/// Settings › Goals & Reminders.
+/// Settings › Goals & Reminders: goals first, then the daily reading reminder.
 struct FolioMobileGoalsSettings: View {
     @Environment(LibraryStore.self) private var store
 
@@ -159,26 +156,11 @@ struct FolioMobileGoalsSettings: View {
                 )
             }
             .folioRow()
-            Section {
-                NavigationLink { FolioMobileReminderSettings() } label: {
-                    Label("Reading Reminders", systemImage: "bell.badge")
-                }
-            }
-            .folioRow()
+            FolioMobileReminderSections()
         }
         .navigationTitle("Goals & Reminders")
         .folioPageHeader("Goals & Reminders")
         .folioScreen()
-    }
-}
-
-/// Settings › Network.
-struct FolioMobileNetworkSettings: View {
-    var body: some View {
-        Form { FolioEncryptedDNSSection() }
-            .navigationTitle("Network")
-            .folioPageHeader("Network")
-            .folioScreen()
     }
 }
 
@@ -252,6 +234,8 @@ struct FolioEncryptedDNSSection: View {
                                          ? FolioTheme.caution : FolioTheme.muted)
                 }
             }
+        } header: {
+            Text("Network")
         } footer: {
             Text("Book details, covers and downloads look up websites over HTTPS with this provider. If it can't be reached, Folio uses your network's DNS.")
         }
