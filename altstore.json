@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.126",
+          "buildVersion": "127",
+          "date": "2026-11-27",
+          "localizedDescription": "Fix the iOS checks: stub FolioLog and the new findCopies result in the queue test",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.126-127.ipa",
+          "size": 6513927,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.124",
           "buildVersion": "125",
           "date": "2026-11-26",
