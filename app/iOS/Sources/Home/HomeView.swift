@@ -64,6 +64,7 @@ struct FolioMobileHomeView: View {
                 }
                 FolioMobileHighlightOfTheDay()
                 FolioMobileBecauseYouReadRow(tileWidth: min(tileWidth, 180))
+                FolioMobileHomeGenreRows(tileWidth: min(tileWidth, 180))
                 FolioMobileAuthorRows()
                 FolioMobileSavedSeriesRow()
             }
@@ -80,6 +81,7 @@ struct FolioMobileHomeView: View {
         .refreshable {
             await shelves.load(from: hardcover)
             await discovery.load(from: hardcover, books: store.books, tracked: store.data.tracked)
+            await FolioHomeGenreRows.shared.load(hardcover, force: true)
         }
         .navigationTitle("Folio")
         .navigationBarTitleDisplayMode(.inline)
@@ -104,6 +106,9 @@ struct FolioMobileHomeView: View {
         }
         .task(id: "\(hardcover.user?.id ?? -1)-\(FolioBecauseYouRead.seed(in: store)?.hardcoverBookID ?? 0)") {
             await FolioBecauseYouRead.shared.load(library: store, hardcover: hardcover)
+        }
+        .task(id: "genres-\(hardcover.user?.id ?? -1)-\(hardcover.revision)") {
+            await FolioHomeGenreRows.shared.load(hardcover)
         }
         .task(id: discoveryKey) {
             await discovery.load(from: hardcover, books: store.books, tracked: store.data.tracked)

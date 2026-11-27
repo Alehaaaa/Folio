@@ -7,7 +7,7 @@ import Observation
 /// theme index, and a full page with filters.
 struct FolioDiscoverTopic: Hashable, Identifiable {
     enum Kind: Hashable {
-        case trending, popular, newThisYear, acclaimed, shortReads, longReads
+        case trending, mostReadWeek, newThisMonth, popular, newThisYear, acclaimed, shortReads, longReads
         case genre(String)
         /// Every book by one author, with the same filters.
         case author(String)
@@ -34,6 +34,8 @@ enum FolioDiscoverCatalog {
     static let groups: [FolioDiscoverGroup] = [
         FolioDiscoverGroup(title: "Highlights", topics: [
             .init(kind: .trending, title: "Trending now"),
+            .init(kind: .mostReadWeek, title: "Most read this week"),
+            .init(kind: .newThisMonth, title: "New this month"),
             .init(kind: .newThisYear, title: "New this year"),
             .init(kind: .acclaimed, title: "Acclaimed"),
             .init(kind: .popular, title: "All-time favorites"),

@@ -113,6 +113,10 @@
 			isa = PBXBuildFile;
 			fileRef = F10FBB9C1BB2A05F7E9E9ED5 /* Bookshelf.swift */;
 		};
+		D7D5EE6DE76494780552C67C /* GenreRows.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = 34772ECEC42589F76518DE22 /* GenreRows.swift */;
+		};
 		8D02BA719D50DEE38E6C3354 /* Highlights.swift in Sources */ = {
 			isa = PBXBuildFile;
 			fileRef = FB4DE26D36601F2716CDFCD3 /* Highlights.swift */;
@@ -160,6 +164,10 @@
 		9FF1DDE4D496B264B32F89D2 /* Shelves.swift in Sources */ = {
 			isa = PBXBuildFile;
 			fileRef = 88FD5B6453D9A7108AB5CC46 /* Shelves.swift */;
+		};
+		0720AC216BC51E0CDF1F39AA /* Lists.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = 0F106FBEC7A5EFC527496986 /* Lists.swift */;
 		};
 		C60E68396A46E16CF18A173B /* AnnotationTools.swift in Sources */ = {
 			isa = PBXBuildFile;
@@ -288,6 +296,10 @@
 		09E46BA53BE3434E3E179FEA /* Hardcover.swift in Sources */ = {
 			isa = PBXBuildFile;
 			fileRef = 6575FC05C1FE452717C48B7C /* Hardcover.swift */;
+		};
+		7A0493C5A68A38F0D1A7677F /* HardcoverLists.swift in Sources */ = {
+			isa = PBXBuildFile;
+			fileRef = 974DA0E798B7C10411D38D48 /* HardcoverLists.swift */;
 		};
 		7A48D3240FAC029464E4D5A9 /* LibraryStore.swift in Sources */ = {
 			isa = PBXBuildFile;
@@ -588,6 +600,12 @@
 			path = "Home/Bookshelf.swift";
 			sourceTree = "<group>";
 		};
+		34772ECEC42589F76518DE22 /* GenreRows.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = "Home/GenreRows.swift";
+			sourceTree = "<group>";
+		};
 		FB4DE26D36601F2716CDFCD3 /* Highlights.swift */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
@@ -658,6 +676,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
 			path = "Library/Shelves.swift";
+			sourceTree = "<group>";
+		};
+		0F106FBEC7A5EFC527496986 /* Lists.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = "Lists/Lists.swift";
 			sourceTree = "<group>";
 		};
 		70381BE529E6FF6D4A4BDA11 /* AnnotationTools.swift */ = {
@@ -850,6 +874,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.swift;
 			path = Hardcover.swift;
+			sourceTree = "<group>";
+		};
+		974DA0E798B7C10411D38D48 /* HardcoverLists.swift */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.swift;
+			path = HardcoverLists.swift;
 			sourceTree = "<group>";
 		};
 		5D17CE3AB9A94EC09E4D0258 /* LibraryStore.swift */ = {
@@ -1099,6 +1129,7 @@
 				DE0956DC807679233AE53036 /* SourcesView.swift */,
 				A7552BA400E557C61C87B64B /* BecauseYouRead.swift */,
 				F10FBB9C1BB2A05F7E9E9ED5 /* Bookshelf.swift */,
+				34772ECEC42589F76518DE22 /* GenreRows.swift */,
 				FB4DE26D36601F2716CDFCD3 /* Highlights.swift */,
 				28AFFA76A06DE94FC502CED4 /* HomeCache.swift */,
 				307333EDCE635ADAB3C4A796 /* HomeRecommendations.swift */,
@@ -1111,6 +1142,7 @@
 				A5359E28E3573EEE706BDC61 /* BookTile.swift */,
 				1EB99B2A3BF1867B57D74307 /* LibraryView.swift */,
 				88FD5B6453D9A7108AB5CC46 /* Shelves.swift */,
+				0F106FBEC7A5EFC527496986 /* Lists.swift */,
 				70381BE529E6FF6D4A4BDA11 /* AnnotationTools.swift */,
 				E35F4353E707F1DDD6D3959B /* ReaderEngine.swift */,
 				1A3D57DD7DC1A33C07A37B0C /* ReaderView.swift */,
@@ -1151,6 +1183,7 @@
 				228C52A290B14024D14DA53D /* Extensions.swift */,
 				DCF4A23BEA87A5C1970F4534 /* Goodreads.swift */,
 				6575FC05C1FE452717C48B7C /* Hardcover.swift */,
+				974DA0E798B7C10411D38D48 /* HardcoverLists.swift */,
 				5D17CE3AB9A94EC09E4D0258 /* LibraryStore.swift */,
 				ACA97979836D1FEACFC63AC7 /* Models.swift */,
 				78D1479071751C234BFBAECC /* Names.swift */,
@@ -1333,6 +1366,7 @@
 				7EC697B1CB6DC9D172FE3BD4 /* SourcesView.swift in Sources */,
 				D7449CB1F0414DFA595B625F /* BecauseYouRead.swift in Sources */,
 				1D4E097E964270980923DAD1 /* Bookshelf.swift in Sources */,
+				D7D5EE6DE76494780552C67C /* GenreRows.swift in Sources */,
 				8D02BA719D50DEE38E6C3354 /* Highlights.swift in Sources */,
 				367D027ED367209EA950F1F9 /* HomeCache.swift in Sources */,
 				6D7CE47D1933B4E4702CC89F /* HomeRecommendations.swift in Sources */,
@@ -1345,6 +1379,7 @@
 				77F0E1BD69DAF294C918D9B3 /* BookTile.swift in Sources */,
 				EAD6944EF7517C23E1CD4BC7 /* LibraryView.swift in Sources */,
 				9FF1DDE4D496B264B32F89D2 /* Shelves.swift in Sources */,
+				0720AC216BC51E0CDF1F39AA /* Lists.swift in Sources */,
 				C60E68396A46E16CF18A173B /* AnnotationTools.swift in Sources */,
 				BEF89D1B6EBA744902460FE9 /* ReaderEngine.swift in Sources */,
 				9A0968DCE381E6C13E3F5FD4 /* ReaderView.swift in Sources */,
@@ -1377,6 +1412,7 @@
 				6F5BE4195371C5A6AC00F906 /* Extensions.swift in Sources */,
 				D76EC36F310468065944AB8A /* Goodreads.swift in Sources */,
 				09E46BA53BE3434E3E179FEA /* Hardcover.swift in Sources */,
+				7A0493C5A68A38F0D1A7677F /* HardcoverLists.swift in Sources */,
 				7A48D3240FAC029464E4D5A9 /* LibraryStore.swift in Sources */,
 				EE88EA6A985C9EEFEE8B228D /* Models.swift in Sources */,
 				680B33B3446E245CB065FCDE /* Names.swift in Sources */,
@@ -1424,12 +1460,12 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Resources/Folio.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 137;
+				CURRENT_PROJECT_VERSION = 138;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
-				MARKETING_VERSION = 1.0.136;
+				MARKETING_VERSION = 1.0.137;
 				PRODUCT_BUNDLE_IDENTIFIER = app.folio.reader.ios;
 				PRODUCT_NAME = Folio;
 				SUPPORTS_MACCATALYST = NO;
@@ -1456,12 +1492,12 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = Resources/Folio.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 137;
+				CURRENT_PROJECT_VERSION = 138;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Resources/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks");
-				MARKETING_VERSION = 1.0.136;
+				MARKETING_VERSION = 1.0.137;
 				PRODUCT_BUNDLE_IDENTIFIER = app.folio.reader.ios;
 				PRODUCT_NAME = Folio;
 				SUPPORTS_MACCATALYST = NO;
@@ -1528,11 +1564,11 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = WidgetExtension/FolioWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 137;
+				CURRENT_PROJECT_VERSION = 138;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = WidgetExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks");
-				MARKETING_VERSION = 1.0.136;
+				MARKETING_VERSION = 1.0.137;
 				PRODUCT_BUNDLE_IDENTIFIER = app.folio.reader.ios.widgets;
 				PRODUCT_MODULE_NAME = FolioWidgets;
 				PRODUCT_NAME = FolioWidgets;
@@ -1561,11 +1597,11 @@
 				APPLICATION_EXTENSION_API_ONLY = YES;
 				CODE_SIGN_ENTITLEMENTS = WidgetExtension/FolioWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 137;
+				CURRENT_PROJECT_VERSION = 138;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = WidgetExtension/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks");
-				MARKETING_VERSION = 1.0.136;
+				MARKETING_VERSION = 1.0.137;
 				PRODUCT_BUNDLE_IDENTIFIER = app.folio.reader.ios.widgets;
 				PRODUCT_MODULE_NAME = FolioWidgets;
 				PRODUCT_NAME = FolioWidgets;
