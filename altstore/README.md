@@ -4,6 +4,6 @@ Add this source in AltStore Classic:
 
 `https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore.json`
 
-The feed points to a versioned IPA under this folder. On each new build, add a new versioned file and update the `versions` array in `altstore.json` (newest first); do not silently replace the previous version.
+Each version's IPA is a GitHub Release (`ios-<version>-<build>`), published by CI when the version in `app/iOS/generate_project.py` changes; `altstore.json` lists them newest first. IPAs are never committed to git.
 
 This is an AltStore Classic IPA source, not an AltStore PAL notarized ADP marketplace.

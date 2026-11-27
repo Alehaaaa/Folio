@@ -206,10 +206,11 @@ struct FolioMobileBookDetail: View {
         return FolioAuthorNames.split(author).map { FolioMobileAuthorRoute(name: $0, id: nil) }
     }
 
-    /// Status shown on the single status control: Hardcover's when the book is
-    /// on a Hardcover shelf, otherwise the library's.
+    /// Status shown on the single status control: the one you chose (here or on
+    /// another device), else Hardcover's shelf, else the library's.
     private var currentStatus: HCStatus? {
-        myHardcoverBook?.status ?? local?.status.hardcover
+        if let mine = FolioBookStates.shared.status(for: shownBook) { return mine }
+        return myHardcoverBook?.status ?? local?.status.hardcover
     }
 
     private var canSyncHardcover: Bool { linkedID != nil && hardcover.isConnected }
@@ -864,7 +865,7 @@ struct FolioMobileBookDetail: View {
     }
 
     private func choose(_ status: HCStatus) {
-        FolioReadBooks.shared.set(shownBook, status: status)
+        FolioBookStates.shared.setStatus(status, for: shownBook)
         if let local {
             library.setStatus(local.id, status.local)
         } else {
@@ -887,7 +888,7 @@ struct FolioMobileBookDetail: View {
     }
 
     private func clearStatus() {
-        FolioReadBooks.shared.set(shownBook, read: false)
+        FolioBookStates.shared.setStatus(nil, for: shownBook)
         if let local { library.setStatus(local.id, .none) }
         if (myHardcoverBook != nil && hardcover.isConnected)
             || FolioShelfSync.shared.hasGoodreadsCopy(shownBook, localID: local?.id) {
@@ -1376,6 +1377,7 @@ struct FolioMobileBookDetail: View {
         guard let page = answer, !Task.isCancelled else { return }
         if let book = page.book { remoteDetails = book }
         myHardcoverBook = page.userBook
+        if let userBook = page.userBook { FolioBookStates.shared.adoptHardcover([userBook]) }
         loadedPageID = linkedID
         if var fresh = page.stats {
             // The bars come from their own request; keep them while the numbers refresh.

@@ -80,11 +80,11 @@ jobs:
           BUILD: ${{ steps.version.outputs.build }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          # The IPA goes up as a GitHub Release asset (not into git, which only
-          # keeps the IPAs of 1.0.133 and earlier); altstore.json points at it.
+          # The IPA goes up as a GitHub Release asset, never into git;
+          # altstore.json points at it.
           TAG="ios-${VERSION}-${BUILD}"
           NAME="Folio-${VERSION}-${BUILD}.ipa"
-          if gh release view "$TAG" >/dev/null 2>&1 || [ -f "altstore/$NAME" ]; then
+          if gh release view "$TAG" >/dev/null 2>&1; then
             echo "$TAG is already published; bump APP_VERSION/BUILD_VERSION in app/iOS/generate_project.py to release again."
             exit 0
           fi

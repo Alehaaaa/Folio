@@ -121,8 +121,17 @@ final class LibraryStore {
 
     func update(_ id: UUID, _ change: (inout LocalBook) -> Void) {
         guard let i = data.books.firstIndex(where: { $0.id == id }) else { return }
+        let before = data.books[i].status
+        let stampedBefore = data.books[i].statusChangedAt
         change(&data.books[i])
+        // Opening, finishing or choosing a shelf: every change of status is
+        // dated, and the book states and reading services hear of it.
+        let statusChanged = data.books[i].status != before
+        if statusChanged, data.books[i].statusChangedAt == stampedBefore {
+            data.books[i].statusChangedAt = Date()
+        }
         save()
+        if statusChanged { Self.statusChanged?(id) }
     }
 
     func books(_ filter: LibraryFilter, search: String = "") -> [LocalBook] {
@@ -811,7 +820,7 @@ final class LibraryStore {
         if let hc = hardcover, let b = book(id), let hcID = b.hardcoverBookID, let s = status.hardcover {
             Task { await hc.setStatus(bookID: hcID, status: s) }
         }
-        Self.statusChanged?(id)
+        // update() tells statusChanged when the status really changed.
     }
 
     func addCollection(_ name: String) -> UUID {

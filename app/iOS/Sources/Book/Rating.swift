@@ -1,55 +1,29 @@
 import SwiftUI
 
-/// Your own star ratings, kept to the quarter star on this device. Services
-/// get the closest value they accept: Hardcover takes half stars, Goodreads
-/// quarters (whole stars on older accounts), and the exact value stays here.
+/// Your own star ratings, kept to the quarter star. They live in
+/// FolioBookStates with your reading status; this is the rating side of it.
+/// Services get the closest value they accept: Hardcover takes half stars,
+/// Goodreads quarters (whole stars on older accounts).
 @MainActor
 @Observable
 final class FolioMyRatings {
     static let shared = FolioMyRatings()
-    private static let key = "folio.myRatings"
 
-    private(set) var values: [String: Double]
+    private var states: FolioBookStates { .shared }
 
-    private init() {
-        values = (UserDefaults.standard.dictionary(forKey: Self.key) as? [String: Double]) ?? [:]
-    }
+    /// Every rating by key, so views redraw when one changes.
+    var values: [String: Double] { states.entries.compactMapValues(\.rating) }
 
-    static func key(for book: HCBook) -> String {
-        book.id > 0 ? "hc-\(book.id)" : "t-" + BookMatch.key(author: book.authors, title: book.title)
-    }
+    private init() {}
 
-    private static func keys(for book: HCBook) -> [String] {
-        var out = ["t-" + BookMatch.key(author: book.authors, title: book.title)]
-        if book.id > 0 { out.insert("hc-\(book.id)", at: 0) }
-        return out
-    }
-
-    /// The exact rating, unless Hardcover has since moved to a value this one
-    /// doesn't round to (rated again on the website, say): then Hardcover's.
+    /// Your rating when you set one (here or on another device), else Hardcover's.
     func rating(for book: HCBook, hardcover: Double?) -> Double? {
-        let mine = Self.keys(for: book).lazy.compactMap { self.values[$0] }.first
-        let theirs = hardcover.flatMap { $0 > 0 ? $0 : nil }
-        guard let mine else { return theirs }
-        guard let theirs else { return mine }
-        return Self.half(mine) == Self.half(theirs) ? mine : theirs
+        if let mine = states.rating(for: book) { return mine }
+        return hardcover.flatMap { $0 > 0 ? $0 : nil }
     }
 
     func set(_ rating: Double?, for book: HCBook) {
-        for k in Self.keys(for: book) { values[k] = nil }
-        if let rating { values[Self.key(for: book)] = Self.quarter(rating) }
-        UserDefaults.standard.set(values, forKey: Self.key)
-        FolioSyncedValues.changed()
-    }
-
-    /// Folio Sync: every rating as one JSON value.
-    var syncJSON: String? { FolioSyncedJSON.encode(values) }
-
-    /// Takes another device's ratings.
-    func adoptSynced(_ json: String) {
-        guard let theirs: [String: Double] = FolioSyncedJSON.decode(json) else { return }
-        values = theirs
-        UserDefaults.standard.set(values, forKey: Self.key)
+        states.setRating(rating, for: book)
     }
 
     nonisolated static func quarter(_ v: Double) -> Double { min(5, max(0.25, (v * 4).rounded() / 4)) }

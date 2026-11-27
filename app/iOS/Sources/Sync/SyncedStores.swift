@@ -1,14 +1,15 @@
 import Foundation
 
-/// The settings Folio Sync carries besides books: your ratings, followed
+/// The settings Folio Sync carries besides library books: your status and
+/// rating for every book (FolioBookStates, merged book by book), followed
 /// authors, saved series and edits to books you don't own. The Home nook's
 /// arrangement and the reader's themes stay on each device, since screens differ.
 @MainActor
 enum FolioSyncedStores {
     static func register() {
-        FolioSyncedValues.register("ratings",
-            read: { FolioMyRatings.shared.syncJSON },
-            write: { FolioMyRatings.shared.adoptSynced($0) })
+        FolioSyncedValues.register("bookStates",
+            read: { FolioBookStates.shared.syncJSON },
+            write: { FolioBookStates.shared.adoptSynced($0) })
         FolioSyncedValues.register("followedAuthors",
             read: { FolioFollowedAuthors.shared.syncJSON },
             write: { FolioFollowedAuthors.shared.adoptSynced($0) })

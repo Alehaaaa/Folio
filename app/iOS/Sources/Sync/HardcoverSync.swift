@@ -8,6 +8,7 @@ enum FolioSync {
     /// Applies Hardcover's shelf entries to the linked library books.
     static func adopt(_ entries: [HCUserBook], into library: LibraryStore = .shared) {
         guard !entries.isEmpty else { return }
+        FolioBookStates.shared.adoptHardcover(entries)
         let byHardcover = Dictionary(entries.map { ($0.book.id, $0) }, uniquingKeysWith: { first, _ in first })
         for book in library.books {
             guard let id = book.hardcoverBookID, let entry = byHardcover[id] else { continue }

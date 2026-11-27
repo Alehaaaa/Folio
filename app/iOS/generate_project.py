@@ -11,8 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PROJECT = ROOT / "FolioiOS.xcodeproj"
-APP_VERSION = "1.0.134"
-BUILD_VERSION = "135"
+APP_VERSION = "1.0.135"
+BUILD_VERSION = "136"
 # Every file in app/Core is shared by the iOS app, the Mac app and (WidgetShared) the widget.
 SHARED = sorted(p.stem for p in (ROOT.parent / "Core").glob("*.swift"))
 

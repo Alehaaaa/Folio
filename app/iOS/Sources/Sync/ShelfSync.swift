@@ -43,7 +43,10 @@ final class FolioShelfSync {
     /// Called at launch: status changes anywhere in the library reach every service.
     static func install() {
         LibraryStore.statusChanged = { id in
-            Task { @MainActor in await FolioShelfSync.shared.sync(bookID: id) }
+            Task { @MainActor in
+                if let book = LibraryStore.shared.book(id) { FolioBookStates.shared.libraryStatusChanged(book) }
+                await FolioShelfSync.shared.sync(bookID: id)
+            }
         }
     }
 
