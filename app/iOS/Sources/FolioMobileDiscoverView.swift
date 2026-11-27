@@ -74,7 +74,7 @@ struct FolioMobileDiscoverView: View {
             } else {
                 loading = true
                 do {
-                    try await Task.sleep(for: .milliseconds(320))
+                    try await Task.sleep(for: .milliseconds(400))
                     guard !Task.isCancelled else { return }
                     await search(searchText)
                 } catch {
@@ -167,10 +167,19 @@ struct FolioMobileDiscoverView: View {
         error = nil
         defer { if activeRequest == requestID { loading = false } }
         FolioLog.log("Search \"\(text)\"", "search")
+        let started = Date()
+        func took() -> String { Date().timeIntervalSince(started).formatted(.number.precision(.fractionLength(1))) + " s" }
         do {
-            // Typed searches go ahead of background Hardcover work.
-            let books = try await HCPriority.$foreground.withValue(true) { try await hardcover.search(text) }
-            FolioLog.log("Search \"\(text)\": \(books.count) results, memory \(FolioLog.footprintMB()) MB", "search")
+            // Typed searches go ahead of background Hardcover work. Hardcover's results
+            // show at once; Open Library's join them when they arrive.
+            let books = try await HCPriority.$foreground.withValue(true) {
+                try await hardcover.search(text) { merged in
+                    guard activeRequest == requestID, completedSearch == text else { return }
+                    FolioLog.log("Search \"\(text)\": \(merged.count) results with Open Library in \(took())", "search")
+                    searchHits = FolioMobileDiscoverySections.unique(merged)
+                }
+            }
+            FolioLog.log("Search \"\(text)\": \(books.count) results in \(took()), memory \(FolioLog.footprintMB()) MB", "search")
             guard !Task.isCancelled, activeRequest == requestID else { return }
             searchHits = FolioMobileDiscoverySections.unique(books)
             completedSearch = text

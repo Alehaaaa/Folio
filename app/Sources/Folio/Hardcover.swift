@@ -997,48 +997,75 @@ final class HardcoverClient {
     /// (alternative_titles), so those are weighted like the main title, and
     /// editions published under exactly the typed title are asked for in the
     /// same request. A book found through an edition shows that edition's title.
-    func search(_ text: String) async throws -> [HCBook] {
+    func search(_ text: String, more: (@MainActor ([HCBook]) -> Void)? = nil) async throws -> [HCBook] {
         let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typed.isEmpty else { return [] }
         // Open Library is asked at the same time: Hardcover lacks many Spanish
         // books ("Yo, vieja"), and a book found there opens like any other.
-        let (found, foundSink) = AsyncStream<[HCBook]>.makeStream()
-        let openLibrary = Task {
-            let books = (try? await FolioOpenLibrary.books(FolioOpenLibrary.search(typed, limit: 10, fresh: 6 * 60 * 60))) ?? []
-            foundSink.yield(books)
-            foundSink.finish()
+        // It refuses one- and two-letter queries (HTTP 422), so those skip it.
+        let openLibrary: Task<[HCBook], Never>? = typed.count < 3 ? nil : Task {
+            (try? await FolioOpenLibrary.books(FolioOpenLibrary.search(typed, limit: 10, fresh: 6 * 60 * 60))) ?? []
         }
-        defer { openLibrary.cancel() }
-        var docs: [JSON]
+        var docs: [JSON] = []
         var editionRows: [JSON] = []
         do {
-            let d = try await query("""
-            query SearchAll($q: String!, $titles: [String!]) {
-              search(query: $q, query_type: "Book", per_page: 30, page: 1, fields: "title,alternative_titles,series_names,author_names,isbns", weights: "5,5,2,1,1") { results }
-              editions(where: {title: {_in: $titles}, book: {users_count: {_gt: 0}}}, order_by: {users_count: desc}, limit: 15) { id title image { url } book { users_count \(Self.bookFields) } }
+            do {
+                let d = try await query("""
+                query SearchAll($q: String!, $titles: [String!]) {
+                  search(query: $q, query_type: "Book", per_page: 30, page: 1, fields: "title,alternative_titles,series_names,author_names,isbns", weights: "5,5,2,1,1") { results }
+                  editions(where: {title: {_in: $titles}, book: {users_count: {_gt: 0}}}, order_by: {users_count: desc}, limit: 15) { id title image { url } book { users_count \(Self.bookFields) } }
+                }
+                """, ["q": typed, "titles": Self.titleSpellings(typed)])
+                docs = Self.hits(d["search"]["results"])
+                editionRows = d["editions"].array
+            } catch let error as HCError where error.rateLimited || error.transient {
+                throw error
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // Older or stricter schemas: the plain search alone.
+                docs = try await searchDocuments(typed)
             }
-            """, ["q": typed, "titles": Self.titleSpellings(typed)])
-            docs = Self.hits(d["search"]["results"])
-            editionRows = d["editions"].array
-        } catch let error as HCError where error.rateLimited || error.transient {
-            throw error
         } catch {
-            // Older or stricter schemas: the plain search alone.
-            docs = try await searchDocuments(typed)
+            // Hardcover busy or down: Open Library's results are better than an error.
+            guard !(error is CancellationError), let openLibrary else { throw error }
+            let extra = await Self.first(openLibrary, within: 4)
+            guard !extra.isEmpty else { throw error }
+            return Self.rank(query: typed, docs: [], editions: [], openLibrary: extra)
         }
         let ranked = Self.rank(query: typed, docs: docs, editions: editionRows)
-        // Hardcover has the exact title: no need to wait for Open Library.
-        if let first = ranked.first, Self.titleMatch(typed, first.title, authors: first.authors) == 0 { return ranked }
-        let timeout = Task {
-            try? await Task.sleep(for: .seconds(3))
-            foundSink.yield([])
-            foundSink.finish()
+        guard let openLibrary else { return ranked }
+        // Hardcover has the exact title: Open Library has nothing to add.
+        if let first = ranked.first, Self.titleMatch(typed, first.title, authors: first.authors) == 0 {
+            openLibrary.cancel()
+            return ranked
         }
-        defer { timeout.cancel() }
-        var extra: [HCBook] = []
-        for await books in found { extra = books; break }
-        guard !extra.isEmpty else { return ranked }
-        return Self.rank(query: typed, docs: docs, editions: editionRows, openLibrary: extra)
+        // On screen, Hardcover's results show at once and Open Library's join when they arrive.
+        if let more {
+            let foundDocs = docs, foundEditions = editionRows
+            Task {
+                let extra = await openLibrary.value
+                guard !extra.isEmpty, !Task.isCancelled else { return }
+                more(Self.rank(query: typed, docs: foundDocs, editions: foundEditions, openLibrary: extra))
+            }
+            return ranked
+        }
+        let extra = await Self.first(openLibrary, within: 3)
+        return extra.isEmpty ? ranked : Self.rank(query: typed, docs: docs, editions: editionRows, openLibrary: extra)
+    }
+
+    /// A task's books, or none if it takes longer than `seconds`.
+    private static func first(_ task: Task<[HCBook], Never>, within seconds: Double) async -> [HCBook] {
+        let (found, sink) = AsyncStream<[HCBook]>.makeStream()
+        let waiter = Task { sink.yield(await task.value); sink.finish() }
+        let timeout = Task {
+            try? await Task.sleep(for: .seconds(seconds))
+            sink.yield([])
+            sink.finish()
+        }
+        defer { waiter.cancel(); timeout.cancel() }
+        for await books in found { return books }
+        return []
     }
 
     /// 0: the same title, 1: every typed title word is in the title, 2: anything else.
@@ -1054,7 +1081,13 @@ final class HardcoverClient {
         let all = Set(words)
         let last = wanted.last ?? ""
         let covered = wanted.dropLast().allSatisfy(all.contains) && (all.contains(last) || words.contains { $0.hasPrefix(last) })
-        return covered ? 1 : 2
+        if covered { return 1 }
+        // "isabel allende": every typed word names the author, so each of their books matches.
+        let names = BookAutoMatch.words(authors)
+        let typedLast = typed.last ?? ""
+        let byAuthor = !names.isEmpty && typed.dropLast().allSatisfy(authorWords.contains)
+            && (authorWords.contains(typedLast) || names.contains { $0.hasPrefix(typedLast) })
+        return byAuthor ? 1 : 2
     }
 
     /// The typed title as an edition would likely be catalogued: as typed,
@@ -1134,16 +1167,30 @@ final class HardcoverClient {
             }
             if !known { add(book, score: score, readers: book.ratingsCount ?? 0) }
         }
-        let kept = ranked.filter { entry in
-            guard entry.score < 2 else { return true }
-            let key = BookAutoMatch.words(entry.book.title)
-            return !ranked.contains { other in
-                other.book.id != entry.book.id && other.score <= entry.score
-                    && BookAutoMatch.words(other.book.title) == key
-                    && other.readers >= max(10, entry.readers * 5)
-                    && (entry.book.authors.isEmpty || sharesAuthor(entry.book, other.book))
-            }
+        // The same work listed twice (a translation kept as its own record, an Open
+        // Library copy, a second edition record) shows once: the best match, then the
+        // most read. A copy without an author goes only when the work is far more read.
+        let preferred = ranked.indices.sorted { a, b in
+            let x = ranked[a], y = ranked[b]
+            if x.score != y.score { return x.score < y.score }
+            if x.readers != y.readers { return x.readers > y.readers }
+            return a < b
         }
+        var keptIndices = Set<Int>()
+        var shown: [(key: [String], readers: Int, book: HCBook)] = []
+        for i in preferred {
+            let entry = ranked[i]
+            let key = BookAutoMatch.words(entry.book.title)
+            let duplicate = !key.isEmpty && shown.contains { other in
+                guard other.key == key else { return false }
+                if entry.book.authors.isEmpty { return other.readers >= max(10, entry.readers * 5) }
+                return !other.book.authors.isEmpty && sharesAuthor(entry.book, other.book)
+            }
+            if duplicate { continue }
+            keptIndices.insert(i)
+            shown.append((key, entry.readers, entry.book))
+        }
+        let kept = ranked.indices.filter(keptIndices.contains).map { ranked[$0] }
         // Matches first; among them the most-read work. Otherwise Hardcover's own order.
         return kept.enumerated().sorted { a, b in
             if a.element.score != b.element.score { return a.element.score < b.element.score }
