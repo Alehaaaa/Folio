@@ -251,13 +251,17 @@ enum FolioOpenLibrary {
         case .longReads: terms.append("number_of_pages_median:[601 TO *]"); terms.append("ratings_count:[20 TO *]")
         case .years(let from, let to): years(from, to); terms.append("ratings_count:[10 TO *]")
         case .genre(let genre): terms.append("subject_key:\(subject(genre))")
+        case .author(let name): terms.append("author:(\(quoted(name)))")
         }
+        var byAuthor = false
+        if case .author = topic.kind { byAuthor = true }
         if let range = filters.published.range { years(range.from, range.to) }
         if let minimum = filters.rating.minimum {
             terms.append("ratings_average:[\(minimum) TO *]")
             terms.append("ratings_count:[10 TO *]")
         }
-        if sort == .rated, filters.rating.minimum == nil, topic.kind != .acclaimed {
+        // One author's list is short already: rank it by rating without dropping lesser-known books.
+        if sort == .rated, filters.rating.minimum == nil, topic.kind != .acclaimed, !byAuthor {
             terms.append("ratings_count:[50 TO *]")
         }
         let order: String = switch sort {
@@ -314,6 +318,32 @@ enum FolioOpenLibrary {
     static func booksBy(author: String, sort: String = "readinglog", limit: Int = 30) async throws -> [HCBook] {
         let docs = try await search("author:(\(quoted(author)))", sort: sort, limit: limit, fresh: 3 * day)
         return books(docs)
+    }
+
+    /// What an author's books are filed under, most common first, from the same
+    /// request as their popular books (so it is usually already saved).
+    static func authorSubjects(name: String) async -> [String] {
+        guard let docs = try? await search("author:(\(quoted(name)))", sort: "readinglog", limit: authorPageLimit, fresh: 3 * day)
+        else { return [] }
+        let vague: Set<String> = [
+            "fiction", "juvenile fiction", "accessible book", "protected daisy", "in library", "large type books",
+            "lending library", "general", "adult", "nonfiction", "non-fiction", "english language", "literature",
+            "american literature", "english literature", "children's fiction", "juvenile literature", "novel", "novels",
+            "open library staff picks", "american fiction", "english fiction", "fiction in english", "translations into english"
+        ]
+        var counts: [String: (name: String, count: Int)] = [:]
+        for doc in docs {
+            var seen = Set<String>()
+            for subject in doc["subject"].array.compactMap(\.string) {
+                let key = subject.lowercased().trimmingCharacters(in: .whitespaces)
+                guard !key.isEmpty, key.count < 30, !key.contains(":"), !key.contains(", general"),
+                      !key.hasPrefix("reading level"), !key.contains("award"), !key.contains("medal"),
+                      !vague.contains(key), seen.insert(key).inserted else { continue }
+                counts[key, default: (subject, 0)].count += 1
+            }
+        }
+        let floor = docs.count >= 6 ? 2 : 1
+        return counts.values.filter { $0.count >= floor }.sorted { $0.count > $1.count }.map(\.name)
     }
 
     /// Popular books sharing the book's genres.

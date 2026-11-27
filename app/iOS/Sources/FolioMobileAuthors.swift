@@ -30,6 +30,28 @@ extension View {
             .navigationDestination(for: FolioMobileAuthorRoute.self) { FolioMobileAuthorView(route: $0) }
             .navigationDestination(for: FolioMobileSeriesRoute.self) { FolioMobileSeriesView(route: $0) }
             .navigationDestination(for: FolioMobileRatingsRoute.self) { FolioMobileRatingsView(route: $0) }
+            .navigationDestination(for: FolioMobileTopicRoute.self) { route in
+                FolioMobileDiscoverTopicPage(topic: route.topic, initial: route.initial,
+                                             filters: FolioDiscoverFilters(sort: route.sort))
+            }
+    }
+}
+
+/// A full grid with filters (as Discover's "See all"), opened from any page:
+/// an author's books, or a genre.
+struct FolioMobileTopicRoute: Hashable {
+    var topic: FolioDiscoverTopic
+    var sort: FolioDiscoverFilters.Sort = .popular
+    /// Shown while the first page loads.
+    var initial: [HCBook] = []
+
+    static func author(_ name: String, title: String, sort: FolioDiscoverFilters.Sort = .popular,
+                       initial: [HCBook] = []) -> Self {
+        Self(topic: FolioDiscoverTopic(kind: .author(name), title: title), sort: sort, initial: initial)
+    }
+
+    static func genre(_ name: String) -> Self {
+        Self(topic: FolioDiscoverTopic(kind: .genre(name), title: name))
     }
 }
 
@@ -318,14 +340,34 @@ struct FolioStars: View {
 /// One serif title over a horizontal row, as on Home.
 struct FolioMobileRow<Content: View>: View {
     let title: String
+    /// When set, the title opens this full list, as Discover's row titles do.
+    var seeAll: FolioMobileTopicRoute? = nil
     @ViewBuilder let content: () -> Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(title)
-                .font(.folioDisplay(.title2))
-                .foregroundStyle(FolioTheme.ink)
+            if let seeAll {
+                NavigationLink(value: seeAll) {
+                    HStack(spacing: 6) {
+                        Text(title)
+                            .font(.folioDisplay(.title2))
+                            .foregroundStyle(FolioTheme.ink)
+                        Image(systemName: "chevron.right")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(FolioTheme.olive)
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
                 .accessibilityAddTraits(.isHeader)
+                .accessibilityHint("Show all")
+            } else {
+                Text(title)
+                    .font(.folioDisplay(.title2))
+                    .foregroundStyle(FolioTheme.ink)
+                    .accessibilityAddTraits(.isHeader)
+            }
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(alignment: .top, spacing: 14) { content() }
                     .padding(.vertical, 4)
@@ -368,6 +410,10 @@ struct FolioMobileAuthorView: View {
     @State private var series: [HCSeriesRef] = []
     /// The photo, known from the first quick request, before the full record arrives.
     @State private var earlyPortrait: URL?
+    /// Discover genres (or Open Library subjects) the author's books are filed under.
+    @State private var genres: [String] = []
+    /// Popular books by other authors in the same genres.
+    @State private var similar: [HCBook] = []
     @State private var loading = false
     @State private var failure: String?
     @State private var bioExpanded = false
@@ -436,6 +482,7 @@ struct FolioMobileAuthorView: View {
                         }
                     }
                 }
+                if !genres.isEmpty { genreChips }
                 if !localBooks.isEmpty {
                     FolioMobileRow(title: "In your library") {
                         ForEach(localBooks) { book in
@@ -447,7 +494,7 @@ struct FolioMobileAuthorView: View {
                     }
                 }
                 if !books.isEmpty {
-                    FolioMobileRow(title: "Popular") {
+                    FolioMobileRow(title: "Popular", seeAll: allRoute(sort: .popular, initial: books)) {
                         ForEach(Array(books.prefix(15))) { book in
                             FolioMobileRemoteBookTile(book: book, width: 118)
                         }
@@ -458,7 +505,7 @@ struct FolioMobileAuthorView: View {
                     Text(failure).font(.subheadline).foregroundStyle(.secondary)
                 }
                 if newestBooks.count >= 3 {
-                    FolioMobileRow(title: "Newest") {
+                    FolioMobileRow(title: "Newest", seeAll: allRoute(sort: .newest, initial: newestBooks)) {
                         ForEach(newestBooks) { book in
                             FolioMobileRemoteBookTile(book: book, width: 118)
                         }
@@ -466,8 +513,15 @@ struct FolioMobileAuthorView: View {
                 }
                 if !series.isEmpty { seriesSection }
                 if !highestRated.isEmpty {
-                    FolioMobileRow(title: "Highest rated") {
+                    FolioMobileRow(title: "Highest rated", seeAll: allRoute(sort: .rated, initial: highestRated)) {
                         ForEach(highestRated) { book in
+                            FolioMobileRemoteBookTile(book: book, width: 118)
+                        }
+                    }
+                }
+                if similar.count >= 3 {
+                    FolioMobileRow(title: "More like this", seeAll: genres.first.map { FolioMobileTopicRoute.genre($0) }) {
+                        ForEach(similar) { book in
                             FolioMobileRemoteBookTile(book: book, width: 118)
                         }
                     }
@@ -488,6 +542,68 @@ struct FolioMobileAuthorView: View {
             }
         }
         .task(id: "\(route.name)-\(route.id ?? 0)") { await load() }
+        .task(id: books.first?.id) { await loadRelated() }
+    }
+
+    /// Every book by the author in the filterable grid, opened from a section title.
+    private func allRoute(sort: FolioDiscoverFilters.Sort, initial: [HCBook]) -> FolioMobileTopicRoute {
+        .author(route.name, title: name, sort: sort, initial: initial)
+    }
+
+    /// The author's genres as links to their Discover lists.
+    private var genreChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(genres, id: \.self) { genre in
+                    NavigationLink(value: FolioMobileTopicRoute.genre(genre)) {
+                        Text(genre)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(FolioTheme.ink)
+                            .padding(.horizontal, 13)
+                            .padding(.vertical, 7)
+                            .background(FolioTheme.surface, in: Capsule())
+                            .overlay { Capsule().strokeBorder(FolioTheme.line, lineWidth: 0.8) }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Show popular \(genre) books")
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .contentMargins(.horizontal, 20)
+        .padding(.horizontal, -20)
+    }
+
+    /// Genres from the subjects on the author's books, Discover's own names first
+    /// (their lists are the fullest), then "More like this" from the top two.
+    @MainActor
+    private func loadRelated() async {
+        guard !books.isEmpty else { return }
+        let subjects = await FolioOpenLibrary.authorSubjects(name: route.name)
+        guard !Task.isCancelled else { return }
+        let catalog = FolioDiscoverCatalog.groups.flatMap(\.topics).compactMap { topic -> String? in
+            if case .genre(let genre) = topic.kind { return genre }
+            return nil
+        }
+        var picked: [String] = []
+        func add(_ genre: String) {
+            if !picked.contains(where: { $0.caseInsensitiveCompare(genre) == .orderedSame }) { picked.append(genre) }
+        }
+        for subject in subjects.prefix(12) {
+            let key = subject.lowercased()
+            if let known = catalog.first(where: { key == $0.lowercased() || key == $0.lowercased() + " fiction"
+                || ($0 == "Young Adult" && key.contains("young adult")) }) {
+                add(known)
+            }
+        }
+        for subject in subjects where picked.count < 6 { add(subject) }
+        picked = Array(picked.prefix(6))
+        if picked != genres { genres = picked }
+        guard let base = books.first, !picked.isEmpty,
+              let found = try? await FolioOpenLibrary.similar(to: base, genres: Array(picked.prefix(2))),
+              !Task.isCancelled else { return }
+        let others = found.filter { book in !FolioAuthorNames.split(book.authors).contains { BookAutoMatch.sameAuthor($0, name) } }
+        similar = Array(FolioMobileDiscoverySections.unique(others).prefix(15))
     }
 
     init(route: FolioMobileAuthorRoute) {

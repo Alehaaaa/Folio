@@ -9,6 +9,8 @@ struct FolioDiscoverTopic: Hashable, Identifiable {
     enum Kind: Hashable {
         case trending, popular, newThisYear, acclaimed, shortReads, longReads
         case genre(String)
+        /// Every book by one author, with the same filters.
+        case author(String)
         /// Books first published from `from` up to, but not including, `to`.
         case years(from: Int?, to: Int?)
     }

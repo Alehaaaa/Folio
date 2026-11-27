@@ -305,8 +305,18 @@ struct FolioMobileDiscoverTopicPage: View {
 
     private let pageSize = 30
 
-    /// The loaded books without the ones already read.
-    private var shown: [HCBook] { FolioReadBooks.shared.unread(books) }
+    init(topic: FolioDiscoverTopic, initial: [HCBook], filters: FolioDiscoverFilters = .init()) {
+        self.topic = topic
+        self.initial = initial
+        _filters = State(initialValue: filters)
+    }
+
+    /// The loaded books without the ones already read. An author's own list keeps
+    /// them: it is their whole bibliography, not a list of suggestions.
+    private var shown: [HCBook] {
+        if case .author = topic.kind { return books }
+        return FolioReadBooks.shared.unread(books)
+    }
     private let columns = [GridItem(.adaptive(minimum: 104, maximum: 170), spacing: 14, alignment: .top)]
 
     var body: some View {
