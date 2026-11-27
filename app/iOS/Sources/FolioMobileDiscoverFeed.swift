@@ -210,7 +210,8 @@ final class FolioMobileDiscoverFeed {
     /// The genres the person reads most, from their Read and Currently Reading
     /// shelves. Saved, so the section shows on the first frame.
     private(set) var yourGenres: [String] = UserDefaults.standard.stringArray(forKey: "folio.discover.yourGenres") ?? []
-    private var genresLoadedFor: String?
+    /// Shared by every Discover page, which is rebuilt each time the tab opens.
+    private static var genresLoadedFor: String?
 
     /// Too broad to be useful as a pick.
     private static let broadGenres: Set<String> = ["fiction", "nonfiction", "non-fiction", "adult", "general"]
@@ -218,8 +219,8 @@ final class FolioMobileDiscoverFeed {
     func loadYourGenres(from hardcover: HardcoverClient) async {
         guard let user = hardcover.user else { return }
         let marker = "\(user.id)-\(hardcover.revision)"
-        guard genresLoadedFor != marker else { return }
-        genresLoadedFor = marker
+        guard Self.genresLoadedFor != marker else { return }
+        Self.genresLoadedFor = marker
         do {
             let d = try await hardcover.query("""
             query YourGenres($uid: Int!) {
@@ -243,7 +244,9 @@ final class FolioMobileDiscoverFeed {
             UserDefaults.standard.set(top, forKey: "folio.discover.yourGenres")
             FolioLog.log("Your genres: \(top.joined(separator: ", "))", "discover")
         } catch {
-            genresLoadedFor = nil
+            Self.genresLoadedFor = nil
+            // Leaving Discover cancels the load; it runs again next time, so that's no failure.
+            guard !(error is CancellationError), (error as? URLError)?.code != .cancelled else { return }
             FolioLog.log("Your genres failed: \(error.localizedDescription)", "discover")
         }
     }

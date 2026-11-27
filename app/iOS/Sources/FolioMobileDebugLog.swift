@@ -36,6 +36,9 @@ enum FolioLog {
     nonisolated(unsafe) fileprivate static var fd: Int32 = -1
     nonisolated(unsafe) fileprivate static var previousHandlers: [Int32: sig_t] = [:]
     nonisolated(unsafe) private static var started = false
+    /// Set by the scene phase, so the hang watch ignores time spent suspended.
+    nonisolated(unsafe) static var inBackground = false
+    nonisolated(unsafe) static var lastSceneChange = Date.distantPast
 
     static let fatalSignals: [Int32] = [SIGABRT, SIGSEGV, SIGBUS, SIGILL, SIGTRAP, SIGFPE, SIGSYS]
 
@@ -110,6 +113,9 @@ enum FolioLog {
                 DispatchQueue.main.async { answered.signal() }
                 if answered.wait(timeout: .now() + 0.5) == .timedOut {
                     answered.wait()
+                    // iOS suspends the app in the background, which freezes the main
+                    // thread too: that pause is not a hang, so it isn't logged.
+                    guard !inBackground, lastSceneChange < sent else { Thread.sleep(forTimeInterval: 1); continue }
                     let seconds = Date().timeIntervalSince(sent)
                     log("Main thread blocked for \(seconds.formatted(.number.precision(.fractionLength(1)))) s, "
                         + "memory \(footprintMB()) MB", "hang")
@@ -205,9 +211,13 @@ private struct FolioLogLifecycle: ViewModifier {
         content.onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:
+                FolioLog.inBackground = false
+                FolioLog.lastSceneChange = Date()
                 FolioLog.markRunning()
                 FolioLog.log("Active, memory \(FolioLog.footprintMB()) MB", "scene")
             case .background:
+                FolioLog.inBackground = true
+                FolioLog.lastSceneChange = Date()
                 FolioLog.log("Background", "scene")
                 FolioLog.markClosedNormally()
                 LibraryStore.shared.flushWidgets()

@@ -458,6 +458,8 @@ final class DownloadQueue {
         mutate(id) { job in
             let cleaned = String(line.trimmingCharacters(in: .whitespacesAndNewlines).prefix(850))
             guard !cleaned.isEmpty else { return }
+            // Also in Folio.log, so a shared debug log shows why a download failed.
+            FolioLog.log("\"\(job.displayTitle())\" · \(cleaned)", "download")
             job.detailLog.append("\(Date().formatted(date: .omitted, time: .standard)) · \(cleaned)")
             if job.detailLog.count > 120 { job.detailLog.removeFirst(job.detailLog.count - 120) }
         }

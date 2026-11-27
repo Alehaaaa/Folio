@@ -625,6 +625,12 @@ final class HardcoverClient {
     }
     private var readGeneration = 0
     private var activeReads: [ReadKey: Task<JSON, Error>] = [:]
+    /// Answers to reads from the last few seconds. Switching tabs reloads Home
+    /// shelves, Discover genres and the read filter each time, and those repeats
+    /// used to queue 10-28 s behind each other on the rate limit. Any write
+    /// starts a new generation, so a changed shelf is always read again.
+    @ObservationIgnored private var recentReads: [ReadKey: (saved: Date, json: JSON)] = [:]
+    private static let recentReadLifetime: TimeInterval = 20
     private struct EditionKey: Hashable {
         let work: Int
         let language: String
@@ -736,6 +742,10 @@ final class HardcoverClient {
         }
 
         let key = ReadKey(token: token, body: body, generation: readGeneration)
+        let now = Date()
+        if let recent = recentReads[key], now.timeIntervalSince(recent.saved) < Self.recentReadLifetime {
+            return recent.json
+        }
         if let pending = activeReads[key] {
             let result = try await pending.value
             try Task.checkCancellation()
@@ -745,6 +755,10 @@ final class HardcoverClient {
         activeReads[key] = pending
         defer { activeReads[key] = nil }
         let result = try await pending.value
+        if key.generation == readGeneration {
+            recentReads = recentReads.filter { $0.key.generation == readGeneration && now.timeIntervalSince($0.value.saved) < Self.recentReadLifetime }
+            if recentReads.count < 40 { recentReads[key] = (Date(), result) }
+        }
         try Task.checkCancellation()
         return result
     }
@@ -958,6 +972,15 @@ final class HardcoverClient {
     func search(_ text: String) async throws -> [HCBook] {
         let typed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !typed.isEmpty else { return [] }
+        // Open Library is asked at the same time: Hardcover lacks many Spanish
+        // books ("Yo, vieja"), and a book found there opens like any other.
+        let (found, foundSink) = AsyncStream<[HCBook]>.makeStream()
+        let openLibrary = Task {
+            let books = (try? await FolioOpenLibrary.books(FolioOpenLibrary.search(typed, limit: 10, fresh: 6 * 60 * 60))) ?? []
+            foundSink.yield(books)
+            foundSink.finish()
+        }
+        defer { openLibrary.cancel() }
         var docs: [JSON]
         var editionRows: [JSON] = []
         do {
@@ -975,7 +998,35 @@ final class HardcoverClient {
             // Older or stricter schemas: the plain search alone.
             docs = try await searchDocuments(typed)
         }
-        return Self.rank(query: typed, docs: docs, editions: editionRows)
+        let ranked = Self.rank(query: typed, docs: docs, editions: editionRows)
+        // Hardcover has the exact title: no need to wait for Open Library.
+        if let first = ranked.first, Self.titleMatch(typed, first.title, authors: first.authors) == 0 { return ranked }
+        let timeout = Task {
+            try? await Task.sleep(for: .seconds(3))
+            foundSink.yield([])
+            foundSink.finish()
+        }
+        defer { timeout.cancel() }
+        var extra: [HCBook] = []
+        for await books in found { extra = books; break }
+        guard !extra.isEmpty else { return ranked }
+        return Self.rank(query: typed, docs: docs, editions: editionRows, openLibrary: extra)
+    }
+
+    /// 0: the same title, 1: every typed title word is in the title, 2: anything else.
+    /// Words of the author's name typed after the title ("nombre del viento rothfuss") are ignored.
+    static func titleMatch(_ query: String, _ title: String, authors: String) -> Int {
+        let typed = BookAutoMatch.words(query)
+        let words = BookAutoMatch.words(title)
+        guard !words.isEmpty else { return 2 }
+        let authorWords = Set(BookAutoMatch.words(authors))
+        var wanted = typed.filter { !authorWords.contains($0) || words.contains($0) }
+        if wanted.isEmpty { wanted = typed }
+        if words == wanted { return 0 }
+        let all = Set(words)
+        let last = wanted.last ?? ""
+        let covered = wanted.dropLast().allSatisfy(all.contains) && (all.contains(last) || words.contains { $0.hasPrefix(last) })
+        return covered ? 1 : 2
     }
 
     /// The typed title as an edition would likely be catalogued: as typed,
@@ -998,22 +1049,8 @@ final class HardcoverClient {
 
     /// Puts exact title matches first, in any language, and names each book by
     /// the title the reader typed when that is one of its edition titles.
-    static func rank(query: String, docs: [JSON], editions: [JSON]) -> [HCBook] {
-        let typed = BookAutoMatch.words(query)
-        // 0: same title, 1: every typed title word is in the title, 2: anything else.
-        func match(_ title: String, authors: String) -> Int {
-            let words = BookAutoMatch.words(title)
-            guard !words.isEmpty else { return 2 }
-            let authorWords = Set(BookAutoMatch.words(authors))
-            // "nombre del viento rothfuss": the author's name is not part of the title.
-            var wanted = typed.filter { !authorWords.contains($0) || words.contains($0) }
-            if wanted.isEmpty { wanted = typed }
-            if words == wanted { return 0 }
-            let all = Set(words)
-            let last = wanted.last ?? ""
-            let covered = wanted.dropLast().allSatisfy(all.contains) && (all.contains(last) || words.contains { $0.hasPrefix(last) })
-            return covered ? 1 : 2
-        }
+    static func rank(query: String, docs: [JSON], editions: [JSON], openLibrary: [HCBook] = []) -> [HCBook] {
+        func match(_ title: String, authors: String) -> Int { titleMatch(query, title, authors: authors) }
         var ranked: [(score: Int, readers: Int, book: HCBook)] = []
         var index: [Int: Int] = [:]
         func add(_ book: HCBook, score: Int, readers: Int) {
@@ -1054,6 +1091,20 @@ final class HardcoverClient {
         func sharesAuthor(_ a: HCBook, _ b: HCBook) -> Bool {
             let names = b.authors.components(separatedBy: ", ")
             return a.authors.components(separatedBy: ", ").contains { name in names.contains { BookAutoMatch.sameAuthor(name, $0) } }
+        }
+        // Open Library books only fill gaps: a title Hardcover didn't find, once per author.
+        for var book in openLibrary {
+            var score = match(book.title, authors: book.authors)
+            for alt in book.alternateTitles ?? [] where score > 0 {
+                let s = match(alt, authors: book.authors)
+                if s < score { score = s; book.title = alt }
+            }
+            guard score < 2 else { continue }
+            let key = BookAutoMatch.words(book.title)
+            let known = ranked.contains { other in
+                BookAutoMatch.words(other.book.title) == key && (other.book.authors.isEmpty || sharesAuthor(book, other.book))
+            }
+            if !known { add(book, score: score, readers: book.ratingsCount ?? 0) }
         }
         let kept = ranked.filter { entry in
             guard entry.score < 2 else { return true }
