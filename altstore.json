@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.132",
+          "buildVersion": "133",
+          "date": "2026-11-27",
+          "localizedDescription": "Remove unused screens and helpers, use the Folio palette for source and sync status colors",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.132-133.ipa",
+          "size": 6535390,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.131",
           "buildVersion": "132",
           "date": "2026-11-27",
