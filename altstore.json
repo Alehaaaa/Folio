@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.133",
+          "buildVersion": "134",
+          "date": "2026-11-27",
+          "localizedDescription": "One look everywhere: muted text, shared radius tokens, a simpler Settings tree",
+          "downloadURL": "https://raw.githubusercontent.com/Alehaaaa/Folio/main/altstore/Folio-1.0.133-134.ipa",
+          "size": 6527812,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.132",
           "buildVersion": "133",
           "date": "2026-11-27",
