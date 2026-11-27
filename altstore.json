@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.137",
+          "buildVersion": "138",
+          "date": "2026-11-27",
+          "localizedDescription": "Home rows: own copies by any title, never a bilingual title",
+          "downloadURL": "https://github.com/Alehaaaa/Folio/releases/download/ios-1.0.137-138/Folio-1.0.137-138.ipa",
+          "size": 6556612,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.135",
           "buildVersion": "136",
           "date": "2026-11-27",
