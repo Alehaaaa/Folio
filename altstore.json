@@ -18,6 +18,15 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.138",
+          "buildVersion": "139",
+          "date": "2026-11-27",
+          "localizedDescription": "Lists, charts, genre rows on Home, a Want to Read button, sharing and more book details",
+          "downloadURL": "https://github.com/Alehaaaa/Folio/releases/download/ios-1.0.138-139/Folio-1.0.138-139.ipa",
+          "size": 6788354,
+          "minOSVersion": "18.0"
+        },
+        {
           "version": "1.0.137",
           "buildVersion": "138",
           "date": "2026-11-27",
