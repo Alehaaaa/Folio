@@ -253,6 +253,17 @@ struct HCBookStats: Hashable, Codable {
     var releaseDate: String?
     /// Share of ratings for 5, 4, 3, 2 and 1 stars (half stars round up), in that order.
     var distribution: [Int] = []
+
+    /// Takes every number the other answer has, keeping ours where it has none.
+    mutating func adopt(_ other: HCBookStats) {
+        rating = other.rating ?? rating
+        ratingsCount = other.ratingsCount ?? ratingsCount
+        reviewsCount = other.reviewsCount ?? reviewsCount
+        readersCount = other.readersCount ?? readersCount
+        readCount = other.readCount ?? readCount
+        releaseDate = other.releaseDate ?? releaseDate
+        if !other.distribution.isEmpty { distribution = other.distribution }
+    }
 }
 
 struct HCEdition: Hashable, Codable {
@@ -640,7 +651,7 @@ final class HardcoverClient {
     private var editionLanguageNames: [String: [String]]?
     private var editionLanguageLookup: Task<[String: [String]], Error>?
     private var token: String?
-    private var distributionMemo: [Int: (bars: [Int], saved: Date)] = [:]
+    private var distributionMemo: [Int: (stats: HCBookStats, saved: Date)] = [:]
     private let endpoint = URL(string: "https://api.hardcover.app/v1/graphql")!
     /// Rapid shelf taps and bulk calls are coalesced by book and sent together.
     /// Hardcover charges GraphQL top-level fields, so batches remain small.
@@ -697,6 +708,23 @@ final class HardcoverClient {
         token = nil
         user = nil
         revision += 1
+    }
+
+    @ObservationIgnored private var lastWarmUp = Date.distantPast
+
+    /// Opens the connection to Hardcover before the reader needs it. After the app
+    /// comes back from the background the first request paid about 2.5 s for name
+    /// lookup (encrypted DNS) and TLS, and the book page, its bars and its reviews
+    /// all waited on it. A bare HEAD carries no token and costs no rate-limit tokens.
+    func warmUp() {
+        guard token != nil, Date().timeIntervalSince(lastWarmUp) > 20 else { return }
+        lastWarmUp = Date()
+        var req = URLRequest(url: endpoint)
+        req.httpMethod = "HEAD"
+        req.timeoutInterval = 10
+        req.setValue("Folio/1.0", forHTTPHeaderField: "User-Agent")
+        let request = req
+        Task.detached(priority: .utility) { _ = try? await URLSession.shared.data(for: request) }
     }
 
     private func loadMe() async {
@@ -1379,13 +1407,27 @@ final class HardcoverClient {
     /// available, otherwise tallies a sample of public ratings. Kept for half an
     /// hour, so the book page and its ratings page share one answer.
     func ratingDistribution(bookID: Int) async -> [Int] {
-        if let memo = distributionMemo[bookID], Date().timeIntervalSince(memo.saved) < 30 * 60 { return memo.bars }
+        await ratingSummary(bookID: bookID)?.distribution ?? []
+    }
+
+    /// The average, the counts and the five bars in one request: the numbers ride
+    /// along on the field the bars already ask for, so they cost nothing extra and
+    /// the Ratings & Reviews card can fill in without waiting for the book page.
+    func ratingSummary(bookID: Int) async -> HCBookStats? {
+        if let memo = distributionMemo[bookID], Date().timeIntervalSince(memo.saved) < 30 * 60 { return memo.stats }
         var buckets = [0, 0, 0, 0, 0]
         func add(_ rating: Double, _ count: Int) {
             guard rating > 0 else { return }
             let star = min(5, max(1, Int(rating.rounded(.up))))
             buckets[5 - star] += count
         }
+        let numbers = "rating ratings_count reviews_count users_count users_read_count release_date"
+        func stats(from b: JSON) -> HCBookStats {
+            HCBookStats(rating: b["rating"].double, ratingsCount: b["ratings_count"].int,
+                        reviewsCount: b["reviews_count"].int, readersCount: b["users_count"].int,
+                        readCount: b["users_read_count"].int, releaseDate: b["release_date"].string)
+        }
+        var summary: HCBookStats?
         // A schema without the stored field refuses it every time: skip it for a week
         // instead of paying a failed request before every sample.
         let refusedKey = "folio.hardcover.ratingsDistributionRefused"
@@ -1393,9 +1435,10 @@ final class HardcoverClient {
             .map { Date().timeIntervalSince($0) < 7 * 24 * 60 * 60 } ?? false
         if !refused {
             do {
-                let d = try await query("query Dist($id: Int!) { books(where: {id: {_eq: $id}}, limit: 1) { ratings_distribution } }", ["id": bookID])
-                let dist = d["books"].array.first?["ratings_distribution"] ?? .null
-                switch dist {
+                let d = try await query("query Dist($id: Int!) { books(where: {id: {_eq: $id}}, limit: 1) { \(numbers) ratings_distribution } }", ["id": bookID])
+                let b = d["books"].array.first ?? .null
+                summary = stats(from: b)
+                switch b["ratings_distribution"] {
                 case .array(let rows):
                     for r in rows { if let rating = r["rating"].double, let n = r["count"].int { add(rating, n) } }
                 case .object(let map):
@@ -1407,14 +1450,18 @@ final class HardcoverClient {
             } catch {}
         }
         if buckets.reduce(0, +) == 0, let d = try? await query("""
-        query Ratings($id: Int!) { user_books(where: {book_id: {_eq: $id}, rating: {_is_null: false}}, limit: 400) { rating } }
+        query Ratings($id: Int!) { books(where: {id: {_eq: $id}}, limit: 1) { \(numbers) } user_books(where: {book_id: {_eq: $id}, rating: {_is_null: false}}, limit: 400) { rating } }
         """, ["id": bookID]) {
             // 400 ratings give the same bar shapes as 1,000, at well under half the download.
             for r in d["user_books"].array { if let rating = r["rating"].double { add(rating, 1) } }
+            if summary == nil { summary = d["books"].array.first.map(stats(from:)) }
         }
         let bars = buckets.reduce(0, +) > 0 ? buckets : []
-        if !bars.isEmpty { distributionMemo[bookID] = (bars, Date()) }
-        return bars
+        guard summary != nil || !bars.isEmpty else { return nil }
+        var out = summary ?? HCBookStats()
+        out.distribution = bars
+        if !bars.isEmpty { distributionMemo[bookID] = (out, Date()) }
+        return out
     }
 
     /// An error saying the query asked for a field or argument this schema doesn't have.
@@ -1615,57 +1662,109 @@ final class HardcoverClient {
     }
 
     /// The book, your shelf entry, community numbers, main edition and series
-    /// in a single request (Hardcover rate-limits per request). Falls back to
-    /// separate requests if the combined one is refused.
+    /// in a single request. Hardcover charges each top-level field, so everything
+    /// hangs off the one `books` field (cost 1 instead of 5): the page no longer
+    /// waits for the rate limit behind Home and shelf syncs. A schema that refuses
+    /// the nested form gets the flat one, and is remembered for a week.
     func bookPage(id: Int, editionID: Int? = nil, language: String? = nil, editionTitle: String? = nil) async throws -> HCBookPage {
+        let refusedKey = "folio.hardcover.nestedBookPageRefused"
+        let nestedRefused = (UserDefaults.standard.object(forKey: refusedKey) as? Date)
+            .map { Date().timeIntervalSince($0) < 7 * 24 * 60 * 60 } ?? false
+        if !nestedRefused {
+            do {
+                return try await bookPageRequest(id: id, editionID: editionID, language: language,
+                                                 editionTitle: editionTitle, nested: true)
+            } catch let error as HCError where Self.isNestingRefusal(error) {
+                UserDefaults.standard.set(Date(), forKey: refusedKey)
+                #if os(iOS)
+                FolioLog.log("Nested book page refused (\(error.message)); using the flat request", "hardcover")
+                #endif
+            }
+        }
+        return try await bookPageRequest(id: id, editionID: editionID, language: language,
+                                         editionTitle: editionTitle, nested: false)
+    }
+
+    private static func isNestingRefusal(_ error: HCError) -> Bool {
+        guard !error.rateLimited, !error.transient else { return false }
+        let text = error.message.lowercased()
+        return ["field", "argument", "not found", "validation"].contains { text.contains($0) }
+    }
+
+    private func bookPageRequest(id: Int, editionID: Int?, language: String?, editionTitle: String?,
+                                 nested: Bool) async throws -> HCBookPage {
         let uid = user?.id ?? -1
+        // Inside `books` the editions, series and shelf entry already belong to this book.
+        let ofBook = nested ? "" : "book_id: {_eq: $id}"
+        func filter(_ extra: String = "") -> String {
+            let parts = [ofBook, extra].filter { !$0.isEmpty }
+            return parts.isEmpty ? "" : "where: {\(parts.joined(separator: ", "))}, "
+        }
         // A library file in another language shows its own edition's details; other books
         // show the reader's language edition when Hardcover has one, else the most-read.
-        let mostRead = "editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 1)"
+        let mostRead = "editions(\(filter())order_by: {users_count: desc}, limit: 1)"
         var editions = editionID.map { "editions(where: {id: {_eq: \($0)}}, limit: 1)" } ?? mostRead
         // Hardcover refuses text-pattern filters (HTTP 403), so the language
         // edition is picked here from the book's most-read editions.
         var pickLanguage: String?
         if editionID == nil, let language, language != "en", let code = BookLanguage.code(language) {
-            editions = "editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 60)"
+            editions = "editions(\(filter())order_by: {users_count: desc}, limit: 60)"
             pickLanguage = code
         }
         // Opened from a search for an edition title: that edition, else the usual one.
         var variables: [String: Any] = ["id": id, "uid": uid]
         var titleVariable = ""
         if editionID == nil, let editionTitle, !editionTitle.isEmpty {
-            editions = "editions(where: {book_id: {_eq: $id}, title: {_eq: $etitle}}, order_by: {users_count: desc}, limit: 1) { \(Self.editionFields) } fallbackEdition: \(mostRead)"
+            editions = "editions(\(filter("title: {_eq: $etitle}"))order_by: {users_count: desc}, limit: 1) { \(Self.editionFields) } fallbackEdition: \(mostRead)"
             variables["etitle"] = editionTitle
             titleVariable = ", $etitle: String!"
         }
-        do {
-            let d = try await query("""
+        let related = """
+          \(editions) { \(Self.editionFields) }
+          siblingEditions: editions(\(filter())order_by: {users_count: desc}, limit: 120) { id title language { language } }
+          book_series\(nested ? "" : "(where: {book_id: {_eq: $id}})") { position series { id name } }
+          user_books(where: {user_id: {_eq: $uid}\(nested ? "" : ", book_id: {_eq: $id}")}, limit: 1) { \(Self.userBookFields) }
+        """
+        let bookPart = "\(Self.bookFields) reviews_count users_count users_read_count release_date cached_tags"
+        let text: String
+        if nested {
+            text = """
             query BookPage($id: Int!, $uid: Int!\(titleVariable)) {
-              books(where: {id: {_eq: $id}}, limit: 1) { \(Self.bookFields) reviews_count users_count users_read_count release_date cached_tags }
-              \(editions) { \(Self.editionFields) }
-              siblingEditions: editions(where: {book_id: {_eq: $id}}, order_by: {users_count: desc}, limit: 120) { id title language { language } }
-              book_series(where: {book_id: {_eq: $id}}) { position series { id name } }
-              user_books(where: {user_id: {_eq: $uid}, book_id: {_eq: $id}}, limit: 1) { \(Self.userBookFields) }
+              books(where: {id: {_eq: $id}}, limit: 1) { \(bookPart)
+              \(related)
+              }
             }
-            """, variables)
+            """
+        } else {
+            text = """
+            query BookPageFlat($id: Int!, $uid: Int!\(titleVariable)) {
+              books(where: {id: {_eq: $id}}, limit: 1) { \(bookPart) }
+              \(related)
+            }
+            """
+        }
+        do {
+            let d = try await query(text, variables)
             let b = d["books"].array.first ?? .null
+            // Nested answers sit on the book; flat ones beside it.
+            let root = nested ? b : d
             return HCBookPage(
                 book: HCBook.from(book: b),
-                userBook: d["user_books"].array.first.flatMap(HCUserBook.from),
+                userBook: root["user_books"].array.first.flatMap(HCUserBook.from),
                 stats: HCBookStats(rating: b["rating"].double, ratingsCount: b["ratings_count"].int,
                                    reviewsCount: b["reviews_count"].int, readersCount: b["users_count"].int,
                                    readCount: b["users_read_count"].int, releaseDate: b["release_date"].string),
                 edition: (pickLanguage.flatMap { code in
-                    d["editions"].array.first { BookLanguage.code($0["language"]["language"].string) == code }
-                } ?? d["editions"].array.first ?? d["fallbackEdition"].array.first).map { chosen in
-                    Self.bestTitled(Self.edition(from: chosen), among: d["siblingEditions"].array.map(Self.edition(from:)))
+                    root["editions"].array.first { BookLanguage.code($0["language"]["language"].string) == code }
+                } ?? root["editions"].array.first ?? root["fallbackEdition"].array.first).map { chosen in
+                    Self.bestTitled(Self.edition(from: chosen), among: root["siblingEditions"].array.map(Self.edition(from:)))
                 },
-                series: Self.dedupeSeries(d["book_series"].array),
+                series: Self.dedupeSeries(root["book_series"].array),
                 genres: Self.genreNames(b["cached_tags"]),
                 // The download language menu, from the same request instead of one of its own.
-                languages: Self.languages(of: d["siblingEditions"].array)
+                languages: Self.languages(of: root["siblingEditions"].array)
             )
-        } catch let error as HCError where error.message.contains("not found in type") || error.message.contains("field") {
+        } catch let error as HCError where !nested && (error.message.contains("not found in type") || error.message.contains("field")) {
             // A field this request relies on is missing from the schema: fetch piece by piece.
             _ = error
             var page = HCBookPage()

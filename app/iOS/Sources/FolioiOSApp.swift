@@ -14,6 +14,7 @@ struct FolioIOSApp: App {
     @State private var preferences = ReaderPrefsStore.shared
     @State private var extensions = ExtensionStore.shared
     @State private var navigation = FolioMobileNavigation()
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         FolioLog.start()
@@ -47,6 +48,10 @@ struct FolioIOSApp: App {
                 .folioUpdatePrompt()
                 .folioLogsLifecycle()
                 .folioCloudSync()
+                // Coming back from the background, reconnect to Hardcover before a page asks.
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { hardcover.warmUp() }
+                }
                 .task {
                     await extensions.checkForExtensionUpdates()
                     // Restore persisted jobs on every launch, even when Downloads

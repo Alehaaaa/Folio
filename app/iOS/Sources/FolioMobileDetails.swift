@@ -38,6 +38,12 @@ struct FolioMobileBookDetail: View {
     /// The language chosen for downloading, when it isn't the default.
     @State private var downloadLanguage: String?
     @State private var topReviews: [HCReview] = []
+    /// The Ratings & Reviews card is waiting for Hardcover: it shows placeholders.
+    @State private var ratingsLoading = false
+    /// The book whose page request has come back, so a snapshot never saves half a page.
+    @State private var loadedPageID: Int?
+    /// The book whose page request has finished, whether it worked or not.
+    @State private var settledPageID: Int?
     @State private var moreByAuthor: [HCBook] = []
     @State private var similar: [HCBook] = []
     @State private var remoteProgress = 0.0
@@ -319,6 +325,11 @@ struct FolioMobileBookDetail: View {
         // The page on screen goes ahead of background Hardcover work waiting on the rate limit.
         .task(id: "\(linkedID ?? 0)-\(hardcover.isConnected)") {
             await HCPriority.$foreground.withValue(true) { await loadHardcoverData() }
+        }
+        // Ratings and reviews load on their own, so the card fills in as soon as they
+        // arrive instead of after the book, its editions and the edition backfill.
+        .task(id: "ratings-\(linkedID ?? 0)-\(hardcover.isConnected)") {
+            await HCPriority.$foreground.withValue(true) { await loadRatings() }
         }
         // Keyed on the work, not the shown title: the title changes when the edition in
         // your language arrives, and that used to restart every Open Library request.
@@ -939,36 +950,55 @@ struct FolioMobileBookDetail: View {
         }
     }
 
+    /// Placeholders hold the card's shape while Hardcover answers, so the page
+    /// below it doesn't jump when the numbers, bars and reviews arrive.
     @ViewBuilder
     private var ratingsCard: some View {
         if let linkedID, let stats, (stats.ratingsCount ?? 0) > 0 {
-            let route = FolioMobileRatingsRoute(bookID: linkedID, title: title)
-            VStack(alignment: .leading, spacing: 16) {
-                NavigationLink(value: route) {
-                    HStack {
-                        Text("Ratings & Reviews").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(.tertiary)
-                    }
-                    .contentShape(Rectangle())
+            ratingsCardContent(FolioMobileRatingsRoute(bookID: linkedID, title: title), stats: stats)
+        } else if let linkedID, stats == nil, hardcover.isConnected, ratingsLoading || settledPageID != linkedID {
+            ratingsCardContent(FolioMobileRatingsRoute(bookID: linkedID, title: title), stats: .placeholder)
+                .redacted(reason: .placeholder)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func ratingsCardContent(_ route: FolioMobileRatingsRoute, stats: HCBookStats) -> some View {
+        let waiting = ratingsLoading || settledPageID != route.bookID
+        return VStack(alignment: .leading, spacing: 16) {
+            NavigationLink(value: route) {
+                HStack {
+                    Text("Ratings & Reviews").font(.folioDisplay(.title3)).foregroundStyle(FolioTheme.ink)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(.tertiary)
                 }
-                .buttonStyle(.plain)
-                FolioMobileRatingsSummary(stats: stats)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .unredacted()
+            FolioMobileRatingsSummary(stats: stats, barsLoading: waiting && stats.distribution.isEmpty)
+            if topReviews.isEmpty && waiting {
+                ForEach(0..<min(2, stats.reviewsCount ?? 2), id: \.self) { _ in
+                    Divider()
+                    FolioMobileReviewSkeleton()
+                }
+            } else {
                 ForEach(topReviews.prefix(2)) { review in
                     Divider()
                     FolioMobileReviewRow(review: review, lineLimit: 4)
                 }
-                if let count = stats.reviewsCount, count > 0 {
-                    NavigationLink(value: route) {
-                        Text(count == 1 ? "Read the review" : "Read all \(count.formatted()) reviews")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(FolioTheme.olive)
-                    }
-                    .buttonStyle(.plain)
-                }
             }
-            .detailPanel()
+            if let count = stats.reviewsCount, count > 0 {
+                NavigationLink(value: route) {
+                    Text(count == 1 ? "Read the review" : "Read all \(count.formatted()) reviews")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(FolioTheme.olive)
+                }
+                .buttonStyle(.plain)
+            }
         }
+        .detailPanel()
     }
 
     /// The saga as a shelf of covers, with this book marked.
@@ -1340,14 +1370,18 @@ struct FolioMobileBookDetail: View {
                 && $0.similar != nil
         } ?? false
         let language: String? = local != nil ? local?.language : BookLanguage.reading
-        // The bars and top reviews don't depend on the page, so they are asked for at
-        // the same time instead of after it.
-        async let extras = pageExtras(linkedID, skip: recentlyLoaded)
-        guard let page = try? await hardcover.bookPage(id: linkedID, editionID: editionID, language: language,
-                                                       editionTitle: editionID == nil ? requestedEditionTitle : nil),
-              !Task.isCancelled else { return }
+        let answer = try? await hardcover.bookPage(id: linkedID, editionID: editionID, language: language,
+                                                   editionTitle: editionID == nil ? requestedEditionTitle : nil)
+        if !Task.isCancelled { settledPageID = linkedID }
+        guard let page = answer, !Task.isCancelled else { return }
         if let book = page.book { remoteDetails = book }
         myHardcoverBook = page.userBook
+        loadedPageID = linkedID
+        if var fresh = page.stats {
+            // The bars come from their own request; keep them while the numbers refresh.
+            if let old = stats?.distribution, !old.isEmpty { fresh.distribution = old }
+            stats = fresh
+        }
         if let local, let shelf = page.userBook { library.adoptHardcoverProgress(local.id, from: shelf) }
         if let total = pages, total > 0 {
             remoteProgress = min(1, Double(myHardcoverBook?.progressPages ?? 0) / Double(total))
@@ -1373,31 +1407,46 @@ struct FolioMobileBookDetail: View {
         }
         await backfillEdition(linkedID)
         recordShownEdition()
-        var fresh = page.stats
-        // Keep the bars on screen while the distribution refreshes.
-        if let old = stats?.distribution, !old.isEmpty { fresh?.distribution = old }
-        stats = fresh
-        if recentlyLoaded {
-            saveSnapshot()
-            return
-        }
         saveSnapshot()
-
-        let (bars, reviews) = await extras
-        if !bars.isEmpty { stats?.distribution = bars }
-        if let list = reviews { topReviews = list }
+        if recentlyLoaded { return }
         await hardcoverSeriesFallback()
         guard !Task.isCancelled else { return }
         saveSnapshot()
     }
 
-    /// The rating bars and the two top reviews, fetched side by side.
+    /// The average, the bars and the two top reviews, side by side and alongside the
+    /// book page. Each part shows the moment it arrives.
     @MainActor
-    private func pageExtras(_ bookID: Int, skip: Bool) async -> (bars: [Int], reviews: [HCReview]?) {
-        guard !skip else { return ([], nil) }
-        async let bars = hardcover.ratingDistribution(bookID: bookID)
-        async let reviews = try? hardcover.reviews(bookID: bookID, limit: 2)
-        return (await bars, await reviews)
+    private func loadRatings() async {
+        guard let linkedID, hardcover.isConnected else { return }
+        // Reviews and bars from a page seen in the last ten minutes are fresh enough.
+        if let snapshot = FolioBookPageCache.load(linkedID), Date().timeIntervalSince(snapshot.saved) < 10 * 60,
+           snapshot.page.stats?.distribution.isEmpty == false {
+            return
+        }
+        ratingsLoading = true
+        defer { ratingsLoading = false }
+        async let summary: Void = applyRatingSummary(linkedID)
+        async let reviews: Void = applyTopReviews(linkedID)
+        _ = await (summary, reviews)
+        guard !Task.isCancelled, loadedPageID == linkedID else { return }
+        saveSnapshot()
+    }
+
+    @MainActor
+    private func applyRatingSummary(_ bookID: Int) async {
+        guard let summary = await hardcover.ratingSummary(bookID: bookID),
+              !Task.isCancelled, linkedID == bookID else { return }
+        var merged = stats ?? HCBookStats()
+        merged.adopt(summary)
+        stats = merged
+    }
+
+    @MainActor
+    private func applyTopReviews(_ bookID: Int) async {
+        guard let list = try? await hardcover.reviews(bookID: bookID, limit: 2),
+              !Task.isCancelled, linkedID == bookID else { return }
+        topReviews = list
     }
 
     private func apply(_ snapshot: FolioBookPageCache.Snapshot) {
@@ -1427,6 +1476,8 @@ struct FolioMobileBookDetail: View {
         stats = nil
         edition = nil
         topReviews = []
+        loadedPageID = nil
+        settledPageID = nil
     }
 
     private func saveSnapshot() {

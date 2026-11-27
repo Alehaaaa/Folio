@@ -28,6 +28,17 @@ func check(_ ok: Bool, _ what: String) { if !ok { fatalError(what) }; print("PAS
     }
     """
     check(HCRateGate.cost(of: bookPage) == 5, "book page costs its 5 top-level fields")
+    let nestedPage = """
+    query BookPage($id: Int!, $uid: Int!) {
+      books(where: {id: {_eq: $id}}, limit: 1) { id title
+        editions(order_by: {users_count: desc}, limit: 1) { id title }
+        siblingEditions: editions(limit: 120) { id language { language } }
+        book_series { position series { id name } }
+        user_books(where: {user_id: {_eq: $uid}}, limit: 1) { id }
+      }
+    }
+    """
+    check(HCRateGate.cost(of: nestedPage) == 1, "nested book page costs 1")
     check(HCRateGate.cost(of: "query { me { id username name image { url } } }") == 1, "me costs 1")
     check(HCRateGate.cost(of: "query T { a: me { id } b: me { name } __typename }") == 2, "aliases count, introspection is free")
     let batchedStatuses = """

@@ -1116,6 +1116,8 @@ struct FolioMobileSavedSeriesRow: View {
 /// Average, count and the five-bar distribution, as on Goodreads.
 struct FolioMobileRatingsSummary: View {
     let stats: HCBookStats
+    /// The bars are still on their way: grey rows of the same size hold their place.
+    var barsLoading = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -1131,11 +1133,12 @@ struct FolioMobileRatingsSummary: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            if stats.distribution.count == 5 {
-                let total = max(1, stats.distribution.reduce(0, +))
+            if stats.distribution.count == 5 || barsLoading {
+                let bars = stats.distribution.count == 5 ? stats.distribution : [0, 0, 0, 0, 0]
+                let total = max(1, bars.reduce(0, +))
                 VStack(spacing: 6) {
                     ForEach(0..<5, id: \.self) { index in
-                        let share = Double(stats.distribution[index]) / Double(total)
+                        let share = Double(bars[index]) / Double(total)
                         HStack(spacing: 10) {
                             Text("\(5 - index)")
                                 .font(.caption.weight(.medium))
@@ -1159,6 +1162,7 @@ struct FolioMobileRatingsSummary: View {
                         .accessibilityLabel("\(5 - index) stars, \(Int((share * 100).rounded())) percent")
                     }
                 }
+                .redacted(reason: stats.distribution.count == 5 ? [] : .placeholder)
             }
         }
     }
@@ -1169,6 +1173,28 @@ struct FolioMobileRatingsSummary: View {
         if let n = stats.reviewsCount, n > 0 { parts.append("\(n.formatted()) reviews") }
         return parts.isEmpty ? "No ratings yet" : parts.joined(separator: " · ")
     }
+}
+
+/// A review-shaped placeholder: the real row, greyed out, so nothing moves when
+/// the reviews arrive.
+struct FolioMobileReviewSkeleton: View {
+    var lineLimit: Int? = 4
+
+    private static let sample = HCReview(
+        id: -1, rating: 4, text: String(repeating: "A placeholder line of review text that wraps across the card. ", count: 6),
+        spoilers: false, date: "2024-01-01", likes: 12, username: "reader", userImage: nil)
+
+    var body: some View {
+        FolioMobileReviewRow(review: Self.sample, lineLimit: lineLimit)
+            .redacted(reason: .placeholder)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+extension HCBookStats {
+    /// Stands in for a book's numbers while they load.
+    static let placeholder = HCBookStats(rating: 4, ratingsCount: 1_234, reviewsCount: 2)
 }
 
 struct FolioMobileReviewRow: View {
@@ -1235,9 +1261,26 @@ struct FolioMobileRatingsView: View {
                         }
                     }
                 } else if loading {
-                    ProgressView().frame(maxWidth: .infinity).padding(.vertical, 40)
+                    FolioMobileRatingsSummary(stats: .placeholder, barsLoading: true)
+                        .redacted(reason: .placeholder)
+                        .padding(18)
+                        .folioCard(cornerRadius: 18)
+                        .accessibilityHidden(true)
                 }
-                if !reviews.isEmpty {
+                if reviews.isEmpty && loading {
+                    Text("Reviews")
+                        .font(.folioDisplay(.title2))
+                        .foregroundStyle(FolioTheme.ink)
+                        .accessibilityAddTraits(.isHeader)
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(0..<3, id: \.self) { index in
+                            if index > 0 { Divider().padding(.vertical, 14) }
+                            FolioMobileReviewSkeleton(lineLimit: 10)
+                        }
+                    }
+                    .padding(18)
+                    .folioCard(cornerRadius: 18)
+                } else if !reviews.isEmpty {
                     Text("Reviews")
                         .font(.folioDisplay(.title2))
                         .foregroundStyle(FolioTheme.ink)
@@ -1279,28 +1322,19 @@ struct FolioMobileRatingsView: View {
         if reviews.isEmpty, let saved = snapshot?.reviews { reviews = saved }
         loading = true
         defer { loading = false }
-        // The book page refreshed these numbers moments ago: no need to ask again.
-        let numbersFresh = snapshot.map { Date().timeIntervalSince($0.saved) < 10 * 60 && $0.page.stats != nil } ?? false
-        async let numbers = freshNumbers(skip: numbersFresh)
-        async let bars = hardcover.ratingDistribution(bookID: route.bookID)
+        // The numbers ride along with the bars (one request, shared with the book page).
+        async let summary = hardcover.ratingSummary(bookID: route.bookID)
         async let list = try? hardcover.reviews(bookID: route.bookID, limit: 40)
-        if var fresh = await numbers {
-            if let old = stats?.distribution, !old.isEmpty { fresh.distribution = old }
-            stats = fresh
+        if let fresh = await summary {
+            var merged = stats ?? HCBookStats()
+            merged.adopt(fresh)
+            stats = merged
         }
-        let distribution = await bars
-        if !distribution.isEmpty { stats?.distribution = distribution }
         if let fetched = await list {
             reviews = fetched
         } else if reviews.isEmpty {
             reviewsFailed = true
         }
-    }
-
-    @MainActor
-    private func freshNumbers(skip: Bool) async -> HCBookStats? {
-        guard !skip else { return nil }
-        return try? await hardcover.stats(bookID: route.bookID, distribution: false)
     }
 
     private func stat(_ value: Int, _ label: String) -> some View {
